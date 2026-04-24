@@ -1,4 +1,5 @@
-# 🧬 Protellect — MVP
+# [Uploading caec23e5-14ff-4f5b-8b1d-60b192d99e41.ics…]()
+ Protellect — MVP
 
 Experimental triage system: upload residue-level data → score it → visualize on a 3D protein.
 
