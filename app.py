@@ -198,8 +198,8 @@ with tab1:
     )
 
     with st.spinner("Scoring residues..."):
-    st.session_state.scored_df = score_residues(df_raw)
-    st.session_state.stats = get_summary_stats(st.session_state.scored_df)
+        st.session_state.scored_df = score_residues(df_raw)
+        st.session_state.stats = get_summary_stats(st.session_state.scored_df)
 
 scored_df = st.session_state.scored_df
 stats = st.session_state.stats
