@@ -1,5 +1,4 @@
-# Protellect v.1
- Protellect — MVP
+# 🧬 Protellect — MVP
 
 Experimental triage system: upload residue-level data → score it → visualize on a 3D protein.
 
