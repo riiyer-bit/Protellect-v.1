@@ -169,8 +169,8 @@ with tab1:
     st.markdown("Upload residue-level experimental data → score it → visualize on 3D structure.")
     st.divider()
 
-  if not run_button and "scored_df" not in st.session_state:
-        st.info("👈  Configure your protein and data in the sidebar, then click **Run Triage**.")
+    if not run_button and "scored_df" not in st.session_state:
+        st.info("Configure your protein and data in the sidebar, then click **Run Triage**.")
         st.stop()
 
     if uploaded_file:
