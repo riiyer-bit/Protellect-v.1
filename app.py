@@ -201,10 +201,9 @@ with tab1:
         st.session_state.scored_df = score_residues(df_raw)
         st.session_state.stats = get_summary_stats(st.session_state.scored_df)
 
-scored_df = st.session_state.scored_df
-stats = st.session_state.stats
-
-c1, c2, c3, c4, c5 = st.columns(5)
+    scored_df = st.session_state.scored_df
+    stats = st.session_state.stats
+    c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
         st.markdown(f'<div class="stat-card"><div class="stat-number">{stats["total_residues"]}</div><div class="stat-label">Total Residues</div></div>', unsafe_allow_html=True)
     with c2:
