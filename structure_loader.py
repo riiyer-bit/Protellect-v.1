@@ -99,9 +99,9 @@ def fetch_structure(source: str, identifier: str) -> tuple[str | None, str]:
 
 # ── Useful test proteins ──────────────────────────────────────────────────────
 EXAMPLE_PROTEINS = {
-    "TP53 (tumor suppressor)":        {"source": "AlphaFold", "id": "P04637"},
-    "EGFR (receptor kinase)":         {"source": "AlphaFold", "id": "P00533"},
-    "BRCA1 (DNA repair)":             {"source": "AlphaFold", "id": "P38398"},
-    "KRAS (oncogene)":                {"source": "AlphaFold", "id": "P01116"},
-    "TP53 + DNA complex (PDB)":       {"source": "PDB",        "id": "1TUP"},
+    "TP53 (tumor suppressor)":   {"source": "PDB", "id": "2OCJ"},
+    "EGFR (receptor kinase)":    {"source": "PDB", "id": "1IVO"},
+    "BRCA1 (DNA repair)":        {"source": "PDB", "id": "1JM7"},
+    "KRAS (oncogene)":           {"source": "PDB", "id": "4OBE"},
+    "TP53 + DNA complex":        {"source": "PDB", "id": "1TUP"},
 }
