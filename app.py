@@ -169,8 +169,8 @@ with tab1:
     st.markdown("Upload residue-level experimental data → score it → visualize on 3D structure.")
     st.divider()
 
-    if not run_button and "scored_df" not in st.session_state:
-        st.info("Configure your protein and data in the sidebar, then click **Run Triage**.")
+    if not run_button:
+        st.info("👈  Configure your protein and data in the sidebar, then click **Run Triage**.")
         st.stop()
 
     if uploaded_file:
@@ -198,11 +198,9 @@ with tab1:
     )
 
     with st.spinner("Scoring residues..."):
-        st.session_state.scored_df = score_residues(df_raw)
-        st.session_state.stats = get_summary_stats(st.session_state.scored_df)
+        scored_df = score_residues(df_raw)
+        stats     = get_summary_stats(scored_df)
 
-    scored_df = st.session_state.scored_df
-    stats = st.session_state.stats
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
         st.markdown(f'<div class="stat-card"><div class="stat-number">{stats["total_residues"]}</div><div class="stat-label">Total Residues</div></div>', unsafe_allow_html=True)
@@ -233,7 +231,7 @@ with tab1:
         styled = (
             scored_df[display_cols]
             .style
-            .map(color_priority, subset=["priority"])
+            .applymap(color_priority, subset=["priority"])
             .format({"normalized_score": "{:.3f}"})
             .set_properties(**{"font-size": "0.82rem"})
         )
@@ -385,7 +383,7 @@ with tab2:
         st.caption("R175 highlighted in red · DNA-binding domain in blue · other hotspots in orange")
 
         with st.spinner("Loading TP53 structure from AlphaFold..."):
-            pdb_data, fetch_err = fetch_structure("PDB", "2OCJ")
+            pdb_data, fetch_err = fetch_structure("AlphaFold", "P04637")
 
         if fetch_err:
             st.error(f"❌ {fetch_err}")
