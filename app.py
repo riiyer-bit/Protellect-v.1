@@ -383,7 +383,7 @@ with tab2:
         st.caption("R175 highlighted in red · DNA-binding domain in blue · other hotspots in orange")
 
         with st.spinner("Loading TP53 structure from AlphaFold..."):
-            pdb_data, fetch_err = fetch_structure("AlphaFold", "P04637")
+            pdb_data, fetch_err = fetch_structure("PDB", "2OCJ")
 
         if fetch_err:
             st.error(f"❌ {fetch_err}")
