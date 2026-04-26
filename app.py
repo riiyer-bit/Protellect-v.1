@@ -231,7 +231,7 @@ with tab1:
         styled = (
             scored_df[display_cols]
             .style
-            .applymap(color_priority, subset=["priority"])
+            .map(color_priority, subset=["priority"])
             .format({"normalized_score": "{:.3f}"})
             .set_properties(**{"font-size": "0.82rem"})
         )
