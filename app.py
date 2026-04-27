@@ -113,7 +113,7 @@ st.markdown("""
 
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3 = st.tabs(["🧬 Triage System", "🔬 Case Study — TP53 R175H", "⚗️ Protein Explorer"])
+tab1, tab2, tab3, tab4 = st.tabs(["🧬 Triage System", "🔬 Case Study — TP53 R175H", "⚗️ Protein Explorer", "💡 Hypothesis Lab"])
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -127,21 +127,10 @@ with tab1:
         st.divider()
 
         st.markdown('<div class="section-header">Protein Structure</div>', unsafe_allow_html=True)
-        use_example = st.checkbox("Use an example protein", value=True)
-
-        if use_example:
-            example_choice = st.selectbox("Select protein", list(EXAMPLE_PROTEINS.keys()))
-            structure_source = EXAMPLE_PROTEINS[example_choice]["source"]
-            structure_id     = EXAMPLE_PROTEINS[example_choice]["id"]
-            st.caption(f"Source: {structure_source} · ID: `{structure_id}`")
-        else:
-            structure_source = st.radio("Source", ["AlphaFold", "PDB"], horizontal=True)
-            if structure_source == "AlphaFold":
-                structure_id = st.text_input("UniProt ID", placeholder="e.g. P04637")
-                st.caption("[Find your UniProt ID →](https://www.uniprot.org/)")
-            else:
-                structure_id = st.text_input("PDB ID", placeholder="e.g. 1TUP")
-                st.caption("[Find your PDB ID →](https://www.rcsb.org/)")
+        example_choice = st.selectbox("Select protein", list(EXAMPLE_PROTEINS.keys()))
+        structure_source = EXAMPLE_PROTEINS[example_choice]["source"]
+        structure_id     = EXAMPLE_PROTEINS[example_choice]["id"]
+        st.caption(f"Source: {structure_source} · ID: `{structure_id}`")
 
         st.divider()
 
@@ -461,3 +450,10 @@ with tab2:
 with tab3:
     import protein_explorer
     protein_explorer.render()
+
+# ════════════════════════════════════════════════════════════════════════════
+# TAB 4 — Hypothesis Lab
+# ════════════════════════════════════════════════════════════════════════════
+with tab4:
+    import hypothesis_lab
+    hypothesis_lab.render()
