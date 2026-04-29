@@ -54,44 +54,34 @@ h1, h2, h3 { font-family: 'IBM Plex Mono', monospace; }
 
 
 # ── Tutorial popup ─────────────────────────────────────────────────────────────
-TUTORIAL_HTML = """
-<div id="tut-overlay" style="position:fixed;inset:0;background:#000000bb;z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem">
-  <div style="background:#0f1117;border:1px solid #2a2d3a;border-radius:14px;padding:28px;max-width:600px;width:100%;max-height:85vh;overflow-y:auto;font-family:'IBM Plex Sans',sans-serif">
-    <div style="font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:700;color:#eee;margin-bottom:4px">🧬 Welcome to Protellect</div>
-    <div style="font-size:12px;color:#555;margin-bottom:20px">Experimental Intelligence Layer for Biomedical Research</div>
-    <div style="display:flex;flex-direction:column;gap:14px;margin-bottom:20px">
-      <div style="display:flex;gap:12px;align-items:flex-start">
-        <div style="width:26px;height:26px;border-radius:50%;background:#FF4C4C22;color:#FF4C4C;border:1px solid #FF4C4C55;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;margin-top:1px;font-family:'IBM Plex Mono',monospace">1</div>
-        <div><strong style="display:block;font-size:13px;color:#eee;margin-bottom:3px">Upload your CSV in the sidebar</strong><span style="font-size:12px;color:#777;line-height:1.6">Required columns: residue_position, effect_score. Optional: mutation, experiment_type. The system scores every residue automatically.</span></div>
-      </div>
-      <div style="display:flex;gap:12px;align-items:flex-start">
-        <div style="width:26px;height:26px;border-radius:50%;background:#FF4C4C22;color:#FF4C4C;border:1px solid #FF4C4C55;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;margin-top:1px;font-family:'IBM Plex Mono',monospace">2</div>
-        <div><strong style="display:block;font-size:13px;color:#eee;margin-bottom:3px">Click Run Triage</strong><span style="font-size:12px;color:#777;line-height:1.6">This scores all residues, generates ranked hypotheses, and maps everything onto a 3D protein structure. Results persist — you won't lose them when clicking around.</span></div>
-      </div>
-      <div style="display:flex;gap:12px;align-items:flex-start">
-        <div style="width:26px;height:26px;border-radius:50%;background:#FF4C4C22;color:#FF4C4C;border:1px solid #FF4C4C55;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;margin-top:1px;font-family:'IBM Plex Mono',monospace">3</div>
-        <div><strong style="display:block;font-size:13px;color:#eee;margin-bottom:3px">Explore the 4 tabs</strong><span style="font-size:12px;color:#777;line-height:1.6"><b style="color:#ccc">Tab 1 — Triage System:</b> ranked table + 3D structure colored by priority.<br><b style="color:#ccc">Tab 2 — Case Study:</b> TP53 R175H walkthrough showing how Protellect works on a known mutation.<br><b style="color:#ccc">Tab 3 — Protein Explorer:</b> click any residue sphere for full annotation + experiment cards.<br><b style="color:#ccc">Tab 4 — Hypothesis Lab:</b> every hypothesis expanded with animation + cell impact + sliding mutation bar.</span></div>
-      </div>
-      <div style="display:flex;gap:12px;align-items:flex-start">
-        <div style="width:26px;height:26px;border-radius:50%;background:#FF4C4C22;color:#FF4C4C;border:1px solid #FF4C4C55;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;margin-top:1px;font-family:'IBM Plex Mono',monospace">4</div>
-        <div><strong style="display:block;font-size:13px;color:#eee;margin-bottom:3px">Priority colours</strong><span style="font-size:12px;color:#777;line-height:1.6"><span style="color:#FF4C4C">● Red</span> = HIGH priority (score ≥ 0.75) — investigate first.<br><span style="color:#FFA500">● Orange</span> = MEDIUM priority (score ≥ 0.40) — worth investigating.<br><span style="color:#4CA8FF">● Blue</span> = LOW priority — likely tolerated variation.<br>Thresholds are adjustable in the sidebar.</span></div>
-      </div>
-      <div style="display:flex;gap:12px;align-items:flex-start">
-        <div style="width:26px;height:26px;border-radius:50%;background:#FF4C4C22;color:#FF4C4C;border:1px solid #FF4C4C55;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;margin-top:1px;font-family:'IBM Plex Mono',monospace">5</div>
-        <div><strong style="display:block;font-size:13px;color:#eee;margin-bottom:3px">Access this tutorial anytime</strong><span style="font-size:12px;color:#777;line-height:1.6">Click the ❓ button at the top of the sidebar to reopen this tutorial at any time.</span></div>
-      </div>
-    </div>
-    <button onclick="document.getElementById('tut-overlay').style.display='none'" style="width:100%;padding:12px;background:#FF4C4C;color:white;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;font-family:'IBM Plex Sans',sans-serif">Start exploring →</button>
-  </div>
-</div>
-"""
+@st.dialog("🧬 Welcome to Protellect")
+def show_tutorial():
+    st.markdown("**Experimental Intelligence Layer for Biomedical Research**")
+    st.divider()
+    steps = [
+        ("1", "Upload your CSV in the sidebar", "Required: `residue_position`, `effect_score`. Optional: `mutation`, `experiment_type`. The system scores every residue automatically — no protein ID needed."),
+        ("2", "Click Run Triage", "Scores all residues, generates ranked hypotheses, and maps everything onto the 3D protein structure. Results persist — no need to re-run when clicking around."),
+        ("3", "Explore the 4 tabs", "**Tab 1 — Triage System:** ranked table + 3D structure.  \n**Tab 2 — Case Study:** TP53 R175H worked example.  \n**Tab 3 — Protein Explorer:** click residue spheres for full annotation.  \n**Tab 4 — Hypothesis Lab:** every hypothesis with animation, timeline slider, and cell impact."),
+        ("4", "Priority colours", "🔴 **RED** = HIGH priority (score ≥ 0.75) — investigate first.  \n🟠 **ORANGE** = MEDIUM (score ≥ 0.40) — worth investigating.  \n🔵 **BLUE** = LOW — likely tolerated. Thresholds adjustable in sidebar."),
+        ("5", "Access tutorial anytime", "Click the **❓ Tutorial** button in the sidebar to reopen this guide."),
+    ]
+    for num, title, detail in steps:
+        col_n, col_body = st.columns([0.08, 0.92])
+        with col_n:
+            st.markdown(f'<div style="width:26px;height:26px;border-radius:50%;background:#FF4C4C22;color:#FF4C4C;border:1px solid #FF4C4C55;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;margin-top:4px">{num}</div>', unsafe_allow_html=True)
+        with col_body:
+            st.markdown(f"**{title}**")
+            st.markdown(detail)
+        st.markdown("")
+    if st.button("Start exploring →", type="primary", use_container_width=True):
+        st.session_state.tutorial_shown = True
+        st.rerun()
 
 if "tutorial_shown" not in st.session_state:
     st.session_state.tutorial_shown = False
 
 if not st.session_state.tutorial_shown:
-    components.html(TUTORIAL_HTML, height=600, scrolling=False)
-    st.session_state.tutorial_shown = True
+    show_tutorial()
 
 
 # ── Helper: fetch PDB ─────────────────────────────────────────────────────────
@@ -164,7 +154,7 @@ with st.sidebar:
     with col_help:
         if st.button("❓", help="Open tutorial"):
             st.session_state.tutorial_shown = False
-            st.rerun()
+            show_tutorial()
 
     st.markdown("*Experimental Triage System — MVP*")
     st.divider()

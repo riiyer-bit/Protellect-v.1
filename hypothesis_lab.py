@@ -244,8 +244,13 @@ function buildSlider(d, idx) {{
   ];
   const maxDay = events[events.length-1].day + 200;
 
+  window._sliderEvents = window._sliderEvents || {{}};
+  window._sliderEvents[idx] = events;
+  window._sliderMax = window._sliderMax || {{}};
+  window._sliderMax[idx] = maxDay;
+
   const evHTML = events.map((e,i)=>`
-    <div class="pevt" id="ev-${{idx}}-${{i}}">
+    <div class="pevt inactive" id="ev-${{idx}}-${{i}}">
       <div class="pdotev" style="background:${{e.c}}"></div>
       <div><strong>Day ~${{e.day}}: ${{e.label}}</strong><span>${{e.desc}}</span></div>
     </div>`).join('');
@@ -257,7 +262,7 @@ function buildSlider(d, idx) {{
     </div>
     <div class="slider-row">
       <span class="slider-lbl">Day (drag)</span>
-      <input type="range" id="sl-${{idx}}" min="0" max="${{maxDay}}" value="0" oninput="updateSlider(${{idx}},${{JSON.stringify(events)}},${{maxDay}},this.value)">
+      <input type="range" id="sl-${{idx}}" min="0" max="${{maxDay}}" value="0" oninput="updateSlider(${{idx}}, parseInt(this.value))">
       <span class="slider-val" id="sv-${{idx}}">Day 0</span>
     </div>
     <div class="phase-display">
@@ -271,16 +276,19 @@ function buildSlider(d, idx) {{
   </div>`;
 }}
 
-function updateSlider(idx, events, maxDay, day) {{
+function updateSlider(idx, day) {{
   day = parseInt(day);
-  document.getElementById('sv-'+idx).textContent = day===0?'Day 0 — pre-mutation':`Day ${{day}}${{day>365?' (~'+( day/365).toFixed(1)+'yr)':''}}`;
+  const events = (window._sliderEvents||{{}})[idx] || [];
+  const maxDay = (window._sliderMax||{{}})[idx] || 2000;
+  const sv = document.getElementById('sv-'+idx);
+  if(sv) sv.textContent = day===0 ? 'Day 0 — pre-mutation' : day>365 ? `Day ${{day}} (~${{(day/365).toFixed(1)}} yr)` : `Day ${{day}}`;
   const pct = (day/maxDay*100).toFixed(1);
   const pf = document.getElementById('pf-'+idx);
   const mk = document.getElementById('mk-'+idx);
-  if(pf) {{ pf.style.width=pct+'%'; pf.textContent=day<events[2].day?'subclinical':day<events[4].day?'detectable':'clinical'; }}
+  if(pf) {{ pf.style.width=pct+'%'; pf.textContent=day<(events[2]&&events[2].day||180)?'subclinical':day<(events[4]&&events[4].day||730)?'detectable':'clinical'; }}
   if(mk) mk.style.left=pct+'%';
   events.forEach((e,i)=>{{
-    const el=document.getElementById(`ev-${{idx}}-${{i}}`);
+    const el=document.getElementById('ev-'+idx+'-'+i);
     if(el) el.classList.toggle('inactive', day<e.day);
   }});
 }}
