@@ -16,7 +16,7 @@ data = """index,score,mutation,type
 248,0.95,R248W,DMS
 249,0.91,R249S,DMS
 273,0.97,R273H,DMS
-282,0.85,R282W,DMS
+282,0.85,R282W,DMS"""
 # 2. Load the data into a DataFrame
 df = pd.read_csv(io.StringIO(data))
 
