@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+data = """index,score,mutation,type
 12,0.91,G12D,DMS
 13,0.45,G13V,DMS
 42,0.87,A42V,DMS
@@ -16,3 +17,10 @@ import pandas as pd
 249,0.91,R249S,DMS
 273,0.97,R273H,DMS
 282,0.85,R282W,DMS
+# 2. Load the data into a DataFrame
+df = pd.read_csv(io.StringIO(data))
+
+# 3. Display it in the app
+st.title("Protellect v.1 Data Viewer")
+st.write("Here is the current mutation data:")
+st.dataframe(df)
