@@ -1,4 +1,3 @@
-residue_position,effect_score,mutation,experiment_type
 12,0.91,G12D,DMS
 13,0.45,G13V,DMS
 42,0.87,A42V,DMS
