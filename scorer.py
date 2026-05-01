@@ -218,7 +218,7 @@ def detect_dataset_info(df: pd.DataFrame) -> dict:
     # Infer assay type from score range and column names
     assay_guess = "Unknown assay"
     orig_cols = [c.lower() for c in df.columns]
-    if "ddg" in orig_cols or "stability" in any(c for c in orig_cols):
+    if "ddg" in orig_cols or any("stability" in c for c in orig_cols):
         assay_guess = "Protein stability assay (ΔΔG)"
     elif "log2" in " ".join(orig_cols) or direction in ("negative", "signed"):
         assay_guess = "CRISPR/sequencing enrichment screen"
