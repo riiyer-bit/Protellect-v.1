@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import io
 data = """index,score,mutation,type
 12,0.91,G12D,DMS
 13,0.45,G13V,DMS
