@@ -12,7 +12,7 @@ import pandas as pd
 import requests
 import json
 
-from scorer import score_residues, get_summary_stats, validate_dataframe
+from scorer import score_residues, get_summary_stats, validate_dataframe, detect_dataset_info
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -21,6 +21,39 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# ── Logo SVG (inline, matches uploaded brand mark) ───────────────────────────
+LOGO_SVG = """<svg width="36" height="36" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="lg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d6a4f"/>
+      <stop offset="100%" style="stop-color:#1b4332"/>
+    </linearGradient>
+  </defs>
+  <!-- Left helix strand -->
+  <path d="M45 10 C35 30, 65 45, 55 60 C45 75, 25 85, 35 105" stroke="url(#lg)" stroke-width="7" fill="none" stroke-linecap="round"/>
+  <!-- Right helix strand -->
+  <path d="M75 10 C85 30, 55 45, 65 60 C75 75, 95 85, 85 105" stroke="url(#lg)" stroke-width="7" fill="none" stroke-linecap="round"/>
+  <!-- Crossbars -->
+  <line x1="48" y1="22" x2="72" y2="22" stroke="#52b788" stroke-width="4.5" stroke-linecap="round"/>
+  <line x1="42" y1="38" x2="78" y2="38" stroke="#52b788" stroke-width="4.5" stroke-linecap="round"/>
+  <line x1="52" y1="53" x2="68" y2="53" stroke="#52b788" stroke-width="4" stroke-linecap="round"/>
+  <line x1="55" y1="67" x2="65" y2="67" stroke="#52b788" stroke-width="4" stroke-linecap="round"/>
+  <line x1="51" y1="82" x2="69" y2="82" stroke="#52b788" stroke-width="4" stroke-linecap="round"/>
+  <line x1="45" y1="96" x2="75" y2="96" stroke="#52b788" stroke-width="4.5" stroke-linecap="round"/>
+  <!-- Neural branches top right -->
+  <path d="M72 22 L90 12" stroke="#74c69d" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M90 12 L100 6" stroke="#74c69d" stroke-width="2" stroke-linecap="round"/>
+  <path d="M90 12 L102 15" stroke="#74c69d" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="100" cy="6" r="2.5" fill="#74c69d"/>
+  <circle cx="102" cy="15" r="2.5" fill="#74c69d"/>
+  <!-- Neural branches bottom left -->
+  <path d="M48 82 L28 92" stroke="#74c69d" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M28 92 L16 86" stroke="#74c69d" stroke-width="2" stroke-linecap="round"/>
+  <path d="M28 92 L18 100" stroke="#74c69d" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="16" cy="86" r="2.5" fill="#74c69d"/>
+  <circle cx="18" cy="100" r="2.5" fill="#74c69d"/>
+</svg>"""
 
 # ── Global CSS ────────────────────────────────────────────────────────────────
 st.markdown("""
@@ -150,7 +183,7 @@ with st.sidebar:
     # Tutorial help button
     col_title, col_help = st.columns([5, 1])
     with col_title:
-        st.markdown("# 🧬 Protellect")
+        st.markdown(f'{LOGO_SVG} &nbsp;<span style="font-size:1.2rem;font-weight:700;font-family:IBM Plex Mono,monospace;vertical-align:middle">Protellect</span>', unsafe_allow_html=True)
     with col_help:
         if st.button("❓", help="Open tutorial"):
             st.session_state.tutorial_shown = False
@@ -183,9 +216,29 @@ with st.sidebar:
 
     run_button = st.button("▶ Run Triage", type="primary", use_container_width=True)
 
+    # ── Assay summary (shown after triage runs) ───────────────────────────────
+    if "t_scored" in st.session_state and "t_dataset_info" in st.session_state:
+        st.divider()
+        info = st.session_state.t_dataset_info
+        st.markdown("""
+        <div style="background:#0a1a0a;border:1px solid #1a3a1a;border-radius:8px;padding:12px 14px">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:0.15em;color:#4CAF50;margin-bottom:8px">📋 Assay Summary</div>
+        """, unsafe_allow_html=True)
+
+        st.markdown(f"""
+          <div style="font-size:11px;color:#888;line-height:1.8">
+            <b style="color:#ccc">Dataset:</b> {info['n_rows']} residues<br>
+            <b style="color:#ccc">Assay type:</b> {info['assay_guess']}<br>
+            <b style="color:#ccc">Score range:</b> {info['score_min']} → {info['score_max']}<br>
+            <b style="color:#ccc">Scale detected:</b> {info['direction_note']}<br>
+            {'<b style="color:#ccc">Experiments:</b> ' + ", ".join(str(e) for e in info["exp_types"][:4]) + "<br>" if info["exp_types"] else ""}
+            {'<b style="color:#ccc">Mutations:</b> Provided in data<br>' if info["has_mutations"] else ""}
+          </div>
+        </div>""", unsafe_allow_html=True)
+
     st.divider()
     st.caption("Protein structure: TP53 (PDB 2OCJ)")
-    st.caption("Phase 2 will identify protein automatically from your sequence data.")
+    st.caption("Phase 2 will auto-identify protein from sequence data.")
 
 
 # ── TABS ───────────────────────────────────────────────────────────────────────
@@ -228,8 +281,9 @@ with tab1:
             "LOW"
         )
         with st.spinner("Scoring residues..."):
-            st.session_state.t_scored = score_residues(df_raw)
-            st.session_state.t_stats  = get_summary_stats(st.session_state.t_scored)
+            st.session_state.t_scored      = score_residues(df_raw)
+            st.session_state.t_stats       = get_summary_stats(st.session_state.t_scored)
+            st.session_state.t_dataset_info = detect_dataset_info(df_raw)
 
     if "t_scored" not in st.session_state:
         st.info("👈 Upload your CSV and click **▶ Run Triage** to begin.")
