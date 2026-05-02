@@ -22,8 +22,11 @@ from scorer import (
 st.set_page_config(page_title="Protellect", page_icon="🧬", layout="wide", initial_sidebar_state="expanded")
 
 # ── Logo ───────────────────────────────────────────────────────────────────
-_lp = Path("/mnt/user-data/uploads/1777622887238_image.png")
-LOGO_B64 = ("data:image/png;base64," + base64.b64encode(_lp.read_bytes()).decode()) if _lp.exists() else None
+try:
+    from logo import LOGO_DATA_URL as LOGO_B64
+except Exception:
+    _lp = Path("/mnt/user-data/uploads/1777622887238_image.png")
+    LOGO_B64 = ("data:image/png;base64," + base64.b64encode(_lp.read_bytes()).decode()) if _lp.exists() else None
 
 # ── CSS ────────────────────────────────────────────────────────────────────
 st.markdown("""

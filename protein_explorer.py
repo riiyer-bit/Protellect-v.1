@@ -5,8 +5,11 @@ import streamlit.components.v1 as components
 import json, requests, base64
 from pathlib import Path
 
-_lp = Path("/mnt/user-data/uploads/1777622887238_image.png")
-LOGO_B64 = ("data:image/png;base64," + base64.b64encode(_lp.read_bytes()).decode()) if _lp.exists() else None
+try:
+    from logo import LOGO_DATA_URL as LOGO_B64
+except Exception:
+    _lp = Path("/mnt/user-data/uploads/1777622887238_image.png")
+    LOGO_B64 = ("data:image/png;base64," + base64.b64encode(_lp.read_bytes()).decode()) if _lp.exists() else None
 
 HOTSPOTS = {
     175: {"clinvar":"Pathogenic · 847 submissions","cosmic":"~6% of all cancers","cancer":"Breast, lung, colorectal, ovarian","mechanism":"Disrupts zinc coordination at C176/H179/C238/C242. Global misfolding of DNA-binding domain.","therapeutic":"APR-246 (eprenetapopt) — Phase III","domain":"DNA-binding domain (L2 loop) — zinc coordination"},
@@ -54,12 +57,12 @@ def build_html(scored_df, pdb_data):
         residues[pos] = {
             "label":label,"status":stat,"priority":pri,"score":score,
             "expType":exp if exp not in ("nan","") else "",
-            "domain":      hs.get("domain",      f"Position {pos} — domain annotation available for known hotspots (Phase 2 will cover all proteins)"),
-            "mechanism":   hs.get("mechanism",   f"Effect score {score} derived from your experimental assay. Mechanistic annotation available for known TP53 hotspots — Phase 2 will add live UniProt/PDB annotations for any protein."),
-            "clinvar":     hs.get("clinvar",      "Not in known hotspot database — Phase 2 integrates live ClinVar for all variants"),
-            "cosmic":      hs.get("cosmic",       "Not in known hotspot database — Phase 2 integrates live COSMIC"),
-            "cancer":      hs.get("cancer",       "Not queried — Phase 2 pulls cancer type data automatically"),
-            "therapeutic": hs.get("therapeutic",  "No known targeted therapy in database — consult ClinVar / ChEMBL for clinical context"),
+            "domain":      hs.get("domain",      f"Position/feature {pos} — full domain annotation requires Phase 2 (live UniProt + PDB integration for any protein)"),
+            "mechanism":   hs.get("mechanism",   f"Normalised effect score: {score}. This value is derived from your experimental data. For known TP53 hotspots, detailed mechanistic annotation is shown automatically. Phase 2 adds live database annotation for any protein."),
+            "clinvar":     hs.get("clinvar",      "Not a known TP53 hotspot — ClinVar data not pre-loaded for this position. Phase 2 will query ClinVar live for any variant in any protein."),
+            "cosmic":      hs.get("cosmic",       "COSMIC data not pre-loaded for this position. Phase 2 integrates live COSMIC v97 for all proteins."),
+            "cancer":      hs.get("cancer",       "Cancer type data not pre-loaded. Phase 2 pulls this automatically from COSMIC and ClinVar."),
+            "therapeutic": hs.get("therapeutic",  "No pre-loaded therapeutic data. For drug-target information, consult ChEMBL, DGIdb, or ClinicalTrials.gov for this gene/protein."),
         }
 
     res_json = json.dumps(residues, default=str)

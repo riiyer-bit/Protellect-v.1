@@ -36,11 +36,16 @@ POSITION_ALIASES = {
     "site","residue_pos","mut_position","codon","codon_position","resi","res_pos",
     "variant_position","aa_pos","pdb_position","uniprot_position","seq_position",
     "protein_position","aa_number","res_number","residue_number",
-    # Gene
+    # Gene / Ensembl / target identifiers
     "gene","gene_name","gene_id","gene_symbol","symbol","locus","chromosome_position",
     "genomic_position","start","start_position","coordinate","bp","basepair",
+    "ensg_id","ensembl_id","ensembl_gene_id","ensembl","ensg","ens_id",
+    "target","target_name","target_id","target_gene","gene_target",
+    "entrez_id","entrez","ncbi_gene_id","uniprot_id","uniprot","accession",
+    "protein_id","transcript_id","enst_id","feature_id","feature_name",
     # Variant / clinical
     "snp","rsid","variant_id","id","identifier","mutation_id","index","row","entry",
+    "sample","sample_id","cell_line","cell","condition","label","name",
 }
 
 SCORE_ALIASES = {
@@ -59,9 +64,18 @@ SCORE_ALIASES = {
     "disruption_score","effect","normalized_score","relative_activity",
     "fraction_active","growth_effect","selection_coefficient","impact_score",
     "functional_effect","functional_impact","mean_effect","median_effect",
+    # Annotation / grade / classification
+    "annotation","grade","annotation_grade","annotations_grade","priority_score",
+    "confidence","confidence_score","rank","ranking","importance","importance_score",
+    "weight","value","measure","measurement","metric","numeric","number","n",
+    "class","classification","category_score","tier","level","rating",
+    "read_count","read_counts","reads","coverage","depth","mean","median","avg","average",
     # Variant
     "cadd_score","cadd","revel","polyphen","sift","gerp","phylop","phastcons",
     "conservation_score","pathogenicity_score","deleteriousness",
+    # Generic numeric
+    "val","vals","values","data","result","results","output","outputs",
+    "x","y","z","col","column","feature","feat",
 }
 
 MUTATION_ALIASES = {
@@ -94,10 +108,15 @@ def _find_col(cols, aliases):
     for a in aliases:
         if a in lower:
             return lower[a]
-    # Partial match fallback
+    # Partial match fallback - longer alias matches first
     for a in sorted(aliases, key=len, reverse=True):
         for k, v in lower.items():
             if a in k or k in a:
+                return v
+    # Grade/annotation specific fallback: look for any column with "grade" or "score" or "count"
+    for k, v in lower.items():
+        for kw in ('grade','score','count','value','metric','rank','rating','level','tier','weight'):
+            if kw in k:
                 return v
     return None
 
@@ -204,15 +223,29 @@ def _standardise(df: pd.DataFrame) -> pd.DataFrame:
                 df = df.rename(columns={col: "effect_score"})
                 break
 
-    # If still no score, try converting string columns
+    # If still no score, try ALL columns — pick numeric column with most variance
     if "effect_score" not in df.columns:
+        skip_cols = {"residue_position", "mutation", "experiment_type", "gene_name"}
+        best_col, best_var = None, -1
         for col in df.columns:
-            if col in ("residue_position", "mutation", "experiment_type", "gene_name"):
+            if col in skip_cols:
                 continue
             s = pd.to_numeric(df[col], errors='coerce')
-            if s.notna().sum() > len(df) * 0.5:
-                df = df.rename(columns={col: "effect_score"})
-                break
+            valid = s.notna().sum()
+            if valid > len(df) * 0.3:  # at least 30% non-null
+                variance = float(s.var()) if valid > 1 else 0
+                if variance > best_var:
+                    best_var, best_col = variance, col
+        if best_col:
+            df = df.rename(columns={best_col: "effect_score"})
+
+    # LAST RESORT: if MULTIPLE numeric columns exist (like grade_1, grade_2, grade_3),
+    # combine them into a single score using their mean
+    if "effect_score" not in df.columns:
+        num_cols = [c for c in df.select_dtypes(include=[np.number]).columns
+                    if c not in {"residue_position"}]
+        if num_cols:
+            df["effect_score"] = df[num_cols].mean(axis=1)
 
     return df
 
@@ -225,8 +258,21 @@ def validate_dataframe(df: pd.DataFrame):
     if "effect_score" not in df2.columns:
         missing.append("numeric score column")
     if missing:
-        all_cols = ', '.join(df.columns.tolist()[:10])
-        return False, f"Could not identify: {', '.join(missing)}. Found columns: {all_cols}. Please ensure your file has a position/ID column and at least one numeric score column."
+        # Last attempt: check if ANY column is numeric - if so, we can work with it
+        df_std = _standardise(df.copy())
+        num_cols = df_std.select_dtypes(include=[np.number]).columns.tolist()
+        if len(num_cols) >= 1 and "effect_score" not in missing:
+            pass  # Score was found after all
+        elif len(num_cols) == 0:
+            all_cols = ', '.join(df.columns.tolist()[:10])
+            return False, (
+                f"No numeric columns found. Columns detected: {all_cols}. "
+                f"Protellect needs at least one numeric column to score your data. "
+                f"Check your file has numbers (scores, grades, expression values, p-values, etc)."
+            )
+        else:
+            all_cols = ', '.join(df.columns.tolist()[:10])
+            return False, f"Could not identify: {', '.join(missing)}. Found columns: {all_cols}. Please ensure your file has a position/ID column and at least one numeric score column."
     scores = pd.to_numeric(df2.get("effect_score", pd.Series()), errors='coerce')
     if scores.notna().sum() == 0:
         return False, "Score column has no numeric values. Please check your data."
@@ -424,6 +470,8 @@ def _ml_predict(df_scored: pd.DataFrame, direction: str):
         return df_scored, False
 
     n = len(df_scored)
+    if n == 0:
+        return df_scored, False
 
     # Build features from what we have
     norm_scores = df_scored["normalized_score"].values
@@ -433,14 +481,21 @@ def _ml_predict(df_scored: pd.DataFrame, direction: str):
 
     # Domain importance: higher for known hotspot positions (simple heuristic)
     known_hotspots = {175, 248, 273, 249, 245, 282, 220, 176, 179}
-    positions = df_scored["residue_position"].values
-    domain_imp = np.array([0.9 if p in known_hotspots else
-                            0.5 if 94 <= p <= 292 else 0.2
-                            for p in positions])
+    try:
+        positions = df_scored["residue_position"].values.astype(float)
+        pos_max   = float(positions.max()) if len(positions) > 0 else 1.0
+        pos_norm  = np.clip(positions / max(pos_max, 1), 0, 1)
+        domain_imp = np.array([0.9 if int(p) in known_hotspots else
+                                0.5 if 94 <= int(p) <= 292 else 0.2
+                                for p in positions])
+    except (ValueError, TypeError):
+        # positions are strings (e.g. ENSG ids) — use index as proxy
+        positions  = np.arange(n, dtype=float)
+        pos_norm   = positions / max(n-1, 1)
+        domain_imp = np.full(n, 0.3)
 
     in_active  = domain_imp * 0.3
     in_binding = (norm_scores > 0.7).astype(float) * 0.5
-    pos_norm   = np.clip(positions / max(positions.max(), 1), 0, 1)
     coevol     = conservation * 0.7 + np.random.normal(0, 0.05, n)
 
     X = np.column_stack([norm_scores, conservation, domain_imp, in_active, in_binding, pos_norm, coevol])
@@ -715,10 +770,17 @@ def score_residues(df: pd.DataFrame, context: dict = None) -> pd.DataFrame:
     direction = _detect_direction(df2["effect_score"])
     df2["normalized_score"] = _normalise(df2["effect_score"], direction).round(3)
 
-    # Position
-    df2["residue_position"] = pd.to_numeric(df2["residue_position"], errors='coerce')
-    df2 = df2.dropna(subset=["residue_position"]).copy()
-    df2["residue_position"] = df2["residue_position"].astype(int)
+    # Position — if non-numeric (e.g. ENSG IDs, gene names), use row index as position
+    pos_numeric = pd.to_numeric(df2["residue_position"], errors='coerce')
+    if pos_numeric.notna().sum() < len(df2) * 0.3:
+        # Most positions are non-numeric — store original as label and use index
+        if "mutation" not in df2.columns or df2["mutation"].isna().all():
+            df2["mutation"] = df2["residue_position"].astype(str)
+        df2["residue_position"] = range(1, len(df2) + 1)
+    else:
+        df2["residue_position"] = pos_numeric
+        df2 = df2.dropna(subset=["residue_position"]).copy()
+        df2["residue_position"] = df2["residue_position"].astype(int)
 
     # Rule-based priority first
     df2["priority"] = df2["normalized_score"].apply(assign_priority)
@@ -731,7 +793,7 @@ def score_residues(df: pd.DataFrame, context: dict = None) -> pd.DataFrame:
         df2["ml_priority"]     = df2["priority"]
 
     # Generate hypotheses
-    df2["hypothesis"] = df2.apply(lambda r: generate_hypothesis(r, context), axis=1)
+    df2["hypothesis"] = df2.apply(lambda r: str(generate_hypothesis(r, context)), axis=1)
 
     df2 = df2.sort_values("normalized_score", ascending=False).reset_index(drop=True)
     df2.index += 1
