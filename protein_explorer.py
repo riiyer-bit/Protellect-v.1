@@ -54,12 +54,12 @@ def build_html(scored_df, pdb_data):
         residues[pos] = {
             "label":label,"status":stat,"priority":pri,"score":score,
             "expType":exp if exp not in ("nan","") else "",
-            "domain":      hs.get("domain",      "Unknown — Phase 2 will annotate"),
-            "mechanism":   hs.get("mechanism",   "From experimental data."),
-            "clinvar":     hs.get("clinvar",      "Not queried"),
-            "cosmic":      hs.get("cosmic",       "Not queried"),
-            "cancer":      hs.get("cancer",       "Not queried"),
-            "therapeutic": hs.get("therapeutic",  "Consult clinical database"),
+            "domain":      hs.get("domain",      f"Position {pos} — domain annotation available for known hotspots (Phase 2 will cover all proteins)"),
+            "mechanism":   hs.get("mechanism",   f"Effect score {score} derived from your experimental assay. Mechanistic annotation available for known TP53 hotspots — Phase 2 will add live UniProt/PDB annotations for any protein."),
+            "clinvar":     hs.get("clinvar",      "Not in known hotspot database — Phase 2 integrates live ClinVar for all variants"),
+            "cosmic":      hs.get("cosmic",       "Not in known hotspot database — Phase 2 integrates live COSMIC"),
+            "cancer":      hs.get("cancer",       "Not queried — Phase 2 pulls cancer type data automatically"),
+            "therapeutic": hs.get("therapeutic",  "No known targeted therapy in database — consult ClinVar / ChEMBL for clinical context"),
         }
 
     res_json = json.dumps(residues, default=str)

@@ -381,7 +381,7 @@ function drawDefault(ctx,W,H,t,c){{
   ctx.restore();
 }}
 
-const DRAWS={zinc_collapse:drawZincCollapse,dna_contact_loss:drawDNAContactLoss,helix_break:drawHelixBreak,loop_distortion:drawLoopDistortion,surface_cavity:drawSurfaceCavity,default:drawDefault};
+const DRAWS={{zinc_collapse:drawZincCollapse,dna_contact_loss:drawDNAContactLoss,helix_break:drawHelixBreak,loop_distortion:drawLoopDistortion,surface_cavity:drawSurfaceCavity,default:drawDefault}};
 
 const STRUCT_STAGES={{
   zinc_collapse:["WT: zinc stably coordinated (C176/H179/C238/C242)","R175H distorts L2 loop geometry","Zinc coordination weakening","Zinc ion released from binding site","L2 loop unfolds — domain begins collapse","Full domain misfolding — DNA binding impossible"],
