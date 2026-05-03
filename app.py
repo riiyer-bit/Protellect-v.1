@@ -341,8 +341,11 @@ with tab1:
 
         # Phase 1: fast scoring
         with st.spinner(f"Scoring {len(df_raw)} features..."):
-            info   = detect_dataset_info(df_raw, ctx)
-            scored = score_residues(df_raw, context=ctx, high_t=high_t, med_t=med_t)
+            try:
+                info = detect_dataset_info(df_raw, ctx)
+            except TypeError:
+                info = detect_dataset_info(df_raw)
+            scored = score_residues(df_raw, context=ctx)
             info["ml_used"] = use_ml and ML_AVAILABLE
             stats  = get_summary_stats(scored)
             pathways = generate_top_pathways(scored, info, ctx)
