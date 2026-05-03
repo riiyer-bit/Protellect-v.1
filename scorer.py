@@ -166,9 +166,47 @@ def load_file(file_obj) -> pd.DataFrame:
         sep = ';'
 
     try:
-        df = pd.read_csv(io.StringIO(raw), sep=sep, engine='python')
-        if df.shape[1] == 1:  # didn't split
-            df = pd.read_csv(io.StringIO(raw), sep=None, engine='python')
+        # For large files, use chunked reading
+        raw_io = io.StringIO(raw)
+        df = pd.read_csv(raw_io, sep=sep, engine='python', low_memory=False, on_bad_lines='skip')
+        if df.shape[1] == 1:  # didn't split — try auto-detect
+            df = pd.read_csv(io.StringIO(raw), sep=None, engine='python', low_memory=False, on_bad_lines='skip')
+
+        # If very large (many rows), check if this is a multi-row-per-gene format
+        # (like Protein Atlas where each gene has one row per tissue/cell type)
+        if len(df) > 5000:
+            # Detect if there's a repeated ID column + a groupable score column
+            id_col = None
+            for col in df.columns:
+                cl = col.lower()
+                if any(x in cl for x in ('gene', 'ensg', 'protein', 'target', 'id')):
+                    if df[col].nunique() < len(df) * 0.5:  # repeated values = grouping key
+                        id_col = col
+                        break
+
+            if id_col:
+                # Find score-like columns to aggregate
+                agg_dict = {id_col: 'first'}
+                for col in df.columns:
+                    if col == id_col:
+                        continue
+                    # Numeric cols: take mean
+                    s = pd.to_numeric(df[col], errors='coerce')
+                    if s.notna().mean() > 0.3:
+                        agg_dict[col] = 'mean'
+                    # Known ordinal cols: map then mean
+                    elif col.lower() in ('level', 'expression', 'staining', 'intensity', 'grade', 'reliability', 'confidence'):
+                        OMAP = {"high":3,"medium":2,"low":1,"not detected":0,"negative":0,
+                                "strong":3,"moderate":2,"weak":1,"enhanced":4,"supported":3,"approved":2,"uncertain":1}
+                        mapped = df[col].astype(str).str.lower().str.strip().map(OMAP)
+                        if mapped.notna().mean() > 0.3:
+                            df[col + '_numeric'] = mapped
+                            agg_dict[col + '_numeric'] = 'mean'
+                    else:
+                        agg_dict[col] = 'first'
+
+                df = df.groupby(id_col, as_index=False).agg(agg_dict)
+
         return df
     except Exception as e:
         raise ValueError(f"Could not parse file: {e}")
@@ -223,29 +261,90 @@ def _standardise(df: pd.DataFrame) -> pd.DataFrame:
                 df = df.rename(columns={col: "effect_score"})
                 break
 
-    # If still no score, try ALL columns — pick numeric column with most variance
+    # ── Categorical-to-numeric conversion ──────────────────────────────────────
+    # Handle datasets where scores are text categories (Protein Atlas, custom grading, etc.)
     if "effect_score" not in df.columns:
+        # Common categorical ordinal mappings in biological data
+        ORDINAL_MAPS = [
+            # Expression level (Protein Atlas, IHC)
+            {"high": 3, "medium": 2, "low": 1, "not detected": 0, "negative": 0, "positive": 2, "strong": 3, "moderate": 2, "weak": 1},
+            # Grade / severity
+            {"grade 3": 3, "grade 2": 2, "grade 1": 1, "grade 0": 0,
+             "severe": 3, "moderate": 2, "mild": 1, "none": 0},
+            # Confidence / reliability
+            {"enhanced": 4, "supported": 3, "approved": 2, "uncertain": 1},
+            # Pathogenicity
+            {"pathogenic": 4, "likely pathogenic": 3, "uncertain significance": 2,
+             "likely benign": 1, "benign": 0, "vus": 2},
+            # CRISPR essentiality
+            {"essential": 3, "strongly depleted": 3, "depleted": 2, "neutral": 1, "enriched": 0},
+            # General
+            {"yes": 1, "no": 0, "true": 1, "false": 0, "present": 1, "absent": 0, "detected": 2, "not detected": 0},
+        ]
+
         skip_cols = {"residue_position", "mutation", "experiment_type", "gene_name"}
         best_col, best_var = None, -1
+
         for col in df.columns:
             if col in skip_cols:
                 continue
-            s = pd.to_numeric(df[col], errors='coerce')
-            valid = s.notna().sum()
-            if valid > len(df) * 0.3:  # at least 30% non-null
-                variance = float(s.var()) if valid > 1 else 0
-                if variance > best_var:
-                    best_var, best_col = variance, col
-        if best_col:
-            df = df.rename(columns={best_col: "effect_score"})
+            col_vals = df[col].dropna().astype(str).str.lower().str.strip()
+            if len(col_vals) == 0:
+                continue
 
-    # LAST RESORT: if MULTIPLE numeric columns exist (like grade_1, grade_2, grade_3),
-    # combine them into a single score using their mean
+            # Try each ordinal map
+            for omap in ORDINAL_MAPS:
+                mapped = col_vals.map(omap)
+                frac_mapped = mapped.notna().mean()
+                if frac_mapped >= 0.5:  # at least half the values map
+                    col_numeric = df[col].astype(str).str.lower().str.strip().map(omap)
+                    variance = float(col_numeric.var()) if col_numeric.notna().sum() > 1 else 0
+                    if variance >= best_var:
+                        best_var, best_col = variance, col
+                    break
+
+            # Also try direct numeric conversion
+            if best_col is None or best_var == -1:
+                s = pd.to_numeric(df[col], errors='coerce')
+                valid = s.notna().sum()
+                if valid > len(df) * 0.25:
+                    variance = float(s.var()) if valid > 1 else 0
+                    if variance > best_var:
+                        best_var, best_col = variance, col
+
+        if best_col is not None:
+            # Try ordinal mapping first
+            col_vals = df[best_col].astype(str).str.lower().str.strip()
+            converted = None
+            for omap in ORDINAL_MAPS:
+                mapped = col_vals.map(omap)
+                if mapped.notna().mean() >= 0.5:
+                    converted = mapped
+                    break
+            if converted is not None:
+                df["effect_score"] = converted
+            else:
+                df = df.rename(columns={best_col: "effect_score"})
+
+    # LAST RESORT: combine multiple ordinal/numeric cols by mean
     if "effect_score" not in df.columns:
         num_cols = [c for c in df.select_dtypes(include=[np.number]).columns
                     if c not in {"residue_position"}]
         if num_cols:
             df["effect_score"] = df[num_cols].mean(axis=1)
+
+    # ABSOLUTE LAST: if we have ANY text column with repeated values, ordinal-encode it
+    if "effect_score" not in df.columns:
+        for col in df.columns:
+            if col in {"residue_position", "mutation", "experiment_type", "gene_name"}:
+                continue
+            uvals = df[col].dropna().unique()
+            if 2 <= len(uvals) <= 20:  # reasonable number of categories
+                from pandas import Categorical
+                cat = Categorical(df[col], ordered=True)
+                df["effect_score"] = cat.codes.astype(float)
+                df["effect_score"] = df["effect_score"].replace(-1, np.nan)
+                break
 
     return df
 
@@ -273,9 +372,42 @@ def validate_dataframe(df: pd.DataFrame):
         else:
             all_cols = ', '.join(df.columns.tolist()[:10])
             return False, f"Could not identify: {', '.join(missing)}. Found columns: {all_cols}. Please ensure your file has a position/ID column and at least one numeric score column."
-    scores = pd.to_numeric(df2.get("effect_score", pd.Series()), errors='coerce')
+    raw_scores = df2.get("effect_score", pd.Series())
+    scores = pd.to_numeric(raw_scores, errors='coerce')
     if scores.notna().sum() == 0:
-        return False, "Score column has no numeric values. Please check your data."
+        # Try categorical mapping before failing
+        ORDINAL_MAPS = [
+            {"high":3,"medium":2,"low":1,"not detected":0,"negative":0,"positive":2,"strong":3,"moderate":2,"weak":1,"absent":0,"detected":2},
+            {"grade 3":3,"grade 2":2,"grade 1":1,"grade 0":0,"severe":3,"moderate":2,"mild":1,"none":0},
+            {"enhanced":4,"supported":3,"approved":2,"uncertain":1},
+            {"pathogenic":4,"likely pathogenic":3,"uncertain significance":2,"likely benign":1,"benign":0},
+            {"essential":3,"strongly depleted":3,"depleted":2,"neutral":1,"enriched":0},
+        ]
+        mapped_any = False
+        for omap in ORDINAL_MAPS:
+            mapped = raw_scores.astype(str).str.lower().str.strip().map(omap)
+            if mapped.notna().mean() >= 0.4:
+                mapped_any = True
+                break
+        # Also try any other column
+        if not mapped_any:
+            for col in df2.columns:
+                if col in ("residue_position","mutation","experiment_type","gene_name"):
+                    continue
+                col_vals = df2[col].astype(str).str.lower().str.strip()
+                for omap in ORDINAL_MAPS:
+                    mapped = col_vals.map(omap)
+                    if mapped.notna().mean() >= 0.4:
+                        mapped_any = True
+                        break
+                if mapped_any:
+                    break
+        if not mapped_any:
+            return False, (
+                "Could not find a numeric or categorical score column. "
+                "Expected columns like: effect_score, fitness, log2fc, Level (High/Medium/Low), grade, pvalue, etc. "
+                f"Columns found: {', '.join(df.columns.tolist()[:8])}"
+            )
     if len(df2) == 0:
         return False, "File has no data rows."
     return True, ""
@@ -787,7 +919,34 @@ def score_residues(df: pd.DataFrame, context: dict = None, enrichment: dict = No
     """
     df2 = _standardise(df)
 
-    # Convert scores to numeric
+    # Convert scores to numeric — handle categorical (High/Medium/Low) and text data
+    ORDINAL_MAPS = [
+        {"high":3,"medium":2,"low":1,"not detected":0,"negative":0,"positive":2,
+         "strong":3,"moderate":2,"weak":1,"absent":0,"detected":2},
+        {"grade 3":3,"grade 2":2,"grade 1":1,"grade 0":0,
+         "severe":3,"moderate":2,"mild":1,"none":0},
+        {"enhanced":4,"supported":3,"approved":2,"uncertain":1},
+        {"pathogenic":4,"likely pathogenic":3,"uncertain significance":2,
+         "likely benign":1,"benign":0},
+        {"essential":3,"strongly depleted":3,"depleted":2,"neutral":1,"enriched":0},
+    ]
+    # First try direct numeric
+    raw = df2["effect_score"]
+    numeric = pd.to_numeric(raw, errors='coerce')
+    if numeric.notna().mean() < 0.3:
+        # Try ordinal mapping
+        mapped = None
+        for omap in ORDINAL_MAPS:
+            trial = raw.astype(str).str.lower().str.strip().map(omap)
+            if trial.notna().mean() >= 0.4:
+                mapped = trial
+                break
+        if mapped is not None:
+            df2["effect_score"] = mapped
+        # else leave as is and let dropna handle it
+    else:
+        df2["effect_score"] = numeric
+
     df2["effect_score"] = pd.to_numeric(df2["effect_score"], errors='coerce')
     df2 = df2.dropna(subset=["effect_score"]).copy()
 
@@ -846,7 +1005,7 @@ def score_residues(df: pd.DataFrame, context: dict = None, enrichment: dict = No
         df2["ml_priority"]     = df2["priority"]
 
     # Generate hypotheses
-    df2["hypothesis"] = df2.apply(lambda r: str(generate_hypothesis(r, context)), axis=1)
+    df2["hypothesis"] = [str(generate_hypothesis(r, context)) for _, r in df2.iterrows()]
 
     df2 = df2.sort_values("normalized_score", ascending=False).reset_index(drop=True)
     df2.index += 1
