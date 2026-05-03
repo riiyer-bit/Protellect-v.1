@@ -185,27 +185,28 @@ def load_file(file_obj) -> pd.DataFrame:
                         break
 
             if id_col:
-                # Find score-like columns to aggregate
-                agg_dict = {id_col: 'first'}
+                # Map ordinal text columns to numbers BEFORE groupby (mean requires numeric)
+                OMAP = {"high":3,"medium":2,"low":1,"not detected":0,"negative":0,
+                        "strong":3,"moderate":2,"weak":1,"enhanced":4,"supported":3,
+                        "approved":2,"uncertain":1,"detected":2,"absent":0,"present":2,
+                        "yes":1,"no":0,"true":1,"false":0}
                 for col in df.columns:
                     if col == id_col:
                         continue
-                    # Numeric cols: take mean
-                    s = pd.to_numeric(df[col], errors='coerce')
-                    if s.notna().mean() > 0.3:
-                        agg_dict[col] = 'mean'
-                    # Known ordinal cols: map then mean
-                    elif col.lower() in ('level', 'expression', 'staining', 'intensity', 'grade', 'reliability', 'confidence'):
-                        OMAP = {"high":3,"medium":2,"low":1,"not detected":0,"negative":0,
-                                "strong":3,"moderate":2,"weak":1,"enhanced":4,"supported":3,"approved":2,"uncertain":1}
-                        mapped = df[col].astype(str).str.lower().str.strip().map(OMAP)
-                        if mapped.notna().mean() > 0.3:
-                            df[col + '_numeric'] = mapped
-                            agg_dict[col + '_numeric'] = 'mean'
-                    else:
-                        agg_dict[col] = 'first'
+                    if df[col].dtype == object:
+                        trial = df[col].astype(str).str.lower().str.strip().map(OMAP)
+                        if trial.notna().mean() >= 0.4:
+                            df[col] = pd.to_numeric(trial, errors='coerce')
 
-                df = df.groupby(id_col, as_index=False).agg(agg_dict)
+                # Now build agg: numeric -> mean, text -> first
+                agg_dict = {}
+                for col in df.columns:
+                    if col == id_col:
+                        continue
+                    agg_dict[col] = 'mean' if pd.api.types.is_numeric_dtype(df[col]) else 'first'
+
+                if agg_dict:
+                    df = df.groupby(id_col, as_index=False).agg(agg_dict)
 
         return df
     except Exception as e:
