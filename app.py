@@ -250,18 +250,32 @@ with st.sidebar:
         if top_lbl in ("nan",""):
             top_lbl = f"Pos{int(top['residue_position'])}"
         exps = ", ".join(info["exp_types"][:3]) if info["exp_types"] else "Not specified"
-        ml_tag = " · ML-assisted" if info.get("ml_used") or st.session_state.get("t_stats",{}).get("ml_used") else ""
+        ml_tag = " · ML active" if info.get("ml_used") or st.session_state.get("t_stats",{}).get("ml_used") else ""
+        db_tag = " · DB enriched" if info.get("db_enriched") else ""
+
+        # DB enrichment block
+        protein_html = ""
+        if info.get("db_enriched"):
+            pname = info.get("protein_name","")
+            pfunc = info.get("protein_function","")
+            uid   = info.get("uniprot_id","")
+            gene  = info.get("gene_name","")
+            protein_html = f"""
+          <div class="assay-row"><span class="assay-lbl">Protein</span><span class="assay-val" style="color:#4CA8FF;font-weight:600">{pname or gene}</span></div>
+          <div class="assay-row"><span class="assay-lbl">UniProt</span><span class="assay-val">{uid}</span></div>
+          <div class="assay-row"><span class="assay-lbl">Function</span><span class="assay-val" style="font-size:0.75rem">{pfunc[:120]}{'...' if len(pfunc)>120 else ''}</span></div>"""
 
         st.markdown(f"""
         <div class="assay-box">
-          <div class="assay-title">📋 Assay Summary{ml_tag}</div>
+          <div class="assay-title">📋 Assay Summary{ml_tag}{db_tag}</div>
+          {protein_html}
           <div class="assay-row"><span class="assay-lbl">Dataset type</span><span class="assay-val">{info['assay_guess']}</span></div>
           <div class="assay-row"><span class="assay-lbl">Features scored</span><span class="assay-val">{info['n_rows']}</span></div>
           <div class="assay-row"><span class="assay-lbl">Score range</span><span class="assay-val">{info['score_min']} → {info['score_max']}</span></div>
           <div class="assay-row"><span class="assay-lbl">Scale detected</span><span class="assay-val">{info['direction_note']}</span></div>
           <div class="assay-row"><span class="assay-lbl">Experiments</span><span class="assay-val">{exps}</span></div>
           <div class="assay-row"><span class="assay-lbl">HIGH priority</span><span class="assay-val" style="color:#FF4C4C;font-weight:600">{n_high} features</span></div>
-          <div class="assay-row" style="border:none"><span class="assay-lbl">Top hit</span><span class="assay-val" style="color:#FF4C4C;font-weight:600">{top_lbl} ({round(float(top['normalized_score']),3)})</span></div>
+          <div class="assay-row" style="border:none"><span class="assay-lbl">Top hit</span><span class="assay-val" style="color:#FF4C4C;font-weight:600">{top_lbl} ({round(float(top["normalized_score"]),3)})</span></div>
         </div>""", unsafe_allow_html=True)
 
     # ── Top 5 Pathways ────────────────────────────────────────────────────────
@@ -326,9 +340,10 @@ with tab1:
 
         ctx = scientist_context if any(v and v != "Not specified" for v in scientist_context.values()) else None
 
-        with st.spinner(f"Scoring {len(df_raw)} rows{'  ·  ML active' if use_ml and ML_AVAILABLE else ''}..."):
-            scored = score_residues(df_raw, context=ctx)
+        # Step 1: Quick score without DB (immediate feedback)
+        with st.spinner(f"Scoring {len(df_raw)} rows..."):
             info   = detect_dataset_info(df_raw)
+            scored = score_residues(df_raw, context=ctx)
             info["ml_used"] = use_ml and ML_AVAILABLE
             stats  = get_summary_stats(scored)
             pathways = generate_top_pathways(scored, info, ctx)
@@ -338,6 +353,34 @@ with tab1:
         st.session_state.t_info     = info
         st.session_state.t_pathways = pathways
         st.session_state.t_context  = ctx
+        st.session_state.t_enrichment = None
+
+        # Step 2: Database enrichment (async — shows spinner)
+        try:
+            from db_enrichment import detect_protein_from_data, enrich_protein
+            protein_info = detect_protein_from_data(df_raw, ctx)
+            gene   = protein_info.get("gene_name","")
+            uid    = protein_info.get("uniprot_id","")
+            if gene or uid:
+                enrich_msg = f"Querying UniProt, ClinVar, InterPro, PDB for {gene or uid}..."
+                with st.spinner(enrich_msg):
+                    enrichment = enrich_protein(gene_name=gene, uniprot_id=uid)
+                    # Re-score with real features
+                    scored_rich = score_residues(df_raw, context=ctx, enrichment=enrichment)
+                    stats_rich  = get_summary_stats(scored_rich)
+                    st.session_state.t_scored     = scored_rich
+                    st.session_state.t_stats      = stats_rich
+                    st.session_state.t_enrichment = enrichment
+                    st.session_state.t_protein    = protein_info
+                    info["db_enriched"] = True
+                    info["gene_name"]   = gene
+                    info["uniprot_id"]  = uid
+                    info["protein_name"]= enrichment.get("uniprot",{}).get("protein_name","")
+                    info["protein_function"] = enrichment.get("uniprot",{}).get("function","")[:300]
+                    st.session_state.t_info = info
+        except Exception as e:
+            st.session_state.t_enrichment = None  # Fall back gracefully
+
         st.rerun()
 
     if "t_scored" not in st.session_state:

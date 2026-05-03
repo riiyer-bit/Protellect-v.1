@@ -42,7 +42,19 @@ def fetch_pdb():
     return None
 
 
-def build_html(scored_df, pdb_data):
+def _get_enriched(enrichment, pos, field, default):
+    """Pull a field from enrichment for a specific position."""
+    if not enrichment:
+        return default
+    try:
+        from db_enrichment import format_enrichment_for_display
+        display = format_enrichment_for_display(enrichment, pos, f"Pos{pos}")
+        return display.get(field, default)
+    except Exception:
+        return default
+
+
+def build_html(scored_df, pdb_data, enrichment=None):
     residues = {}
     for _, row in scored_df.iterrows():
         pos   = int(row["residue_position"])
@@ -57,12 +69,12 @@ def build_html(scored_df, pdb_data):
         residues[pos] = {
             "label":label,"status":stat,"priority":pri,"score":score,
             "expType":exp if exp not in ("nan","") else "",
-            "domain":      hs.get("domain",      f"Position/feature {pos} — full domain annotation requires Phase 2 (live UniProt + PDB integration for any protein)"),
-            "mechanism":   hs.get("mechanism",   f"Normalised effect score: {score}. This value is derived from your experimental data. For known TP53 hotspots, detailed mechanistic annotation is shown automatically. Phase 2 adds live database annotation for any protein."),
-            "clinvar":     hs.get("clinvar",      "Not a known TP53 hotspot — ClinVar data not pre-loaded for this position. Phase 2 will query ClinVar live for any variant in any protein."),
-            "cosmic":      hs.get("cosmic",       "COSMIC data not pre-loaded for this position. Phase 2 integrates live COSMIC v97 for all proteins."),
-            "cancer":      hs.get("cancer",       "Cancer type data not pre-loaded. Phase 2 pulls this automatically from COSMIC and ClinVar."),
-            "therapeutic": hs.get("therapeutic",  "No pre-loaded therapeutic data. For drug-target information, consult ChEMBL, DGIdb, or ClinicalTrials.gov for this gene/protein."),
+            "domain":      hs.get("domain",      _get_enriched(enrichment, pos, "domain", f"Position {pos} — domain annotation pending DB enrichment")),
+            "mechanism":   hs.get("mechanism",   _get_enriched(enrichment, pos, "mechanism", f"Effect score {score} from your experimental assay. Run triage to trigger live UniProt/PDB annotation.")),
+            "clinvar":     hs.get("clinvar",      _get_enriched(enrichment, pos, "clinvar", "Not a known hotspot — Phase 2 queries ClinVar live for any variant")),
+            "cosmic":      hs.get("cosmic",       "COSMIC Phase 2 integration — somatic frequency across cancer types"),
+            "cancer":      hs.get("cancer",       _get_enriched(enrichment, pos, "cancer", "Cancer type data — Phase 2 COSMIC integration")),
+            "therapeutic": hs.get("therapeutic",  _get_enriched(enrichment, pos, "therapeutic", "Consult ChEMBL, DGIdb, or ClinicalTrials.gov for therapeutic context")),
         }
 
     res_json = json.dumps(residues, default=str)
@@ -289,4 +301,22 @@ def render():
         st.error("Could not load protein structure. Check internet connection.")
         return
 
-    components.html(build_html(st.session_state.t_scored, pdb), height=1000, scrolling=True)
+    # Use DB enrichment if available to populate annotations
+    enrichment = st.session_state.get("t_enrichment", None)
+    if enrichment:
+        try:
+            from db_enrichment import format_enrichment_for_display
+            enriched_rows = {}
+            for _, row in st.session_state.t_scored.iterrows():
+                pos = int(row["residue_position"])
+                enriched_rows[pos] = format_enrichment_for_display(enrichment, pos, str(row.get("mutation",f"Pos{pos}")))
+            st.session_state.t_enriched_rows = enriched_rows
+            if enrichment.get("gene_name"):
+                gene  = enrichment.get("gene_name","")
+                uid   = enrichment.get("uniprot_id","")
+                pname = enrichment.get("uniprot",{}).get("protein_name","")
+                st.markdown(f'<div style="background:#08101a;border:1px solid #1e2030;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:0.82rem"><span style="color:#4CA8FF;font-weight:600">{pname or gene}</span> &nbsp;·&nbsp; <span style="color:#555">UniProt: {uid}</span> &nbsp;·&nbsp; <span style="color:#555">{enrichment.get("uniprot",{}).get("organism","")}</span> &nbsp;·&nbsp; <span style="color:#4CAF50;font-size:0.75rem">DB enriched from UniProt · ClinVar · InterPro · PDB</span></div>', unsafe_allow_html=True)
+        except Exception:
+            enrichment = None
+
+    components.html(build_html(st.session_state.t_scored, pdb, enrichment), height=1000, scrolling=True)

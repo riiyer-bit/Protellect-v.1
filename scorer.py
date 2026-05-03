@@ -435,12 +435,18 @@ def _build_ml_training_data():
               np.where(importance > 0.40, 1,   # MEDIUM
                        0))                      # LOW
 
-    X = np.column_stack([scores, conservation, domain_imp, in_active, in_binding, pos_norm, coevol])
+    # 9 features to match real feature set
+    bfactor   = np.random.beta(2, 3, n)  # mostly low (rigid structures)
+    pathogenic= (importance > 0.7).astype(float) * 0.8 + np.random.normal(0, 0.1, n)
+    pathogenic= np.clip(pathogenic, 0, 1)
+    X = np.column_stack([scores, conservation, domain_imp, in_active, in_binding,
+                         pos_norm, coevol, bfactor, pathogenic])
     return X, labels
 
 
 _ML_MODEL = None
 _ML_SCALER = None
+_N_FEATURES = 9  # must match X column count
 
 def _get_ml_model():
     global _ML_MODEL, _ML_SCALER
@@ -454,7 +460,7 @@ def _get_ml_model():
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
     model = GradientBoostingClassifier(
-        n_estimators=120, max_depth=4, learning_rate=0.08,
+        n_estimators=150, max_depth=4, learning_rate=0.08,
         subsample=0.8, random_state=42
     )
     model.fit(X_scaled, y)
@@ -473,32 +479,47 @@ def _ml_predict(df_scored: pd.DataFrame, direction: str):
     if n == 0:
         return df_scored, False
 
-    # Build features from what we have
+    # Build features — use real database features if available, fall back to proxies
     norm_scores = df_scored["normalized_score"].values
 
-    # Estimate conservation from score distribution (proxy)
-    conservation = np.clip(norm_scores * 0.8 + np.random.normal(0, 0.1, n), 0, 1)
+    # Check if we have real database features pre-computed
+    has_real_features = "db_conservation" in df_scored.columns
 
-    # Domain importance: higher for known hotspot positions (simple heuristic)
-    known_hotspots = {175, 248, 273, 249, 245, 282, 220, 176, 179}
+    if has_real_features:
+        conservation = df_scored["db_conservation"].fillna(0.5).values
+        domain_imp   = df_scored["db_domain_score"].fillna(0.3).values
+        in_active    = df_scored["db_in_active"].fillna(0).values.astype(float)
+        in_binding   = df_scored["db_in_binding"].fillna(0).values.astype(float)
+        bfactor_flex = df_scored["db_bfactor"].fillna(0.5).values
+        is_pathogenic= df_scored["db_is_pathogenic"].fillna(0).values.astype(float)
+    else:
+        # Proxy features (no database connection)
+        conservation  = np.clip(norm_scores * 0.8 + np.random.normal(0, 0.08, n), 0, 1)
+        known_hotspots = {175, 248, 273, 249, 245, 282, 220, 176, 179}
+        try:
+            positions_f = df_scored["residue_position"].values.astype(float)
+            domain_imp  = np.array([0.9 if int(p) in known_hotspots else
+                                    0.5 if 94 <= int(p) <= 292 else 0.2
+                                    for p in positions_f])
+        except (ValueError, TypeError):
+            domain_imp = np.full(n, 0.3)
+        in_active    = domain_imp * 0.3
+        in_binding   = (norm_scores > 0.7).astype(float) * 0.5
+        bfactor_flex = np.full(n, 0.5)
+        is_pathogenic= np.zeros(n)
+
     try:
         positions = df_scored["residue_position"].values.astype(float)
         pos_max   = float(positions.max()) if len(positions) > 0 else 1.0
         pos_norm  = np.clip(positions / max(pos_max, 1), 0, 1)
-        domain_imp = np.array([0.9 if int(p) in known_hotspots else
-                                0.5 if 94 <= int(p) <= 292 else 0.2
-                                for p in positions])
     except (ValueError, TypeError):
-        # positions are strings (e.g. ENSG ids) — use index as proxy
-        positions  = np.arange(n, dtype=float)
-        pos_norm   = positions / max(n-1, 1)
-        domain_imp = np.full(n, 0.3)
+        pos_norm  = np.linspace(0, 1, n)
 
-    in_active  = domain_imp * 0.3
-    in_binding = (norm_scores > 0.7).astype(float) * 0.5
-    coevol     = conservation * 0.7 + np.random.normal(0, 0.05, n)
+    coevol = conservation * 0.7 + np.random.normal(0, 0.04, n)
+    coevol = np.clip(coevol, 0, 1)
 
-    X = np.column_stack([norm_scores, conservation, domain_imp, in_active, in_binding, pos_norm, coevol])
+    X = np.column_stack([norm_scores, conservation, domain_imp, in_active,
+                         in_binding, pos_norm, coevol, bfactor_flex, is_pathogenic])
     X_scaled = scaler.transform(X)
 
     probs = model.predict_proba(X_scaled)  # shape (n, 3): [LOW, MED, HIGH]
@@ -758,8 +779,12 @@ def generate_top_pathways(scored_df: pd.DataFrame, info: dict, context: dict = N
     return pathways[:5]
 
 
-def score_residues(df: pd.DataFrame, context: dict = None) -> pd.DataFrame:
-    """Main entry. Handles any dataset, applies ML, generates rich hypotheses."""
+def score_residues(df: pd.DataFrame, context: dict = None, enrichment: dict = None) -> pd.DataFrame:
+    """Main entry. Handles any dataset, applies ML, generates rich hypotheses.
+    
+    enrichment: pre-fetched database enrichment dict from db_enrichment.enrich_protein()
+                If provided, real biological features are used for ML instead of proxies.
+    """
     df2 = _standardise(df)
 
     # Convert scores to numeric
@@ -784,6 +809,34 @@ def score_residues(df: pd.DataFrame, context: dict = None) -> pd.DataFrame:
 
     # Rule-based priority first
     df2["priority"] = df2["normalized_score"].apply(assign_priority)
+
+    # Attach real database features if enrichment is available
+    if enrichment:
+        try:
+            from db_enrichment import get_residue_features
+            db_conservation = []
+            db_domain_score = []
+            db_in_active    = []
+            db_in_binding   = []
+            db_bfactor      = []
+            db_is_pathogenic= []
+            for _, row in df2.iterrows():
+                pos   = int(row["residue_position"])
+                feats = get_residue_features(enrichment, pos)
+                db_conservation.append(feats.get("conservation", 0.5))
+                db_domain_score.append(feats.get("domain_score", 0.3))
+                db_in_active.append(1.0 if feats.get("in_active_site") else 0.0)
+                db_in_binding.append(1.0 if feats.get("in_binding_site") else 0.0)
+                db_bfactor.append(feats.get("bfactor", 0.5))
+                db_is_pathogenic.append(1.0 if feats.get("is_pathogenic") else 0.0)
+            df2["db_conservation"]  = db_conservation
+            df2["db_domain_score"]  = db_domain_score
+            df2["db_in_active"]     = db_in_active
+            df2["db_in_binding"]    = db_in_binding
+            df2["db_bfactor"]       = db_bfactor
+            df2["db_is_pathogenic"] = db_is_pathogenic
+        except Exception as e:
+            pass  # Fall back to proxy features silently
 
     # ML priority
     df2, ml_used = _ml_predict(df2, direction)
