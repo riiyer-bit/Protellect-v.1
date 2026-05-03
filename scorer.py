@@ -1008,6 +1008,23 @@ def score_residues(df: pd.DataFrame, context: dict = None, enrichment: dict = No
     # Generate hypotheses
     df2["hypothesis"] = [str(generate_hypothesis(r, context)) for _, r in df2.iterrows()]
 
+    # Safety: if all rows were dropped, return at least a minimal result
+    if len(df2) == 0:
+        # Try again without dropping NaN positions — use row index
+        df2 = _standardise(df)
+        df2["effect_score"] = pd.to_numeric(df2.get("effect_score", pd.Series(dtype=float)), errors='coerce')
+        df2 = df2.dropna(subset=["effect_score"]).copy()
+        if len(df2) == 0:
+            raise ValueError("No scoreable rows found after processing. Check your data has at least one numeric or categorical score value.")
+        direction2 = _detect_direction(df2["effect_score"])
+        df2["normalized_score"] = _normalise(df2["effect_score"], direction2).round(3)
+        df2["residue_position"] = range(1, len(df2)+1)
+        df2["priority"] = df2["normalized_score"].apply(assign_priority)
+        df2["priority_final"] = df2["priority"]
+        df2["ml_confidence"] = float("nan")
+        df2["ml_priority"] = df2["priority"]
+        df2["hypothesis"] = [str(generate_hypothesis(r, context)) for _, r in df2.iterrows()]
+
     df2 = df2.sort_values("normalized_score", ascending=False).reset_index(drop=True)
     df2.index += 1
     return df2

@@ -302,7 +302,7 @@ with st.sidebar:
         scored = st.session_state.t_scored
         pri_col = "priority_final" if "priority_final" in scored.columns else "priority"
         n_high  = int((scored[pri_col] == "HIGH").sum())
-        top     = scored.iloc[0]
+        top     = scored.iloc[0] if len(scored) > 0 else pd.Series(dtype=object)
         top_lbl = str(top.get("mutation", f"Pos{int(top['residue_position'])}"))
         if top_lbl in ("nan",""):
             top_lbl = f"Pos{int(top['residue_position'])}"
