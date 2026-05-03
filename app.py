@@ -165,6 +165,25 @@ with st.sidebar:
 
     st.divider()
 
+    # ── About ──────────────────────────────────────────────────────────────
+    with st.expander("ℹ️ About Protellect", expanded=False):
+        st.markdown("""
+**Protellect** is a computational biology triage platform that converts raw experimental data from wet lab assays into ranked, annotated biological hypotheses.
+
+**The goal:** Help researchers spend less time manually interpreting data and more time validating the right targets. A hypothesis that takes 2–4 hours to reach manually should take 2 minutes.
+
+**What it does:**
+- Accepts any biological dataset (DMS, CRISPR screens, RNA-seq, proteomics, variant data, stability assays)
+- Auto-detects the protein, assay type, and score scale from your data
+- Queries UniProt, ClinVar, InterPro, and PDB in real time for any protein
+- Applies ML-assisted scoring trained on real biological features
+- Generates ranked hypotheses with domain annotations, clinical context, and experimental recommendations
+
+**Phase 1 (now):** TP53 hotspot enrichment + any protein via live databases
+**Phase 2:** Full database integration for all proteins, automated sequence alignment
+**Phase 3:** Closed-loop ML retraining from your validated wet lab outcomes
+        """)
+
     # ── Upload ─────────────────────────────────────────────────────────────
     st.markdown('<div class="sec-label">Data Upload</div>', unsafe_allow_html=True)
     uploaded_file = st.file_uploader(
@@ -230,12 +249,50 @@ with st.sidebar:
 
     st.divider()
 
-    # ── Thresholds ──────────────────────────────────────────────────────────
-    st.markdown('<div class="sec-label">Triage Thresholds</div>', unsafe_allow_html=True)
-    high_thresh   = st.slider("HIGH cutoff",   0.5, 1.0, 0.75, 0.01)
-    medium_thresh = st.slider("MEDIUM cutoff", 0.1, 0.7, 0.40, 0.01)
-    use_ml        = st.checkbox("Use ML-assisted scoring", value=ML_AVAILABLE, disabled=not ML_AVAILABLE,
-                                 help="Gradient Boosting model trained on biological features. Falls back to rule-based if unavailable.")
+    # ── Triage Sensitivity ───────────────────────────────────────────────────
+    st.markdown('<div class="sec-label">Triage Sensitivity</div>', unsafe_allow_html=True)
+
+    sensitivity_mode = st.radio(
+        "Mode", ["Preset", "Manual"], horizontal=True,
+        help="Preset: choose a named profile. Manual: type exact cutoff values.",
+        label_visibility="collapsed"
+    )
+
+    if sensitivity_mode == "Preset":
+        preset = st.selectbox("Sensitivity profile", [
+            "Standard (0.75 / 0.40)",
+            "Strict — fewer HIGH hits (0.85 / 0.55)",
+            "Permissive — more HIGH hits (0.65 / 0.30)",
+            "Very permissive (0.55 / 0.20)",
+        ], label_visibility="collapsed")
+        preset_map = {
+            "Standard (0.75 / 0.40)":                (0.75, 0.40),
+            "Strict — fewer HIGH hits (0.85 / 0.55)": (0.85, 0.55),
+            "Permissive — more HIGH hits (0.65 / 0.30)":(0.65, 0.30),
+            "Very permissive (0.55 / 0.20)":          (0.55, 0.20),
+        }
+        high_thresh, medium_thresh = preset_map[preset]
+        st.caption(f"HIGH ≥ **{high_thresh}** · MEDIUM ≥ **{medium_thresh}**")
+    else:
+        col_h, col_m = st.columns(2)
+        with col_h:
+            high_thresh   = st.number_input("HIGH ≥", min_value=0.01, max_value=1.0, value=0.75, step=0.01, format="%.2f")
+        with col_m:
+            medium_thresh = st.number_input("MED ≥",  min_value=0.01, max_value=1.0, value=0.40, step=0.01, format="%.2f")
+        if high_thresh <= medium_thresh:
+            st.warning("⚠ HIGH cutoff must be greater than MEDIUM.")
+            high_thresh = min(medium_thresh + 0.05, 1.0)
+
+    use_ml = st.checkbox(
+        "ML-assisted scoring",
+        value=ML_AVAILABLE, disabled=not ML_AVAILABLE,
+        help="Gradient Boosting model. Uses real biological features from databases when available."
+    )
+    use_db = st.checkbox(
+        "Live database enrichment",
+        value=True,
+        help="Queries UniProt, ClinVar, InterPro, PDB in real time. Results cached after first query."
+    )
 
     run_btn = st.button("▶  Run Triage", type="primary", use_container_width=True)
 
@@ -361,7 +418,7 @@ with tab1:
             protein_info = detect_protein_from_data(df_raw, ctx)
             gene   = protein_info.get("gene_name","")
             uid    = protein_info.get("uniprot_id","")
-            if gene or uid:
+            if use_db and (gene or uid):
                 enrich_msg = f"Querying UniProt, ClinVar, InterPro, PDB for {gene or uid}..."
                 with st.spinner(enrich_msg):
                     enrichment = enrich_protein(gene_name=gene, uniprot_id=uid)
@@ -384,6 +441,47 @@ with tab1:
         st.rerun()
 
     if "t_scored" not in st.session_state:
+        # ── About section ────────────────────────────────────────────────────
+        if LOGO_B64:
+            st.markdown(f'''<div style="display:flex;align-items:center;gap:16px;margin-bottom:20px">
+              <img src="{LOGO_B64}" style="height:60px;object-fit:contain;border-radius:10px">
+              <div>
+                <h2 style="margin:0;font-size:1.6rem;font-family:IBM Plex Mono,monospace">Protellect</h2>
+                <p style="color:#555;font-size:0.9rem;margin:0">Experimental Intelligence Layer for Biomedical Research</p>
+              </div>
+            </div>''', unsafe_allow_html=True)
+
+        st.markdown("""
+        <div style="background:#0a0c1a;border:1px solid #1e2030;border-radius:12px;padding:24px;margin-bottom:24px">
+          <p style="font-family:'IBM Plex Mono',monospace;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.18em;color:#4CA8FF;margin-bottom:12px">About this tool</p>
+          <p style="font-size:0.95rem;color:#ccc;line-height:1.8;margin-bottom:16px">
+            Protellect converts raw experimental data from wet lab assays into ranked, annotated biological hypotheses.
+            A result that takes 2–4 hours of manual literature review reaches you in under 2 minutes.
+          </p>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px">
+            <div style="background:#080b14;border:1px solid #1e2030;border-radius:8px;padding:14px">
+              <p style="font-family:'IBM Plex Mono',monospace;font-size:0.68rem;color:#FF4C4C;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">① Input</p>
+              <p style="font-size:0.82rem;color:#888;line-height:1.6">Any wet lab assay — DMS, CRISPR, RNA-seq, proteomics, stability, variant data. CSV, Excel, any format.</p>
+            </div>
+            <div style="background:#080b14;border:1px solid #1e2030;border-radius:8px;padding:14px">
+              <p style="font-family:'IBM Plex Mono',monospace;font-size:0.68rem;color:#FFA500;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">② Intelligence</p>
+              <p style="font-size:0.82rem;color:#888;line-height:1.6">ML-assisted scoring with real features from UniProt, ClinVar, InterPro, and PDB — queried live for any protein.</p>
+            </div>
+            <div style="background:#080b14;border:1px solid #1e2030;border-radius:8px;padding:14px">
+              <p style="font-family:'IBM Plex Mono',monospace;font-size:0.68rem;color:#4CAF50;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">③ Output</p>
+              <p style="font-size:0.82rem;color:#888;line-height:1.6">Ranked hypotheses, 3D structure visualisation, mutation timeline, cell impact diagrams, and top 5 experimental pathways.</p>
+            </div>
+          </div>
+          <div style="margin-top:16px;padding-top:14px;border-top:1px solid #1e2030;display:flex;gap:24px;flex-wrap:wrap">
+            <span style="font-size:0.78rem;color:#555"><span style="color:#4CA8FF">Phase 1 (now):</span> Universal dataset support · TP53 hotspot enrichment · live DB for any protein</span>
+            <span style="font-size:0.78rem;color:#555"><span style="color:#FFA500">Phase 2:</span> Full structural annotation · sequence alignment · COSMIC integration</span>
+            <span style="font-size:0.78rem;color:#555"><span style="color:#FF4C4C">Phase 3:</span> Closed-loop ML retraining from your validated outcomes</span>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.info("👈  Fill in the **Q&A questions**, upload your data, and click **▶ Run Triage** to begin.")
+
         col1, col2 = st.columns(2)
         with col1:
             st.markdown("""
