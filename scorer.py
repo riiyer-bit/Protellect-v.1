@@ -920,7 +920,7 @@ def score_residues(df: pd.DataFrame, context: dict = None, enrichment: dict = No
     """
     df2 = _standardise(df)
 
-    # Convert scores to numeric — handle categorical (High/Medium/Low) and text data
+    # ── Score conversion — bulletproof for any data type ─────────────────────
     ORDINAL_MAPS = [
         {"high":3,"medium":2,"low":1,"not detected":0,"negative":0,"positive":2,
          "strong":3,"moderate":2,"weak":1,"absent":0,"detected":2},
@@ -931,25 +931,70 @@ def score_residues(df: pd.DataFrame, context: dict = None, enrichment: dict = No
          "likely benign":1,"benign":0},
         {"essential":3,"strongly depleted":3,"depleted":2,"neutral":1,"enriched":0},
     ]
-    # First try direct numeric
-    raw = df2["effect_score"]
-    numeric = pd.to_numeric(raw, errors='coerce')
-    if numeric.notna().mean() < 0.3:
-        # Try ordinal mapping
-        mapped = None
-        for omap in ORDINAL_MAPS:
-            trial = raw.astype(str).str.lower().str.strip().map(omap)
-            if trial.notna().mean() >= 0.4:
-                mapped = trial
-                break
-        if mapped is not None:
-            df2["effect_score"] = mapped
-        # else leave as is and let dropna handle it
-    else:
-        df2["effect_score"] = numeric
 
+    def _find_best_score_col(df_in):
+        """Find the best numeric/ordinal column from any DataFrame."""
+        best_col, best_vals, best_var = None, None, -1
+        for col in df_in.columns:
+            if col in ("residue_position","mutation","experiment_type","gene_name"):
+                continue
+            # Try direct numeric
+            s = pd.to_numeric(df_in[col], errors='coerce')
+            if s.notna().mean() >= 0.3:
+                v = float(s.var()) if s.notna().sum() > 1 else 0
+                if v > best_var:
+                    best_var, best_col, best_vals = v, col, s
+            # Try ordinal mapping
+            else:
+                for omap in ORDINAL_MAPS:
+                    mapped = df_in[col].astype(str).str.lower().str.strip().map(omap)
+                    if mapped.notna().mean() >= 0.4:
+                        v = float(mapped.var()) if mapped.notna().sum() > 1 else 0
+                        if v > best_var:
+                            best_var, best_col, best_vals = v, col, pd.to_numeric(mapped, errors='coerce')
+                        break
+        return best_col, best_vals
+
+    # If effect_score column exists, try to convert it
+    if "effect_score" in df2.columns:
+        raw = df2["effect_score"]
+        numeric = pd.to_numeric(raw, errors='coerce')
+        if numeric.notna().mean() >= 0.3:
+            df2["effect_score"] = numeric
+        else:
+            # Try ordinal
+            converted = False
+            for omap in ORDINAL_MAPS:
+                trial = raw.astype(str).str.lower().str.strip().map(omap)
+                if trial.notna().mean() >= 0.4:
+                    df2["effect_score"] = pd.to_numeric(trial, errors='coerce')
+                    converted = True
+                    break
+            if not converted:
+                # effect_score column exists but unusable — search other columns
+                best_col, best_vals = _find_best_score_col(df2)
+                if best_vals is not None:
+                    df2["effect_score"] = best_vals
+
+    # Final numeric coercion
     df2["effect_score"] = pd.to_numeric(df2["effect_score"], errors='coerce')
-    df2 = df2.dropna(subset=["effect_score"]).copy()
+
+    # If still all NaN, search entire DataFrame for any scoreable column
+    if df2["effect_score"].notna().sum() == 0:
+        best_col, best_vals = _find_best_score_col(df2)
+        if best_vals is not None:
+            df2["effect_score"] = best_vals
+        else:
+            raise ValueError(
+                "Could not find any scoreable column (numeric or categorical like High/Medium/Low). "
+                f"Columns in your file: {', '.join(df.columns.tolist()[:10])}"
+            )
+
+    # Drop rows where effect_score is NaN — but never drop ALL rows
+    has_score = df2["effect_score"].notna()
+    if has_score.sum() > 0:
+        df2 = df2[has_score].copy()
+    # else keep all rows (shouldn't reach here given check above)
 
     # Detect direction and normalise
     direction = _detect_direction(df2["effect_score"])
