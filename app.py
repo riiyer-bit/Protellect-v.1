@@ -603,12 +603,32 @@ with tab1:
         if pdb:
             cmap = {"HIGH":"#FF4C4C","MEDIUM":"#FFA500","LOW":"#4CA8FF"}
             rmap = {"HIGH":0.88,"MEDIUM":0.62,"LOW":0.40}
-            rs = {
-                int(row["residue_position"]): {"color":cmap[str(row[pri_col])],"radius":rmap[str(row[pri_col])]}
-                for _, row in scored.iterrows()
-            }
+
+            # Check if positions map to TP53 PDB (residues 1-393)
+            user_positions = [int(row["residue_position"]) for _, row in scored.iterrows()]
+            overlap = [p for p in user_positions if 1 <= p <= 393]
+
+            if overlap:
+                rs = {int(row["residue_position"]): {"color":cmap[str(row[pri_col])],"radius":rmap[str(row[pri_col])]}
+                      for _, row in scored.iterrows()}
+                viewer_note = ""
+            else:
+                import numpy as np
+                pdb_range = list(range(94, 293))
+                n = min(len(scored), len(pdb_range))
+                mapped_pos = [pdb_range[i] for i in np.linspace(0, len(pdb_range)-1, n, dtype=int)]
+                rs = {}
+                for i, (_, row) in enumerate(scored.head(n).iterrows()):
+                    rs[mapped_pos[i]] = {"color":cmap[str(row[pri_col])],"radius":rmap[str(row[pri_col])]}
+                viewer_note = (f"Your data positions ({min(user_positions)}\u2013{max(user_positions)}) "
+                               "don't map to the TP53 reference structure. Features are shown spread "
+                               "across the DNA-binding domain for visual reference. Phase 2 will "
+                               "auto-fetch the correct protein structure from UniProt/PDB.")
+
             components.html(make_viewer(pdb, rs, 580, 455), height=460)
-            st.markdown('<div style="display:flex;gap:20px;margin-top:8px;font-size:0.78rem"><span><span style="color:#FF4C4C">●</span> HIGH</span><span><span style="color:#FFA500">●</span> MEDIUM</span><span><span style="color:#4CA8FF">●</span> LOW</span></div>', unsafe_allow_html=True)
+            st.markdown('<div style="display:flex;gap:20px;margin-top:8px;font-size:0.78rem"><span><span style="color:#FF4C4C">\u25cf</span> HIGH</span><span><span style="color:#FFA500">\u25cf</span> MEDIUM</span><span><span style="color:#4CA8FF">\u25cf</span> LOW</span></div>', unsafe_allow_html=True)
+            if viewer_note:
+                st.info("\u2139\ufe0f " + viewer_note)
         else:
             st.error("Could not load protein structure.")
 
