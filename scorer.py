@@ -168,9 +168,9 @@ def load_file(file_obj) -> pd.DataFrame:
     try:
         # For large files, use chunked reading
         raw_io = io.StringIO(raw)
-        df = pd.read_csv(raw_io, sep=sep, engine='python', low_memory=False, on_bad_lines='skip')
+        df = pd.read_csv(raw_io, sep=sep, on_bad_lines='skip')
         if df.shape[1] == 1:  # didn't split — try auto-detect
-            df = pd.read_csv(io.StringIO(raw), sep=None, engine='python', low_memory=False, on_bad_lines='skip')
+            df = pd.read_csv(io.StringIO(raw), sep=None, on_bad_lines='skip')
 
         # If very large (many rows), check if this is a multi-row-per-gene format
         # (like Protein Atlas where each gene has one row per tissue/cell type)
