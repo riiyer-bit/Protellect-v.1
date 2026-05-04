@@ -319,8 +319,9 @@ with st.sidebar:
 # ══════════════════════════════════════════════════════════════════════════
 # TABS
 # ══════════════════════════════════════════════════════════════════════════
-tab1, tab2, tab3, tab4 = st.tabs([
-    "🧬  Triage System", "🔬  Case Study", "⚗️  Protein Explorer", "💡  Hypothesis Lab",
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "🧬  Triage System", "🔬  Case Study", "⚗️  Protein Explorer",
+    "💡  Hypothesis Lab", "🔎  Protein Deep Dive", "🦠  Disease Explorer",
 ])
 
 
@@ -747,3 +748,18 @@ with tab3:
 with tab4:
     import hypothesis_lab
     hypothesis_lab.render()
+
+# ══════════════════════════════════════════════════════════════════════════
+# TAB 5 — PROTEIN DEEP DIVE
+# ══════════════════════════════════════════════════════════════════════════
+with tab5:
+    import protein_deep_dive
+    protein_deep_dive.render()
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# TAB 6 — DISEASE EXPLORER
+# ══════════════════════════════════════════════════════════════════════════
+with tab6:
+    import disease_explorer
+    disease_explorer.render()
