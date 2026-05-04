@@ -156,41 +156,47 @@ TIER_DEFINITIONS = {
         "example_proteins":  ["EGFR", "KRAS", "MYH7"],
     },
     "LOW": {
-        "label":       "Limited Genomic Evidence",
-        "threshold":   0.01,   # DBR >= 0.01
+        "label":       "Confirmed Rare Disease Gene",
+        "threshold":   0.01,   # n_pathogenic > 0 but DBR < 0.10
         "icon":        "🟡",
         "color":       "#FFD700",
         "badge_color": "#c8a000",
         "description": (
-            "Few pathogenic variants are known in humans relative to the protein's "
-            "size. This does not necessarily mean the protein is unimportant, but "
-            "it means you cannot rely on human genetics to validate your hit. "
-            "Treat wet lab signal with caution."
+            "Confirmed pathogenic variants exist in ClinVar — this protein DOES cause "
+            "human disease. The low Disease Burden Ratio reflects the rarity of the "
+            "disease, not the unimportance of the protein. Rare Mendelian disease genes "
+            "will always have few ClinVar submissions simply because fewer patients exist. "
+            "This is NOT the beta-arrestin pattern. Beta-arrestin has zero pathogenic "
+            "variants. This protein has confirmed disease-causing mutations in humans."
         ),
-        "clinvar_verdict":   "Limited pathogenic evidence in human populations.",
-        "trust_statement":   "Verify the human genetic context before committing resources to validation.",
-        "example_proteins":  ["Many kinases", "Signalling scaffolds"],
+        "clinvar_verdict":   "Confirmed pathogenic variants — rare Mendelian disease gene.",
+        "trust_statement":   "Genuine disease gene. Pursue validation — especially if studying the confirmed disease. Low DBR reflects disease rarity, not protein dispensability.",
+        "example_proteins":  ["CHRM3 (Prune belly syndrome)", "Rare metabolic disease genes", "Low-prevalence Mendelian disorder genes"],
     },
     "NONE": {
-        "label":       "No Genomic Evidence",
-        "threshold":   0.0,    # DBR < 0.01
+        "label":       "No Human Disease Evidence",
+        "threshold":   0.0,    # n_pathogenic == 0
         "icon":        "⚪",
         "color":       "#888888",
         "badge_color": "#666666",
         "description": (
-            "Variants in this protein are tolerated in healthy human populations "
-            "with no established disease association. This is the β-arrestin pattern: "
-            "extensively studied in vitro, but humans who carry broken versions are "
-            "apparently healthy. Your wet lab signal may reflect a real molecular "
-            "interaction but not a biologically essential one."
+            "Zero confirmed pathogenic variants exist in ClinVar for this protein. "
+            "This means no mutations in this gene have been shown to cause disease "
+            "in a human being. This is the β-arrestin pattern: extensively studied "
+            "in vitro, but humans who carry broken or absent versions are apparently "
+            "healthy. Your wet lab signal may reflect a real molecular interaction, "
+            "but it is NOT genomically validated as biologically essential. "
+            "This is fundamentally different from a rare disease gene with few "
+            "ClinVar submissions — those genes have confirmed cases. This protein "
+            "has zero."
         ),
-        "clinvar_verdict":   "Variants in this protein are tolerated in healthy humans.",
+        "clinvar_verdict":   "Zero pathogenic variants confirmed in human populations.",
         "trust_statement":   (
-            "Check ClinVar and gnomAD before committing resources. "
-            "If no disease association exists, consider whether you are studying "
-            "a piggyback protein rather than an essential one."
+            "No ClinVar pathogenic variants exist. Before committing resources, check: "
+            "gnomAD pLI score, OMIM entry, and mouse KO phenotype. If all three are "
+            "weak, you are likely studying a dispensable protein."
         ),
-        "example_proteins":  ["ARRB1 (β-arrestin 1)", "ARRB2 (β-arrestin 2)", "Many signalling intermediates"],
+        "example_proteins":  ["ARRB1 (β-arrestin 1)", "ARRB2 (β-arrestin 2)", "TALN1 (Talin 1)", "Many scaffolding intermediates"],
     },
     "UNKNOWN": {
         "label":       "Genomically Uncharacterised",
@@ -466,17 +472,27 @@ def calculate_dbr(n_pathogenic: int, protein_length: int) -> Optional[float]:
 
 
 def assign_genomic_tier(dbr: Optional[float], n_pathogenic: int) -> str:
-    """Assign a genomic validation tier from the Disease Burden Ratio."""
+    """
+    Assign a genomic validation tier from the Disease Burden Ratio.
+
+    CRITICAL RULE: NONE tier only applies when n_pathogenic == 0.
+    Even a single confirmed pathogenic variant means the protein causes real disease.
+    Small pathogenic counts with low DBR = RARE Mendelian disease, NOT dispensable protein.
+    The beta-arrestin pattern is specifically zero pathogenic variants — not few.
+    """
     if dbr is None or n_pathogenic is None:
         return "UNKNOWN"
+    # NONE only when absolutely zero pathogenic evidence in ClinVar
+    if n_pathogenic == 0:
+        return "NONE"
+    # Any confirmed pathogenic variants = at minimum LOW
     if dbr >= TIER_DEFINITIONS["CRITICAL"]["threshold"]:
         return "CRITICAL"
     elif dbr >= TIER_DEFINITIONS["HIGH"]["threshold"]:
         return "HIGH"
-    elif dbr >= TIER_DEFINITIONS["LOW"]["threshold"]:
-        return "LOW"
     else:
-        return "NONE"
+        # n_pathogenic > 0 but low DBR = rare Mendelian disease with few submissions
+        return "LOW"
 
 
 def get_genomic_verdict(tier: str, protein_name: str = "", n_pathogenic: int = 0,

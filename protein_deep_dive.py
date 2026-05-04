@@ -399,6 +399,67 @@ def build_investment_warning(dbr, tier, n_pathogenic, protein_name, gene_name, d
     }
 
 
+@st.cache_data(show_spinner=False, ttl=3600)
+def fetch_pubmed_papers(gene_name: str, disease_context: str = "", max_results: int = 8) -> list:
+    """
+    Fetch actual published papers for this gene from PubMed.
+    Searches specifically for papers linking this gene to human disease.
+    Returns papers sorted by relevance — mutation/disease papers first.
+    NOT generic pathway papers. Human genetics papers.
+    """
+    papers = []
+    try:
+        # Build targeted query - prioritise disease/mutation/variant papers
+        queries = []
+        if disease_context:
+            queries.append(f'{gene_name}[gene] AND "{disease_context}"[title/abstract] AND "mutation"[title/abstract]')
+            queries.append(f'{gene_name}[gene] AND "{disease_context}"[title/abstract]')
+        queries.append(f'{gene_name}[gene] AND ("pathogenic variant" OR "disease-causing mutation" OR "Mendelian" OR "loss of function") AND "human"[title/abstract]')
+        queries.append(f'{gene_name}[gene] AND ("clinical" OR "patient" OR "disease") AND "variant"[title/abstract]')
+
+        seen_ids = set()
+        for q in queries:
+            if len(papers) >= max_results:
+                break
+            search = _get("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi", {
+                "db":"pubmed","term":q,"retmax":5,"retmode":"json","sort":"relevance",
+                "tool":"protellect","email":"research@protellect.com",
+            })
+            if not search: continue
+            ids = search.get("esearchresult",{}).get("idlist",[])
+            new_ids = [i for i in ids if i not in seen_ids]
+            if not new_ids: continue
+            seen_ids.update(new_ids)
+            time.sleep(0.35)
+            summary = _get("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi", {
+                "db":"pubmed","id":",".join(new_ids),"retmode":"json",
+                "tool":"protellect","email":"research@protellect.com",
+            })
+            if not summary: continue
+            result_data = summary.get("result",{})
+            for pid in result_data.get("uids",[]):
+                entry = result_data.get(pid,{})
+                title = entry.get("title","")
+                journal = entry.get("fulljournalname","") or entry.get("source","")
+                year = entry.get("pubdate","")[:4]
+                authors = entry.get("authors",[])
+                first_author = authors[0].get("name","") if authors else ""
+                if title and pid not in seen_ids:
+                    papers.append({
+                        "pmid":    pid,
+                        "title":   title,
+                        "journal": journal,
+                        "year":    year,
+                        "author":  first_author,
+                        "url":     f"https://pubmed.ncbi.nlm.nih.gov/{pid}/",
+                    })
+            if len(papers) >= max_results:
+                break
+    except Exception:
+        pass
+    return papers[:max_results]
+
+
 # ── Main render function ──────────────────────────────────────────────────────
 def render():
     if LOGO_B64:
@@ -462,10 +523,11 @@ def render():
     gene = gene_input.strip().upper()
 
     # ── Fetch all data ────────────────────────────────────────────────────────
-    with st.spinner(f"Fetching data for {gene} from UniProt, ClinVar, Ensembl..."):
+    with st.spinner(f"Fetching data for {gene} from UniProt, ClinVar, PubMed, Ensembl..."):
         uni   = fetch_uniprot(gene)
         chrom = fetch_chromosome_location(gene, uni.get("ensembl_id",""))
         cv    = fetch_clinvar_full(gene)
+        papers = fetch_pubmed_papers(gene, disease_context)
 
     if not uni["found"]:
         st.error(f"❌ Could not find **{gene}** in UniProt. Check the gene symbol and try again.")
@@ -727,19 +789,28 @@ def render():
             st.markdown(f'<div style="background:#0a140a;border:1px solid #1a3a1a;border-radius:6px;padding:8px 12px;margin-top:8px"><span style="font-family:IBM Plex Mono,monospace;font-size:0.65rem;color:#4CAF50;text-transform:uppercase">Expected result: </span><span style="font-size:0.78rem;color:#aaa">{exp["expected_result"]}</span></div>', unsafe_allow_html=True)
             st.markdown(f'<div style="font-size:0.72rem;color:#555;margin-top:4px">Validates: {exp["validates"]}</div>', unsafe_allow_html=True)
 
-    # ── Supporting papers ─────────────────────────────────────────────────────
+    # ── Published papers from PubMed (dynamic, gene-specific) ───────────────
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown('<div style="font-family:IBM Plex Mono,monospace;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.18em;color:#444;border-bottom:1px solid #1e2030;padding-bottom:6px;margin-bottom:12px">Scientific Basis</div>', unsafe_allow_html=True)
-    papers = verdict.get("papers",[])
-    c1p, c2p = st.columns(2, gap="medium")
-    for i, paper in enumerate(papers[:4]):
-        col = c1p if i % 2 == 0 else c2p
-        with col:
-            st.markdown(f"""
-            <div style="background:#0a0c14;border:1px solid #1e2030;border-radius:8px;padding:12px;margin-bottom:8px">
-              <div style="font-size:0.8rem;font-weight:600;color:#eee;margin-bottom:4px">{paper.get('short','')}</div>
-              <div style="font-size:0.75rem;color:#888;margin-bottom:4px;font-style:italic">{paper.get('journal','')} · {paper.get('year','')}</div>
-              <div style="font-size:0.75rem;color:#aaa;margin-bottom:6px;line-height:1.6">{paper.get('key_finding','')}</div>
-              <a href="{paper.get('url','#')}" target="_blank"
-                 style="font-size:0.7rem;color:#4CA8FF;text-decoration:none">Read paper →</a>
-            </div>""", unsafe_allow_html=True)
+    st.markdown(f'<div style="font-family:IBM Plex Mono,monospace;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.18em;color:#444;border-bottom:1px solid #1e2030;padding-bottom:6px;margin-bottom:12px">Published Papers — {gene} Human Disease Evidence (PubMed)</div>', unsafe_allow_html=True)
+
+    if papers:
+        st.markdown('<div style="font-size:0.75rem;color:#555;margin-bottom:10px">Papers retrieved from PubMed prioritising human genetics, disease-causing mutations, and clinical reports. Not pathway inference — actual human evidence.</div>', unsafe_allow_html=True)
+        c1p, c2p = st.columns(2, gap="medium")
+        for i, paper in enumerate(papers):
+            col = c1p if i % 2 == 0 else c2p
+            with col:
+                st.markdown(f"""<div style="background:#0a0c14;border:1px solid #1e2030;border-radius:8px;padding:12px;margin-bottom:8px">
+  <div style="font-size:0.78rem;font-weight:600;color:#eee;margin-bottom:4px;line-height:1.5">{paper["title"][:100]}{"..." if len(paper["title"])>100 else ""}</div>
+  <div style="font-size:0.7rem;color:#555;margin-bottom:6px">{paper["author"]} · {paper["journal"]} · {paper["year"]} · PMID {paper["pmid"]}</div>
+  <a href="{paper["url"]}" target="_blank" style="font-size:0.7rem;color:#4CA8FF;text-decoration:none">Read on PubMed →</a>
+</div>""", unsafe_allow_html=True)
+    else:
+        st.markdown('<div style="background:#0a0a14;border:1px solid #1e2030;border-radius:8px;padding:12px;font-size:0.8rem;color:#666">No disease-specific papers found on PubMed for this gene. This itself is evidence — a clinically important protein would have published case reports.</div>', unsafe_allow_html=True)
+
+    # Methodology papers always shown
+    st.markdown('<div style="font-size:0.72rem;color:#444;margin-top:10px;margin-bottom:4px;font-family:IBM Plex Mono,monospace">Genomic validation methodology:</div>', unsafe_allow_html=True)
+    methodology_papers = verdict.get("papers",[])
+    mp_cols = st.columns(len(methodology_papers[:3]) or 1, gap="medium")
+    for i, paper in enumerate(methodology_papers[:3]):
+        with mp_cols[i]:
+            st.markdown(f'<div style="font-size:0.72rem;color:#888;background:#080b14;border:1px solid #1a1d2e;border-radius:6px;padding:8px"><strong style="color:#aaa">{paper.get("short","")}</strong><br><span style="font-size:0.68rem;color:#555">{paper.get("key_finding","")[:100]}...</span><br><a href="{paper.get("url","#")}" target="_blank" style="color:#4CA8FF;font-size:0.68rem;text-decoration:none">Read →</a></div>', unsafe_allow_html=True)

@@ -66,15 +66,23 @@ def search_disease_proteins(disease_name: str) -> list:
         })
 
         if not search or not search.get("esearchresult",{}).get("idlist"):
-            # Broader search
-            search = _get("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi", {
-                "db": "clinvar",
-                "term": f'{disease_name}[dis]',
-                "retmax": 500,
-                "retmode": "json",
-                "tool": "protellect",
-                "email": "research@protellect.com",
-            })
+            # Broader searches in sequence - rare diseases need multiple attempts
+            for broad_term in [
+                f'{disease_name}[dis]',
+                f'{disease_name}[title]',
+                f'{disease_name}[all fields] AND human[org]',
+            ]:
+                search = _get("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi", {
+                    "db": "clinvar",
+                    "term": broad_term,
+                    "retmax": 500,
+                    "retmode": "json",
+                    "tool": "protellect",
+                    "email": "research@protellect.com",
+                })
+                if search and search.get("esearchresult",{}).get("idlist"):
+                    break
+                time.sleep(0.35)
 
         if not search:
             return []
@@ -382,12 +390,41 @@ def render():
                 for var in path_vars[:5]:
                     sig = var["significance"]
                     sc  = "#FF4C4C" if "Pathogenic" in sig and "Likely" not in sig else "#FFA500"
+                    conditions_str = var["conditions"][0][:50] if var["conditions"] else ""
                     st.markdown(
                         f'<div style="font-size:0.75rem;color:#aaa;padding:4px 0;border-bottom:1px solid #0d0f1a">'
                         f'<span style="color:{sc};font-weight:600;font-family:IBM Plex Mono,monospace;font-size:0.68rem">[{sig}]</span>'
-                        f' {var["title"]}</div>',
+                        f' {var["title"]} <span style="color:#555">· {conditions_str}</span></div>',
                         unsafe_allow_html=True
                     )
+
+            # PubMed papers for this gene + disease
+            if disease_input.strip():
+                with st.spinner(f"Fetching papers for {e['gene']}..."):
+                    @st.cache_data(show_spinner=False, ttl=3600)
+                    def _get_papers_cached(gene, disease):
+                        pubs = []
+                        try:
+                            q = f"{gene}[gene] AND {disease}[title] AND variant"
+                            s = _get("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi", {"db":"pubmed","term":q,"retmax":4,"retmode":"json","tool":"protellect","email":"research@protellect.com"})
+                            if s:
+                                ids = s.get("esearchresult",{}).get("idlist",[])
+                                if ids:
+                                    time.sleep(0.35)
+                                    summ = _get("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi", {"db":"pubmed","id":",".join(ids),"retmode":"json","tool":"protellect","email":"research@protellect.com"})
+                                    if summ:
+                                        rd = summ.get("result",{})
+                                        for pid in rd.get("uids",[]):
+                                            en = rd.get(pid,{})
+                                            pubs.append({"pmid":pid,"title":en.get("title",""),"url":f"https://pubmed.ncbi.nlm.nih.gov/{pid}/","year":en.get("pubdate","")[:4],"journal":en.get("fulljournalname","")})
+                        except Exception:
+                            pass
+                        return pubs
+                    gene_papers = _get_papers_cached(e["gene"], disease_input.strip())
+                if gene_papers:
+                    st.markdown(f'<div style="font-family:IBM Plex Mono,monospace;font-size:0.65rem;text-transform:uppercase;letter-spacing:0.15em;color:#4CA8FF;margin-top:10px;margin-bottom:6px">PubMed papers — {e["gene"]} + {disease_input.strip()}</div>', unsafe_allow_html=True)
+                    for p in gene_papers[:4]:
+                        st.markdown(f'<div style="font-size:0.73rem;color:#aaa;padding:3px 0;border-bottom:1px solid #0d0f1a"><a href="{p["url"]}" target="_blank" style="color:#4CA8FF;text-decoration:none">{p["title"][:100]}</a> <span style="color:#555">· {p["journal"][:30]} · {p["year"]}</span></div>', unsafe_allow_html=True)
 
     # ── Export ────────────────────────────────────────────────────────────────
     st.markdown("<br>", unsafe_allow_html=True)
