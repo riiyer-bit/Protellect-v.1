@@ -26,11 +26,39 @@ except ImportError:
     enrich_scored_df = lambda df, e=None: df
     PAPERS = TIER_DEFINITIONS = EXPERIMENT_LADDER = {}
     KNOWN_PIGGYBACK_PROTEINS = KNOWN_ESSENTIAL_PROTEINS = {}
+    # Hardcoded known proteins for when classify_protein_role isn't available
+    _ESSENTIAL = {
+        "FLNA":"Filamin A — ubiquitous, X chromosome. Mutations: periventricular heterotopia, cardiac arrhythmia, aortic aneurysm, intellectual disability, epilepsy.",
+        "FLNB":"Filamin B — chromosome 3. Mutations: boomerang dysplasia, Larsen syndrome, atelosteogenesis.",
+        "FLNC":"Filamin C — chromosome 7, cardiac/skeletal muscle. DBR >1.5, one of the most pathogenically constrained proteins known.",
+        "CHRM2":"CHRM2 (Muscarinic M2) — chromosome 7. ~102 dominant-form pathogenic variants causing dilated cardiomyopathy.",
+        "CHRM3":"CHRM3 (Muscarinic M3) — chromosome 1. Confirmed Prune belly syndrome gene.",
+        "BRCA1":"BRCA1 — breast/ovarian cancer. Critical disease driver.",
+        "BRCA2":"BRCA2 — breast/ovarian cancer. Critical disease driver.",
+        "TP53":"TP53 — ubiquitous tumour suppressor. Most mutated gene in cancer.",
+        "EGFR":"EGFR — receptor tyrosine kinase. Lung cancer and other malignancies.",
+        "KRAS":"KRAS — GTPase. Pancreatic, colorectal, lung cancer.",
+    }
+    _SCAFFOLD = {
+        "ARRB1":"β-arrestin 1 — ZERO germline pathogenic variants. Structural scaffold for GPCRs and Filamin. The disease biology lies in its partners, not itself.",
+        "ARRB2":"β-arrestin 2 — ZERO germline pathogenic variants. Same pattern as β-arrestin 1.",
+        "TALN1":"Talin 1 — ZERO germline pathogenic variants. Structural integrin scaffold. Mouse KO lethal but humans tolerate mutations.",
+        "TALN2":"Talin 2 — ZERO germline pathogenic variants. Structural scaffold.",
+    }
     def classify_protein_role(g, n, **kw):
-        if n == 0: return {'role':'unvalidated','label':'No ClinVar disease evidence','icon':'⚪','color':'#555','note':'Zero pathogenic variants — check gnomAD before investment.','warning':'Zero ClinVar pathogenic variants. Humans tolerate broken versions of this protein.'}
-        elif n < 10: return {'role':'rare_mendelian','label':'Confirmed rare Mendelian disease gene','icon':'🟡','color':'#FFD700','note':f'{n} pathogenic variant(s) — rare disease, low count reflects rarity not unimportance.'}
-        elif n < 500: return {'role':'validated','label':'Genomically validated disease gene','icon':'🟠','color':'#FFA500','note':f'{n} confirmed pathogenic variants in ClinVar.'}
-        else: return {'role':'critical_driver','label':'Critical disease driver','icon':'🔴','color':'#FF4C4C','note':f'{n} confirmed pathogenic variants — one of the most disease-constrained genes known.'}
+        gu = str(g).upper()
+        # ANY confirmed pathogenic variant = NOT a scaffold
+        if n > 0:
+            note = _ESSENTIAL.get(gu, f"{n} confirmed pathogenic ClinVar variants.")
+            if n >= 500: return {'role':'critical_driver','label':'Critical disease driver','icon':'🔴','color':'#FF4C4C','note':note}
+            elif n >= 50: return {'role':'validated','label':'Genomically validated disease gene','icon':'🟠','color':'#FFA500','note':note}
+            elif n >= 5:  return {'role':'validated','label':'Validated disease gene','icon':'🟠','color':'#FFA500','note':note}
+            else:         return {'role':'rare_mendelian','label':'Confirmed rare Mendelian disease gene','icon':'🟡','color':'#FFD700','note':f'{n} pathogenic variant(s). Rare disease — not the β-arrestin pattern.'}
+        # Zero pathogenic — check scaffold list
+        if gu in _SCAFFOLD:
+            return {'role':'piggyback','label':'Structural scaffold / piggyback protein','icon':'🔗','color':'#888','note':_SCAFFOLD[gu],'warning':_SCAFFOLD[gu]}
+        # Zero but not known scaffold
+        return {'role':'unvalidated','label':'No ClinVar disease evidence','icon':'⚪','color':'#555','note':'Zero germline pathogenic variants. Check gnomAD and OMIM before committing resources.','warning':'Zero ClinVar pathogenic variants. May be a structural scaffold — study interaction partners first.'}
 from scorer import (
     load_file, score_residues, get_summary_stats, validate_dataframe,
     detect_dataset_info, generate_top_pathways, ML_AVAILABLE,
@@ -499,11 +527,33 @@ with tab1:
                 elif n<200: return {'role':'validated','label':'Genomically validated','icon':'🟠','color':'#FFA500','note':f'{n} pathogenic variants'}
                 else: return {'role':'critical_driver','label':'Critical disease driver','icon':'🔴','color':'#FF4C4C','note':f'{n} pathogenic variants'}
         gene_detected = (proto_state or {}).get("gene_name","")
-        n_path_state  = (verdict_state or {}).get("n_pathogenic", 0)
+        # Get pathogenic count from verdict OR compute from enrichment directly
+        n_path_state = (verdict_state or {}).get("n_pathogenic", 0)
+        # If verdict missing or zero, count from enrichment clinvar data
+        if n_path_state == 0 and enrich_state:
+            cv_data = enrich_state.get("clinvar", {})
+            for variants in cv_data.values():
+                if isinstance(variants, list):
+                    for v in variants:
+                        sig = v.get("significance","").lower()
+                        if "pathogenic" in sig and "benign" not in sig:
+                            n_path_state += 1
+        # Also check UniProt natural variants with disease annotation
+        if n_path_state == 0 and enrich_state:
+            uni_data = enrich_state.get("uniprot", {})
+            n_path_state += sum(1 for nv in uni_data.get("natural_variants",[]) if nv.get("disease") or nv.get("pathogenic"))
+
         tier_state    = (verdict_state or {}).get("tier","UNKNOWN")
         dbr_state     = (verdict_state or {}).get("dbr", None)
         prot_len_state= (verdict_state or {}).get("protein_length", 0)
-        role_state    = classify_protein_role(gene_detected, n_path_state)
+        # Recompute DBR if we have better n_path_state
+        if n_path_state > 0 and dbr_state in (None, 0.0):
+            uni_len = enrich_state.get("uniprot",{}).get("length",0) if enrich_state else 0
+            if uni_len > 0:
+                dbr_state = round(n_path_state / uni_len, 4)
+                from evidence_layer import assign_genomic_tier as _agt
+                tier_state = _agt(dbr_state, n_path_state)
+        role_state = classify_protein_role(gene_detected, n_path_state)
         tc_state      = (verdict_state or {}).get("color","#888")
         dbr_display   = f"{dbr_state:.3f}" if dbr_state is not None else "N/A"
 
