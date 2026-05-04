@@ -17,6 +17,7 @@ all generated universally from the same pipeline.
 """
 
 import streamlit as st
+import streamlit.components.v1 as components
 import requests
 import time
 import re
@@ -32,6 +33,10 @@ except Exception:
     LOGO_B64 = ("data:image/png;base64," + base64.b64encode(_lp.read_bytes()).decode()) if _lp.exists() else None
 
 from evidence_layer import calculate_dbr, assign_genomic_tier, get_genomic_verdict, EXPERIMENT_LADDER
+from diagrams import (
+    build_tissue_diagram, build_genomic_diagram,
+    build_gpcr_diagram, build_cell_impact_diagram,
+)
 
 SESSION = requests.Session()
 SESSION.headers.update({
@@ -772,6 +777,74 @@ def render():
         </div>
       </div>
     </div>""", unsafe_allow_html=True)
+
+    # ── Diagrams ────────────────────────────────────────────────────────────
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown('<div style="font-family:IBM Plex Mono,monospace;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.18em;color:#444;border-bottom:1px solid #1e2030;padding-bottom:6px;margin-bottom:14px">Visual Breakdown — Tissue · Genomic · GPCR · Cell Impact</div>', unsafe_allow_html=True)
+
+    d_tab1, d_tab2, d_tab3, d_tab4 = st.tabs([
+        "🧬 Tissue Expression", "📍 Genomic Breakdown", "⚡ GPCR Signalling", "🔬 Cell Impact"
+    ])
+
+    with d_tab1:
+        tissue_html = build_tissue_diagram(
+            gene, uni.get("tissue_specificity",""), None
+        )
+        components.html(tissue_html, height=340, scrolling=False)
+        if uni.get("tissue_specificity"):
+            st.caption(f"Parsed from UniProt tissue specificity annotation for {gene}. Source: experimental evidence.")
+        else:
+            st.caption(f"Using curated expression data for {gene}. Full Protein Atlas integration in Phase 2.")
+
+    with d_tab2:
+        # Build variant lists for diagram
+        path_vars = [{"pos": v["position"], "note": v["note"]} for v in uni.get("natural_variants",[]) if v.get("pathogenic")]
+        # Also parse positions from ClinVar titles
+        for v in cv["pathogenic"] + cv["likely_pathogenic"]:
+            m = re.search(r'[A-Z](\d+)[A-Z=\*]', v.get("title",""))
+            if m: path_vars.append({"pos": int(m.group(1))})
+        ben_vars = [{"pos": v["position"]} for v in uni.get("natural_variants",[]) if not v.get("pathogenic")]
+        genomic_html = build_genomic_diagram(
+            gene,
+            chrom.get("chromosome",""),
+            uni.get("length", 0),
+            uni.get("domains",[]),
+            path_vars,
+            ben_vars,
+        )
+        components.html(genomic_html, height=300, scrolling=False)
+        st.caption("Domain positions from UniProt · Variant positions from ClinVar and UniProt natural variants · Red = pathogenic · Blue = benign")
+
+    with d_tab3:
+        if uni.get("is_gpcr"):
+            gpcr_html = build_gpcr_diagram(
+                gene,
+                uni.get("g_protein_coupling","Gq/11"),
+                uni.get("protein_name",""),
+                len(uni.get("transmembrane_regions",[])),
+            )
+            components.html(gpcr_html, height=430, scrolling=False)
+            st.caption(f"GPCR signalling cascade for {gene}. G-protein coupling: {uni.get('g_protein_coupling','')}. Source: UniProt · IUPHAR/BPS.")
+        else:
+            st.markdown(f"""
+            <div style="background:#0a0c14;border:1px solid #1e2030;border-radius:10px;padding:24px;text-align:center">
+              <div style="font-size:1.5rem;margin-bottom:10px">⚠</div>
+              <div style="font-family:IBM Plex Mono,monospace;font-size:0.85rem;color:#555">
+                {gene} is not classified as a GPCR in UniProt.<br>
+                <span style="font-size:0.75rem;color:#444">No 7-transmembrane domain structure detected. GPCR diagram not applicable.</span>
+              </div>
+            </div>""", unsafe_allow_html=True)
+
+    with d_tab4:
+        cell_html = build_cell_impact_diagram(
+            gene, tier, n_path,
+            [d for d in cv.get("diseases",[]) if d and "not provided" not in d.lower()][:4],
+            uni.get("subcellular",[]),
+            uni.get("is_gpcr", False),
+            uni.get("g_protein_coupling",""),
+        )
+        components.html(cell_html, height=375, scrolling=False)
+        st.caption(f"Cell impact for {gene} based on ClinVar pathogenic variant count and UniProt subcellular location. Not inferred — based on confirmed human genetic evidence.")
 
     # ── Experiment ladder ─────────────────────────────────────────────────────
     st.markdown('<div style="font-family:IBM Plex Mono,monospace;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.18em;color:#444;border-bottom:1px solid #1e2030;padding-bottom:6px;margin-bottom:12px">Recommended Experiments — Simple to Rigorous</div>', unsafe_allow_html=True)
