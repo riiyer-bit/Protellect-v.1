@@ -17,6 +17,10 @@ import json
 import base64
 from pathlib import Path
 
+from evidence_layer import (
+    calculate_dbr, assign_genomic_tier, get_genomic_verdict,
+    enrich_scored_df, PAPERS, TIER_DEFINITIONS,
+)
 from scorer import (
     load_file, score_residues, get_summary_stats, validate_dataframe,
     detect_dataset_info, generate_top_pathways, ML_AVAILABLE,
@@ -290,6 +294,24 @@ with st.sidebar:
                 for step in pw["steps"]:
                     st.markdown(f"• {step}")
 
+
+    # ── Genomic Validation Panel ────────────────────────────────────────────
+    if "t_verdict" in st.session_state:
+        v = st.session_state.t_verdict
+        st.divider()
+        st.markdown('<div class="sec-label">Genomic Validation</div>', unsafe_allow_html=True)
+        tc = v.get("color","#888")
+        dbr_str = f"{v['dbr']:.3f}" if v.get('dbr') is not None else "N/A"
+        paper = v.get("papers",[{}])[0]
+        st.markdown(f"""<div style="background:#0a0a14;border:1px solid {tc}55;border-radius:8px;padding:12px 14px;margin-bottom:8px">
+  <div style="font-family:IBM Plex Mono,monospace;font-size:0.65rem;text-transform:uppercase;letter-spacing:0.15em;color:{tc};margin-bottom:8px">{v['icon']} {v['label']}</div>
+  <div style="display:flex;justify-content:space-between;margin-bottom:5px"><span style="font-size:0.72rem;color:#555">Pathogenic variants (ClinVar)</span><span style="font-family:IBM Plex Mono,monospace;font-size:0.72rem;color:{tc};font-weight:600">{v['n_pathogenic']}</span></div>
+  <div style="display:flex;justify-content:space-between;margin-bottom:5px"><span style="font-size:0.72rem;color:#555">Protein length (aa)</span><span style="font-family:IBM Plex Mono,monospace;font-size:0.72rem;color:#aaa">{v['protein_length']}</span></div>
+  <div style="display:flex;justify-content:space-between;margin-bottom:10px"><span style="font-size:0.72rem;color:#555">Disease burden ratio</span><span style="font-family:IBM Plex Mono,monospace;font-size:0.72rem;color:{tc};font-weight:600">{dbr_str}</span></div>
+  <div style="font-size:0.75rem;color:#999;line-height:1.6;border-top:1px solid #1a1d2e;padding-top:8px">{v['trust_statement']}</div>
+</div>
+<div style="font-size:0.7rem;color:#555;margin-bottom:4px">Backed by: <a href="{paper.get('url','#')}" target="_blank" style="color:#4CA8FF;text-decoration:none">{paper.get('short','')}</a></div>""", unsafe_allow_html=True)
+
     st.divider()
     st.caption("Auto-fetches correct protein structure from UniProt/PDB for any gene")
 
@@ -375,9 +397,26 @@ with tab1:
                         info["uniprot_id"]        = uid
                         info["protein_name"]      = enrichment.get("uniprot",{}).get("protein_name","")
                         info["protein_function"]  = enrichment.get("uniprot",{}).get("function","")[:300]
+                        scored_rich = enrich_scored_df(scored_rich, enrichment)
+                        stats_rich  = get_summary_stats(scored_rich)
+                        clinvar_data = enrichment.get("clinvar", {})
+                        uni_data     = enrichment.get("uniprot", {})
+                        n_path = sum(
+                            1 for variants in clinvar_data.values()
+                            for v in variants
+                            if "pathogenic" in v.get("significance","").lower()
+                            and "benign" not in v.get("significance","").lower()
+                        )
+                        prot_len = uni_data.get("length", 0)
+                        dbr  = calculate_dbr(n_path, prot_len)
+                        tier = assign_genomic_tier(dbr, n_path)
+                        verdict = get_genomic_verdict(tier, gene, n_path, prot_len, dbr)
+                        info["genomic_tier"]    = tier
+                        info["genomic_verdict"] = verdict
                         st.session_state.update({
                             "t_scored":scored_rich,"t_stats":stats_rich,
-                            "t_info":info,"t_enrichment":enrichment,"t_protein":protein_info
+                            "t_info":info,"t_enrichment":enrichment,
+                            "t_protein":protein_info,"t_verdict":verdict,
                         })
             except Exception:
                 pass  # Fail gracefully
@@ -535,6 +574,54 @@ with tab1:
                 f'<span style="color:#eee;font-family:IBM Plex Mono,monospace;font-size:0.82rem"> {mut}</span>'
                 f'<span style="color:#555;font-size:0.72rem;font-family:IBM Plex Mono,monospace">{gene_s} · {score}{conf_s}</span>'
                 f'<div class="hyp-card">{h}</div>', unsafe_allow_html=True)
+            # "Why trust this hit?" — genomic evidence layer
+            if "t_verdict" in st.session_state:
+                v   = st.session_state.t_verdict
+                vtc = v.get("color","#888")
+                vdbr = f"{v['dbr']:.3f}" if v.get('dbr') is not None else "N/A"
+                paper0 = v.get("papers",[{}])[0]
+                paper1 = v.get("papers",[{},{}])[1] if len(v.get("papers",[])) > 1 else {}
+                exps   = v.get("experiments",[])
+                exp1   = exps[0] if exps else {}
+                exp_level_color = {"Simple":"#4CAF50","Moderate":"#FFA500","Rigorous":"#FF8C00","Definitive":"#FF4C4C"}
+                exp_c  = exp_level_color.get(str(exp1.get("complexity","")).split(" — ")[0],"#888")
+                st.markdown(f"""<details style="margin-bottom:12px">
+<summary style="cursor:pointer;font-family:IBM Plex Mono,monospace;font-size:0.72rem;
+  color:{vtc};padding:8px 12px;background:#0a0a14;border:1px solid {vtc}33;
+  border-radius:6px;list-style:none;outline:none">
+  {v['icon']} Why trust this hit? &nbsp;
+  <span style="color:#555;font-weight:400">{v['label']} · DBR {vdbr}</span>
+</summary>
+<div style="background:#080b14;border:1px solid #1e2030;border-radius:0 0 8px 8px;
+            padding:14px;margin-top:2px">
+
+  <div style="font-family:IBM Plex Mono,monospace;font-size:0.65rem;text-transform:uppercase;
+              letter-spacing:0.15em;color:{vtc};margin-bottom:8px">Genomic validation</div>
+  <p style="font-size:0.8rem;color:#bbb;line-height:1.7;margin-bottom:10px">{v['description']}</p>
+
+  <div style="font-family:IBM Plex Mono,monospace;font-size:0.65rem;text-transform:uppercase;
+              letter-spacing:0.15em;color:#4CA8FF;margin-bottom:6px">Scientific basis</div>
+  <div style="background:#0a0c1a;border:1px solid #1e2030;border-radius:6px;padding:10px 12px;margin-bottom:10px">
+    <div style="font-weight:600;color:#eee;font-size:0.8rem;margin-bottom:4px">{paper0.get('short','')}</div>
+    <div style="font-style:italic;color:#888;font-size:0.77rem;line-height:1.6;margin-bottom:6px">"{paper0.get('key_finding','')}"</div>
+    <a href="{paper0.get('url','#')}" target="_blank"
+       style="font-size:0.7rem;color:#4CA8FF;text-decoration:none">Read paper →</a>
+    {f'<span style="color:#555;margin:0 8px">·</span><a href="{paper1.get('url','#')}" target="_blank" style="font-size:0.7rem;color:#4CA8FF;text-decoration:none">{paper1.get('short','')}</a>' if paper1 else ''}
+  </div>
+
+  <div style="font-family:IBM Plex Mono,monospace;font-size:0.65rem;text-transform:uppercase;
+              letter-spacing:0.15em;color:#4CAF50;margin-bottom:6px">
+    Recommended first experiment — Level {exp1.get('level',1)}: {exp1.get('complexity','')}
+  </div>
+  <div style="background:#0a140a;border:1px solid #1a3a1a;border-radius:6px;padding:10px 12px">
+    <div style="font-weight:600;color:#eee;font-size:0.82rem;margin-bottom:3px">{exp1.get('name','')}</div>
+    <div style="font-size:0.75rem;color:#555;margin-bottom:6px">{exp1.get('time','')} · {exp1.get('cost','')}</div>
+    <div style="font-size:0.78rem;color:#888;line-height:1.6;margin-bottom:6px">{exp1.get('purpose','')}</div>
+    <div style="font-size:0.73rem;color:#4CAF50">Expected: {exp1.get('expected_result','')}</div>
+  </div>
+
+</div>
+</details>""", unsafe_allow_html=True)
 
     with right:
         st.markdown('<div class="sec-label">3D Protein Structure — colored by priority</div>', unsafe_allow_html=True)
