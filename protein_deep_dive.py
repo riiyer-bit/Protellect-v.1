@@ -32,7 +32,11 @@ except Exception:
     _lp = Path("/mnt/user-data/uploads/1777622887238_image.png")
     LOGO_B64 = ("data:image/png;base64," + base64.b64encode(_lp.read_bytes()).decode()) if _lp.exists() else None
 
-from evidence_layer import calculate_dbr, assign_genomic_tier, get_genomic_verdict, EXPERIMENT_LADDER
+from evidence_layer import (
+    calculate_dbr, assign_genomic_tier, get_genomic_verdict,
+    EXPERIMENT_LADDER, classify_protein_role,
+    KNOWN_PIGGYBACK_PROTEINS, KNOWN_ESSENTIAL_PROTEINS,
+)
 from diagrams import (
     build_tissue_diagram, build_genomic_diagram,
     build_gpcr_diagram, build_cell_impact_diagram,
@@ -283,14 +287,35 @@ def fetch_chromosome_location(gene_name: str, ensembl_id: str = "") -> dict:
 @st.cache_data(show_spinner=False, ttl=3600)
 def fetch_clinvar_full(gene_name: str) -> dict:
     """
-    Fetch all ClinVar variants for a gene.
-    Returns: { 'pathogenic': [...], 'benign': [...], 'vus': [...], 'all': [...] }
-    ONLY human genetic evidence. No cell culture. No mouse data.
+    Fetch ALL ClinVar variants for a gene and SEPARATE germline from somatic.
+
+    WHY THIS MATTERS (Sujay Subbayya Ithychanda framework):
+    - GERMLINE variants = inherited, passed through DNA, CAUSE DISEASE IN HUMANS
+      These are the ground truth. If a protein has many germline pathogenic variants,
+      it is essential. This is the FLNC pattern, the CHRM2 pattern, the BRCA1 pattern.
+    - SOMATIC variants = acquired mutations in individual cells (mostly cancer)
+      These do NOT prove the protein is essential. Cancer cells accumulate thousands
+      of random mutations. A protein appearing in COSMIC does not mean it causes disease
+      when inherited — it may just be a bystander in a mutated cancer cell.
+
+    β-arrestin has zero GERMLINE pathogenic variants.
+    That is the truth. Somatic variants in cancer databases are irrelevant to
+    whether the protein is essential for human development and physiology.
     """
-    result = {"pathogenic":[], "likely_pathogenic":[], "benign":[], "likely_benign":[], "vus":[], "all":[], "diseases":set()}
+    result = {
+        # GERMLINE — inherited variants — the only ground truth
+        "germline_pathogenic":[], "germline_likely_pathogenic":[],
+        "germline_benign":[], "germline_likely_benign":[], "germline_vus":[],
+        # SOMATIC — cancer/acquired mutations — NOT proof of essentiality
+        "somatic_pathogenic":[], "somatic_other":[],
+        # Convenience aliases
+        "pathogenic":[], "likely_pathogenic":[], "benign":[], "likely_benign":[], "vus":[],
+        "all":[], "diseases":set(),
+        # Counts for display
+        "n_germline_pathogenic":0, "n_somatic":0,
+    }
 
     try:
-        # Search
         search = _get("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi", {
             "db":"clinvar","term":f"{gene_name}[gene] AND single_gene[prop]",
             "retmax":500,"retmode":"json","tool":"protellect","email":"research@protellect.com",
@@ -301,7 +326,6 @@ def fetch_clinvar_full(gene_name: str) -> dict:
 
         time.sleep(0.35)
 
-        # Batch fetch summaries
         for batch_start in range(0, min(len(ids), 500), 100):
             batch = ids[batch_start:batch_start+100]
             summary = _get("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi", {
@@ -310,35 +334,72 @@ def fetch_clinvar_full(gene_name: str) -> dict:
             }, timeout=20)
             if not summary: continue
             doc = summary.get("result",{})
+
             for vid in doc.get("uids",[]):
                 entry = doc.get(vid,{})
-                sig   = entry.get("germline_classification",{}).get("description","").strip()
-                title = entry.get("title","")
+
+                # ── ClinVar separates germline from somatic ──────────────────
+                germline_sig = entry.get("germline_classification",{}).get("description","").strip()
+                somatic_sig  = entry.get("somatic_clinical_impact",{}).get("description","").strip()
+                oncogenicity = entry.get("oncogenicity_classification",{}).get("description","").strip()
+
+                title      = entry.get("title","")
                 conditions = [c.get("trait_name","") for c in entry.get("trait_set",[])]
-                stars = entry.get("review_status_label","")
+                stars      = entry.get("review_status_label","")
+
+                # Determine if this is somatic/oncology context
+                is_somatic = bool(somatic_sig or oncogenicity) and not germline_sig
+                # Also catch variants where condition is only a cancer type with no germline sig
+                if not germline_sig and any(
+                    c.lower() in ("somatic","cancer","neoplasm","tumor","tumour","malignant","oncology")
+                    for cond in conditions for c in [cond.lower()]
+                ):
+                    is_somatic = True
+
+                use_sig = germline_sig or somatic_sig or oncogenicity or "Not classified"
+
                 var = {
-                    "id": vid,
-                    "title": title,
-                    "significance": sig,
-                    "conditions": [c for c in conditions if c],
-                    "stars": stars,
-                    "gene": gene_name,
+                    "id":           vid,
+                    "title":        title,
+                    "significance": use_sig,
+                    "germline_sig": germline_sig,
+                    "somatic_sig":  somatic_sig,
+                    "oncogenicity": oncogenicity,
+                    "is_somatic":   is_somatic,
+                    "conditions":   [c for c in conditions if c],
+                    "stars":        stars,
+                    "gene":         gene_name,
                 }
                 result["all"].append(var)
                 for cond in conditions:
                     if cond: result["diseases"].add(cond)
 
-                sig_lower = sig.lower()
-                if "pathogenic" in sig_lower and "likely pathogenic" not in sig_lower:
-                    result["pathogenic"].append(var)
-                elif "likely pathogenic" in sig_lower:
-                    result["likely_pathogenic"].append(var)
-                elif "benign" in sig_lower and "likely benign" not in sig_lower:
-                    result["benign"].append(var)
-                elif "likely benign" in sig_lower:
-                    result["likely_benign"].append(var)
-                elif "uncertain" in sig_lower or "vus" in sig_lower:
-                    result["vus"].append(var)
+                sig_l = use_sig.lower()
+
+                if is_somatic:
+                    result["somatic_other"].append(var)
+                    result["n_somatic"] += 1
+                    if "pathogenic" in sig_l:
+                        result["somatic_pathogenic"].append(var)
+                else:
+                    # GERMLINE classification
+                    if "pathogenic" in sig_l and "likely pathogenic" not in sig_l and "benign" not in sig_l:
+                        result["germline_pathogenic"].append(var)
+                        result["pathogenic"].append(var)
+                        result["n_germline_pathogenic"] += 1
+                    elif "likely pathogenic" in sig_l:
+                        result["germline_likely_pathogenic"].append(var)
+                        result["likely_pathogenic"].append(var)
+                        result["n_germline_pathogenic"] += 1
+                    elif "benign" in sig_l and "likely benign" not in sig_l:
+                        result["germline_benign"].append(var)
+                        result["benign"].append(var)
+                    elif "likely benign" in sig_l:
+                        result["germline_likely_benign"].append(var)
+                        result["likely_benign"].append(var)
+                    elif "uncertain" in sig_l or "vus" in sig_l:
+                        result["germline_vus"].append(var)
+                        result["vus"].append(var)
 
             time.sleep(0.35)
 
@@ -539,9 +600,12 @@ def render():
         return
 
     # ── Compute genomic verdict ───────────────────────────────────────────────
-    n_path   = len(cv["pathogenic"]) + len(cv["likely_pathogenic"])
-    n_benign = len(cv["benign"]) + len(cv["likely_benign"])
-    n_vus    = len(cv["vus"])
+    # Use GERMLINE counts — these are the ground truth
+    # Somatic variants (cancer mutations) are displayed separately
+    n_path   = len(cv["germline_pathogenic"]) + len(cv["germline_likely_pathogenic"])
+    n_benign = len(cv["germline_benign"]) + len(cv["germline_likely_benign"])
+    n_vus    = len(cv["germline_vus"])
+    n_somatic = cv.get("n_somatic", 0)
     prot_len = uni["length"]
     dbr      = calculate_dbr(n_path, prot_len)
     tier     = assign_genomic_tier(dbr, n_path)
@@ -552,44 +616,86 @@ def render():
     tc       = verdict["color"]
     dbr_str  = f"{dbr:.3f}" if dbr is not None else "N/A"
 
+    # Protein role classification
+    role = classify_protein_role(gene, n_path, uni.get("interaction_partners",[]))
+    rc   = role["color"]
+
+    # TRUTH BANNER — role shown first, before anything else
+    role_specific_html = ""
+    if role["role"] == "piggyback":
+        partners_str = ", ".join(role.get("partners",[])[:4])
+        role_specific_html = f"""
+        <div style="background:#100a0a;border:2px solid #FF4C4C;border-radius:8px;
+                    padding:14px 18px;margin-bottom:10px">
+          <div style="font-family:IBM Plex Mono,monospace;font-size:0.7rem;
+                      text-transform:uppercase;letter-spacing:0.15em;color:#FF4C4C;margin-bottom:8px">
+            ⚠ Structural Scaffold / Piggyback Protein — Read Before Proceeding
+          </div>
+          <div style="font-size:0.88rem;color:#eee;line-height:1.8;margin-bottom:10px">
+            <strong>{role['name']}</strong> has <strong style="color:#FF4C4C">zero confirmed pathogenic variants</strong>
+            in ClinVar. It acts as a {role.get('note','structural scaffold').split('.')[0].lower()}.
+          </div>
+          <div style="font-size:0.82rem;color:#aaa;line-height:1.7;background:#1a0808;
+                      padding:10px 14px;border-radius:6px;border-left:3px solid #FF4C4C">
+            <strong>The scientific truth:</strong> {role['note']}
+          </div>
+          <div style="margin-top:10px;font-size:0.8rem;color:#888">
+            These interaction partners carry the actual disease burden:
+            {"".join(f'<span style="background:#1a0808;border:1px solid #FF4C4C44;color:#FF4C4C;font-family:monospace;font-size:0.72rem;padding:2px 10px;border-radius:12px;margin:0 4px">{p}</span>' for p in role.get("partners",[])[:4])}
+          </div>
+        </div>"""
+    elif role["role"] in ("essential","critical_driver"):
+        role_specific_html = f"""
+        <div style="background:#0a1a0a;border:2px solid #4CAF50;border-radius:8px;
+                    padding:12px 16px;margin-bottom:10px">
+          <div style="font-family:IBM Plex Mono,monospace;font-size:0.7rem;color:#4CAF50;margin-bottom:6px">
+            ✓ CONFIRMED ESSENTIAL DISEASE DRIVER
+          </div>
+          <div style="font-size:0.82rem;color:#bbb;line-height:1.7">{role.get('note','')}</div>
+        </div>"""
+    elif role["role"] == "rare_mendelian":
+        role_specific_html = f"""
+        <div style="background:#14120a;border:2px solid #FFD700;border-radius:8px;
+                    padding:12px 16px;margin-bottom:10px">
+          <div style="font-family:IBM Plex Mono,monospace;font-size:0.7rem;color:#FFD700;margin-bottom:6px">
+            🟡 CONFIRMED RARE MENDELIAN DISEASE GENE
+          </div>
+          <div style="font-size:0.82rem;color:#bbb;line-height:1.7">{role.get('note','')}</div>
+        </div>"""
+
     st.markdown(f"""
     <div style="background:#0a0a14;border:2px solid {tc};border-radius:12px;
-                padding:20px 24px;margin-bottom:20px">
-      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+                padding:20px 24px;margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
         <div>
           <div style="font-size:1.4rem;font-weight:700;color:#eee;font-family:IBM Plex Mono,monospace">
             {gene} — {uni['protein_name'] or uni['gene_name']}
           </div>
-          <div style="font-size:0.83rem;color:#555;margin-top:2px">
-            {uni['organism']} · UniProt {uni['uniprot_id']} · {prot_len} amino acids
+          <div style="font-size:0.83rem;color:#555;margin-top:3px">
+            {uni['organism']} · UniProt {uni['uniprot_id']} · {prot_len} aa ·
+            {'GPCR (' + uni.get('g_protein_coupling','') + ')' if uni.get('is_gpcr') else 'Non-GPCR'}
           </div>
         </div>
         <div style="text-align:right">
-          <div style="font-size:1.8rem;font-weight:700;font-family:IBM Plex Mono,monospace;color:{tc}">
+          <div style="font-size:1.6rem;font-weight:700;font-family:IBM Plex Mono,monospace;color:{tc}">
             {verdict['icon']} {verdict['label']}
           </div>
-          <div style="font-size:0.8rem;color:#555">Disease Burden Ratio: {dbr_str}</div>
+          <div style="font-size:0.78rem;color:#555;margin-top:3px">
+            DBR: {dbr_str} · {n_path} pathogenic · {n_benign} benign · {n_vus} VUS
+          </div>
+          <div style="font-size:0.78rem;margin-top:3px">
+            <span style="color:{rc};font-family:IBM Plex Mono,monospace;font-weight:600">
+              {role['icon']} {role['label']}
+            </span>
+          </div>
         </div>
       </div>
-      <div style="margin-top:14px;padding-top:12px;border-top:1px solid {tc}33;
-                  font-size:0.84rem;color:#bbb;line-height:1.7">
+      <div style="margin-top:12px;padding-top:10px;border-top:1px solid {tc}33;
+                  font-size:0.82rem;color:#aaa;line-height:1.7">
         {verdict['trust_statement']}
       </div>
-      <div style="margin-top:8px;display:flex;gap:20px;flex-wrap:wrap">
-        <span style="font-family:IBM Plex Mono,monospace;font-size:0.75rem">
-          <span style="color:#FF4C4C">●</span> {n_path} Pathogenic/Likely pathogenic
-        </span>
-        <span style="font-family:IBM Plex Mono,monospace;font-size:0.75rem">
-          <span style="color:#555">●</span> {n_vus} Uncertain significance
-        </span>
-        <span style="font-family:IBM Plex Mono,monospace;font-size:0.75rem">
-          <span style="color:#4CA8FF">●</span> {n_benign} Benign/Likely benign
-        </span>
-        <span style="font-family:IBM Plex Mono,monospace;font-size:0.75rem">
-          <span style="color:#aaa">●</span> {len(cv['all'])} Total ClinVar submissions
-        </span>
-      </div>
-    </div>""", unsafe_allow_html=True)
+    </div>
+    {role_specific_html}""", unsafe_allow_html=True)
 
     # ── Investment warning ────────────────────────────────────────────────────
     if warning:
@@ -720,40 +826,111 @@ def render():
                             unsafe_allow_html=True
                         )
 
-    # ── Full ClinVar variant table ────────────────────────────────────────────
+    # ── ClinVar: GERMLINE vs SOMATIC separated ───────────────────────────────
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown('<div style="font-family:IBM Plex Mono,monospace;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.18em;color:#444;border-bottom:1px solid #1e2030;padding-bottom:6px;margin-bottom:12px">ClinVar Variant Detail — Pathogenic & Likely Pathogenic Only</div>', unsafe_allow_html=True)
 
-    path_variants = cv["pathogenic"] + cv["likely_pathogenic"]
-    if path_variants:
+    # The explanation banner — shown always
+    g_path = cv.get("germline_pathogenic",[]) + cv.get("germline_likely_pathogenic",[])
+    s_path = cv.get("somatic_pathogenic",[])
+    s_all  = cv.get("somatic_other",[])
+    n_somatic_total = len(s_all)
+
+    st.markdown(f"""
+    <div style="background:#080b14;border:1px solid #1e2030;border-radius:10px;padding:16px 20px;margin-bottom:14px">
+      <div style="font-family:IBM Plex Mono,monospace;font-size:0.68rem;text-transform:uppercase;
+                  letter-spacing:0.18em;color:#eee;margin-bottom:10px">
+        ClinVar Evidence — Germline vs Somatic Separated
+      </div>
+      <div style="font-size:0.8rem;color:#888;line-height:1.7;margin-bottom:12px">
+        <strong style="color:#eee">Why this separation matters:</strong>
+        ClinVar contains two fundamentally different types of evidence.
+        <strong style="color:#4CAF50">Germline variants</strong> are inherited through DNA and prove a protein
+        is essential for human health — this is the ground truth Sujay describes.
+        <strong style="color:#FFA500">Somatic variants</strong> are mutations acquired in individual cancer cells —
+        they do NOT prove the protein is essential. A protein appearing frequently in cancer
+        somatic data may simply be a bystander in a mutated cell, not a driver.
+        β-arrestin has zero germline pathogenic variants. That is the truth.
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px">
+        <div style="background:#0a140a;border:1px solid #1a3a1a;border-radius:6px;padding:10px;text-align:center">
+          <div style="font-size:1.5rem;font-weight:700;font-family:IBM Plex Mono,monospace;color:#4CAF50">{len(g_path)}</div>
+          <div style="font-size:0.65rem;color:#4CAF50;text-transform:uppercase;letter-spacing:0.08em">Germline P/LP</div>
+          <div style="font-size:0.62rem;color:#555;margin-top:3px">Inherited · ground truth</div>
+        </div>
+        <div style="background:#0a0c14;border:1px solid #1e2030;border-radius:6px;padding:10px;text-align:center">
+          <div style="font-size:1.5rem;font-weight:700;font-family:IBM Plex Mono,monospace;color:#aaa">{len(cv.get("germline_vus",[]))}</div>
+          <div style="font-size:0.65rem;color:#555;text-transform:uppercase;letter-spacing:0.08em">Germline VUS</div>
+          <div style="font-size:0.62rem;color:#555;margin-top:3px">Inherited · uncertain</div>
+        </div>
+        <div style="background:#14100a;border:1px solid #3a2a00;border-radius:6px;padding:10px;text-align:center">
+          <div style="font-size:1.5rem;font-weight:700;font-family:IBM Plex Mono,monospace;color:#FFA500">{n_somatic_total}</div>
+          <div style="font-size:0.65rem;color:#FFA500;text-transform:uppercase;letter-spacing:0.08em">Somatic variants</div>
+          <div style="font-size:0.62rem;color:#555;margin-top:3px">Cancer only · NOT proof</div>
+        </div>
+        <div style="background:#0a0c14;border:1px solid #1e2030;border-radius:6px;padding:10px;text-align:center">
+          <div style="font-size:1.5rem;font-weight:700;font-family:IBM Plex Mono,monospace;color:#aaa">{len(cv.get("all",[]))}</div>
+          <div style="font-size:0.65rem;color:#555;text-transform:uppercase;letter-spacing:0.08em">Total ClinVar</div>
+          <div style="font-size:0.62rem;color:#555;margin-top:3px">All submissions</div>
+        </div>
+      </div>
+    </div>""", unsafe_allow_html=True)
+
+    # Germline table (the truth)
+    st.markdown('<div style="font-family:IBM Plex Mono,monospace;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.18em;color:#4CAF50;border-bottom:1px solid #1e2030;padding-bottom:5px;margin-bottom:10px">Germline Pathogenic &amp; Likely Pathogenic — Inherited Disease Variants (Ground Truth)</div>', unsafe_allow_html=True)
+    if g_path:
         rows = []
-        for v in path_variants[:50]:
-            # Extract amino acid change from title
+        for v in g_path[:60]:
             aa_match = re.search(r'p\.([A-Za-z]{3}\d+[A-Za-z]{3}|[A-Za-z]\d+[A-Za-z=\*])', v["title"])
             aa_change = aa_match.group(0) if aa_match else "—"
             rows.append({
-                "Variant": v["title"][:60] if v["title"] else "—",
-                "AA change": aa_change,
-                "Significance": v["significance"],
-                "Disease": (v["conditions"][0][:40] if v["conditions"] else "—"),
-                "Review stars": v["stars"][:30] if v["stars"] else "—",
+                "Variant":        v["title"][:65] if v["title"] else "—",
+                "AA change":      aa_change,
+                "Classification": v["germline_sig"] or v["significance"],
+                "Disease":        (v["conditions"][0][:45] if v["conditions"] else "—"),
+                "Review":         v["stars"][:25] if v["stars"] else "—",
             })
-        df_cv = pd.DataFrame(rows)
-
-        def style_sig(val):
-            if "Pathogenic" in val and "Likely" not in val:
-                return "color:#FF4C4C;font-weight:600"
-            elif "Likely pathogenic" in val:
-                return "color:#FFA500;font-weight:600"
+        df_germ = pd.DataFrame(rows)
+        def style_germ(val):
+            if "Pathogenic" in str(val) and "Likely" not in str(val): return "color:#FF4C4C;font-weight:600"
+            if "Likely pathogenic" in str(val): return "color:#FFA500;font-weight:600"
             return ""
-
-        st.dataframe(
-            df_cv.style.map(style_sig, subset=["Significance"]),
-            use_container_width=True, height=280
-        )
-        st.caption(f"Showing {min(50, len(path_variants))} of {len(path_variants)} pathogenic/likely pathogenic submissions. Source: NCBI ClinVar.")
+        st.dataframe(df_germ.style.map(style_germ, subset=["Classification"]),
+                     use_container_width=True, height=min(320, len(g_path)*40+50))
+        st.caption(f"Showing {min(60,len(g_path))} of {len(g_path)} germline pathogenic/likely pathogenic submissions. These are inherited variants confirmed in human patients.")
     else:
-        st.info(f"No pathogenic or likely pathogenic variants found in ClinVar for **{gene}**. See investment risk assessment above.")
+        st.markdown(f"""
+        <div style="background:#100a0a;border:1px solid #FF4C4C55;border-radius:8px;padding:14px 18px;margin-bottom:10px">
+          <div style="font-family:IBM Plex Mono,monospace;font-size:0.65rem;color:#FF4C4C;margin-bottom:6px">NO GERMLINE PATHOGENIC VARIANTS</div>
+          <div style="font-size:0.82rem;color:#888;line-height:1.7">
+            Zero confirmed germline disease-causing mutations exist for <strong style="color:#eee">{gene}</strong>
+            in ClinVar. This is the β-arrestin pattern — humans who carry broken versions of this
+            protein are apparently healthy. {"Somatic variants in cancer data exist but do NOT validate this as an essential gene." if n_somatic_total > 0 else ""}
+          </div>
+        </div>""", unsafe_allow_html=True)
+
+    # Somatic variants (shown separately with warning)
+    if s_all:
+        with st.expander(f"⚠ Somatic variants ({n_somatic_total}) — Cancer/acquired mutations · NOT inherited · NOT proof of essentiality"):
+            st.markdown("""
+            <div style="background:#14100a;border:1px solid #FFA50055;border-radius:6px;padding:10px 14px;
+                        margin-bottom:10px;font-size:0.8rem;color:#888;line-height:1.7">
+              <strong style="color:#FFA500">Important distinction:</strong> Somatic variants are mutations
+              that accumulate in individual cancer cells during a person's lifetime. They are NOT inherited
+              and do NOT prove the protein is essential for development or physiology.
+              A protein found frequently in cancer somatic databases may be a bystander —
+              cancer cells mutate thousands of genes. The only proof of essentiality is
+              <strong style="color:#4CAF50">germline variants that cause disease when inherited</strong>.
+            </div>""", unsafe_allow_html=True)
+            s_rows = []
+            for v in s_all[:30]:
+                s_rows.append({
+                    "Variant":       v["title"][:60] if v["title"] else "—",
+                    "Somatic class": v.get("somatic_sig","") or v.get("oncogenicity","") or "—",
+                    "Context":       (v["conditions"][0][:40] if v["conditions"] else "—"),
+                })
+            if s_rows:
+                st.dataframe(pd.DataFrame(s_rows), use_container_width=True, height=200)
+            st.caption("Source: ClinVar somatic classifications. These are NOT the same as inherited germline variants.")
 
     # ── Genomic verdict description ───────────────────────────────────────────
     st.markdown("<br>", unsafe_allow_html=True)
@@ -803,7 +980,7 @@ def render():
         for v in cv["pathogenic"] + cv["likely_pathogenic"]:
             m = re.search(r'[A-Z](\d+)[A-Z=\*]', v.get("title",""))
             if m: path_vars.append({"pos": int(m.group(1))})
-        ben_vars = [{"pos": v["position"]} for v in uni.get("natural_variants",[]) if not v.get("pathogenic")]
+        ben_vars = [{"pos": v.get("pos") or v.get("position",0)} for v in uni.get("natural_variants",[]) if not v.get("pathogenic") and not v.get("disease")]
         genomic_html = build_genomic_diagram(
             gene,
             chrom.get("chromosome",""),

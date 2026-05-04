@@ -120,25 +120,32 @@ def search_disease_proteins(disease_name: str) -> list:
                 if not gene:
                     continue
 
-                sig_lower = sig.lower()
-                is_pathogenic = "pathogenic" in sig_lower and "benign" not in sig_lower
+                # Separate germline (inherited) from somatic (cancer-acquired)
+                germline_sig = entry.get("germline_classification",{}).get("description","").strip()
+                somatic_sig  = entry.get("somatic_clinical_impact",{}).get("description","").strip()
+                oncogenicity = entry.get("oncogenicity_classification",{}).get("description","").strip()
+
+                # Somatic = acquired cancer mutation, NOT inherited disease
+                is_somatic = bool((somatic_sig or oncogenicity) and not germline_sig)
+
+                # Use germline sig as primary truth
+                use_sig   = germline_sig or sig
+                sig_lower = use_sig.lower()
 
                 if gene not in results:
                     results[gene] = {
                         "gene": gene,
-                        "n_pathogenic": 0,
-                        "n_likely_pathogenic": 0,
-                        "n_vus": 0,
-                        "n_total": 0,
-                        "variants": [],
-                        "diseases": set(),
-                        "best_stars": "",
+                        "n_pathogenic": 0, "n_likely_pathogenic": 0,
+                        "n_vus": 0, "n_somatic": 0, "n_total": 0,
+                        "variants": [], "diseases": set(), "best_stars": "",
                     }
 
                 results[gene]["n_total"] += 1
                 results[gene]["diseases"].update(c for c in conditions if c)
 
-                if "pathogenic" in sig_lower and "likely pathogenic" not in sig_lower:
+                if is_somatic:
+                    results[gene]["n_somatic"] += 1
+                elif "pathogenic" in sig_lower and "likely pathogenic" not in sig_lower and "benign" not in sig_lower:
                     results[gene]["n_pathogenic"] += 1
                 elif "likely pathogenic" in sig_lower:
                     results[gene]["n_likely_pathogenic"] += 1
@@ -307,16 +314,18 @@ def render():
     table_rows = []
     for e in enriched:
         dbr_str = f"{e['dbr']:.3f}" if e["dbr"] is not None else "N/A"
+        n_somatic_e = e.get("n_somatic",0)
         table_rows.append({
-            "Gene":              e["gene"],
-            "Protein":           e["protein_name"][:40] if e["protein_name"] else "—",
-            "Pathogenic (ClinVar)": e["n_combined_pathogenic"],
-            "Total submissions": e["n_total"],
-            "Protein length":    e["length"] or "—",
-            "DBR":               dbr_str,
-            "Tier":              e["verdict"]["label"],
-            "GPCR":              "✓" if e["is_gpcr"] else "",
-            "G-protein":         e["g_protein"] or ("see UniProt" if e["is_gpcr"] else ""),
+            "Gene":                   e["gene"],
+            "Protein":                e["protein_name"][:35] if e["protein_name"] else "—",
+            "Germline P/LP":          e["n_combined_pathogenic"],  # ground truth
+            "Somatic (cancer only)":  n_somatic_e,
+            "VUS":                    e.get("n_vus",0),
+            "Protein length":         e["length"] or "—",
+            "DBR":                    dbr_str,
+            "Tier":                   e["verdict"]["label"],
+            "GPCR":                   "✓" if e["is_gpcr"] else "",
+            "G-protein":              e["g_protein"] or ("see UniProt" if e["is_gpcr"] else ""),
         })
 
     df_table = pd.DataFrame(table_rows)

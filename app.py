@@ -474,6 +474,86 @@ with tab1:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
+    # ── BIG GENOMIC DISEASE ASSOCIATION BANNER ───────────────────────────────
+    verdict_state = st.session_state.get("t_verdict")
+    enrich_state  = st.session_state.get("t_enrichment")
+    proto_state   = st.session_state.get("t_protein")
+
+    if verdict_state or enrich_state:
+        from evidence_layer import classify_protein_role
+        gene_detected = (proto_state or {}).get("gene_name","")
+        n_path_state  = (verdict_state or {}).get("n_pathogenic", 0)
+        tier_state    = (verdict_state or {}).get("tier","UNKNOWN")
+        dbr_state     = (verdict_state or {}).get("dbr", None)
+        prot_len_state= (verdict_state or {}).get("protein_length", 0)
+        role_state    = classify_protein_role(gene_detected, n_path_state)
+        tc_state      = (verdict_state or {}).get("color","#888")
+        dbr_display   = f"{dbr_state:.3f}" if dbr_state is not None else "N/A"
+
+        # Protein name
+        prot_name = (enrich_state or {}).get("uniprot",{}).get("protein_name","") if enrich_state else ""
+        gpcr_note = ""
+        if enrich_state:
+            uni_s = (enrich_state or {}).get("uniprot",{})
+            if uni_s.get("is_gpcr"):
+                gpcr_note = f" · GPCR ({uni_s.get('g_protein_coupling','')})"
+
+        # Disease association level text
+        if tier_state == "CRITICAL":
+            assoc_headline = f"🔴 CRITICAL — Direct essential disease gene"
+            assoc_detail   = f"{n_path_state} confirmed pathogenic germline variants. Every mutation in this protein causes serious human disease."
+            assoc_action   = "Validate immediately. Human genetics unambiguously supports this target."
+        elif tier_state == "HIGH":
+            assoc_headline = f"🟠 HIGH — Confirmed disease gene"
+            assoc_detail   = f"{n_path_state} confirmed pathogenic germline variants. Strong human genetic evidence for disease relevance."
+            assoc_action   = "Prioritise for validation. 2.6× better clinical success rate with genetic support."
+        elif tier_state == "LOW":
+            assoc_headline = f"🟡 CONFIRMED RARE MENDELIAN DISEASE — NOT the β-arrestin pattern"
+            assoc_detail   = f"{n_path_state} confirmed pathogenic germline variant(s). Rare disease: low DBR reflects disease rarity, not protein dispensability."
+            assoc_action   = "Pursue with rare disease strategy. Orphan drug pathway applies."
+        elif tier_state == "NONE":
+            assoc_headline = f"⚪ NO DISEASE ASSOCIATION — Zero germline pathogenic variants"
+            assoc_detail   = f"Humans who carry broken versions of this protein are apparently healthy. This is the β-arrestin pattern."
+            assoc_action   = f"DO NOT pursue as primary drug target. Study interaction partners instead: {', '.join(role_state.get('partners',['—'])[:3])}"
+        else:
+            assoc_headline = f"❓ GENOMICALLY UNCHARACTERISED"
+            assoc_detail   = "Insufficient ClinVar data. Establish genomic context before investment."
+            assoc_action   = "Run ClinVar and gnomAD screening before any wet lab commitment."
+
+        role_warning = ""
+        if role_state.get("role") == "piggyback":
+            role_warning = f"""
+            <div style="margin-top:10px;padding:10px 14px;background:#1a0808;border-radius:6px;
+                        border-left:3px solid #FF4C4C;font-size:0.8rem;color:#aaa;line-height:1.6">
+              <strong style="color:#FF4C4C">⚠ Structural scaffold / piggyback protein:</strong>
+              {role_state.get('note','')}
+            </div>"""
+
+        st.markdown(f"""
+        <div style="background:#0a0a14;border:3px solid {tc_state};border-radius:14px;
+                    padding:22px 26px;margin-bottom:20px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
+            <div>
+              <div style="font-family:IBM Plex Mono,monospace;font-size:1.2rem;font-weight:700;
+                          color:{tc_state};margin-bottom:4px">{assoc_headline}</div>
+              <div style="font-size:0.92rem;color:#eee;margin-bottom:4px">
+                {gene_detected}{f" — {prot_name}" if prot_name else ""}{gpcr_note}
+              </div>
+              <div style="font-size:0.83rem;color:#aaa;line-height:1.7">{assoc_detail}</div>
+            </div>
+            <div style="text-align:right;min-width:160px">
+              <div style="font-size:2rem;font-weight:700;font-family:IBM Plex Mono,monospace;color:{tc_state}">{n_path_state}</div>
+              <div style="font-size:0.7rem;color:#555;text-transform:uppercase;letter-spacing:0.1em">Germline pathogenic</div>
+              <div style="font-size:0.75rem;color:{tc_state};margin-top:4px;font-family:IBM Plex Mono,monospace">DBR {dbr_display}</div>
+            </div>
+          </div>
+          <div style="margin-top:12px;padding:10px 14px;background:#080b14;border-radius:6px;
+                      font-size:0.82rem;color:#4CAF50;border:1px solid #1a3a1a">
+            <strong>Recommended action:</strong> {assoc_action}
+          </div>
+          {role_warning}
+        </div>""", unsafe_allow_html=True)
+
     # ── Multi-gene breakdown ──────────────────────────────────────────────
     genes = info.get("genes",[])
     n_genes = len(set(genes))
@@ -558,6 +638,11 @@ with tab1:
 
         st.markdown('<div class="sec-label" style="margin-top:20px">Hypothesis Outputs</div>', unsafe_allow_html=True)
         top_n = st.slider("Show top N", 1, min(15,len(scored)), min(8,len(scored)), key="t1_n")
+        enrichment_state = st.session_state.get("t_enrichment")
+        verdict_s = st.session_state.get("t_verdict")
+        tier_s    = (verdict_s or {}).get("tier","UNKNOWN")
+        tc_s      = (verdict_s or {}).get("color","#888")
+
         for _, row in scored.head(top_n).iterrows():
             p   = str(row.get(pc,"LOW"))
             c   = "#FF4C4C" if p=="HIGH" else "#FFA500" if p=="MEDIUM" else "#4CA8FF"
@@ -570,10 +655,43 @@ with tab1:
             conf_s= f" · ML {conf:.0%}" if pd.notna(conf) else ""
             gene  = str(row.get("gene_name",""))
             gene_s= f" · {gene}" if gene not in ("nan","") else ""
+
+            # Genetic framework for this residue
+            clinvar_at_pos = ""
+            domain_at_pos  = ""
+            in_active      = False
+            in_binding     = False
+            if enrichment_state:
+                try:
+                    from db_enrichment import get_residue_features
+                    feats = get_residue_features(enrichment_state, pos)
+                    clinvar_at_pos = feats.get("clinvar_text","")
+                    domain_at_pos  = feats.get("domain_name","")
+                    in_active      = feats.get("in_active_site", False)
+                    in_binding     = feats.get("in_binding_site", False)
+                except Exception:
+                    pass
+
+            # Genomic context badge
+            genomic_badge = ""
+            if clinvar_at_pos and "No ClinVar" not in clinvar_at_pos and "Not in" not in clinvar_at_pos:
+                genomic_badge = f'<span style="background:#1a0808;border:1px solid #FF4C4C55;color:#FF4C4C;font-size:0.65rem;font-family:IBM Plex Mono,monospace;padding:2px 8px;border-radius:10px;margin-left:6px">ClinVar: {clinvar_at_pos[:40]}</span>'
+            elif tier_s == "NONE":
+                genomic_badge = '<span style="background:#1a1a1a;border:1px solid #55555555;color:#555;font-size:0.65rem;font-family:IBM Plex Mono,monospace;padding:2px 8px;border-radius:10px;margin-left:6px">No human disease variant</span>'
+
+            site_badge = ""
+            if in_active:
+                site_badge = '<span style="background:#140a18;border:1px solid #9370DB55;color:#9370DB;font-size:0.65rem;font-family:IBM Plex Mono,monospace;padding:2px 8px;border-radius:10px;margin-left:4px">Active site</span>'
+            elif in_binding:
+                site_badge = '<span style="background:#0a1418;border:1px solid #4CA8FF55;color:#4CA8FF;font-size:0.65rem;font-family:IBM Plex Mono,monospace;padding:2px 8px;border-radius:10px;margin-left:4px">Binding site</span>'
+
+            domain_badge = f'<span style="color:#3a3d5a;font-size:0.68rem;font-family:IBM Plex Mono,monospace;margin-left:6px">{domain_at_pos}</span>' if domain_at_pos and "Position" not in domain_at_pos else ""
+
             st.markdown(
                 f'<span style="font-family:IBM Plex Mono,monospace;font-size:0.72rem;font-weight:600;color:{c}">[{p}]</span>'
                 f'<span style="color:#eee;font-family:IBM Plex Mono,monospace;font-size:0.82rem"> {mut}</span>'
-                f'<span style="color:#555;font-size:0.72rem;font-family:IBM Plex Mono,monospace">{gene_s} · {score}{conf_s}</span>'
+                f'<span style="color:#555;font-size:0.72rem;font-family:IBM Plex Mono,monospace">{gene_s} · score {score}{conf_s}</span>'
+                f'{genomic_badge}{site_badge}{domain_badge}'
                 f'<div class="hyp-card">{h}</div>', unsafe_allow_html=True)
             # "Why trust this hit?" — genomic evidence layer
             if "t_verdict" in st.session_state:
@@ -627,18 +745,39 @@ with tab1:
     with right:
         st.markdown('<div class="sec-label">3D Protein Structure — colored by priority</div>', unsafe_allow_html=True)
 
-        # Get correct structure
-        enrichment = st.session_state.get("t_enrichment")
-        pdb = None
-        pdb_label = ""
+        # Get correct structure — always auto-fetches for the detected protein
+        enrichment   = st.session_state.get("t_enrichment")
+        protein_info = st.session_state.get("t_protein")
+        pdb          = None
+        pdb_label    = ""
 
         if enrichment and enrichment.get("structure_pdb"):
             pdb       = enrichment["structure_pdb"]
             pdb_label = enrichment.get("structure_source","")
-        else:
-            with st.spinner("Loading structure..."):
-                pdb = fetch_pdb_fallback()
-            pdb_label = "TP53 reference (PDB 2OCJ) — run with protein name in Q&A for correct structure"
+        elif protein_info and protein_info.get("uniprot_id"):
+            # Try to fetch structure for detected protein
+            uid = protein_info["uniprot_id"]
+            gene_detected = protein_info.get("gene_name","")
+            with st.spinner(f"Fetching structure for {gene_detected}..."):
+                try:
+                    from db_enrichment import fetch_uniprot_full, get_structure_for_protein
+                    uni_data = fetch_uniprot_full(uid)
+                    pdb_text, pdb_src = get_structure_for_protein(uni_data, uid)
+                    if pdb_text:
+                        pdb = pdb_text
+                        pdb_label = pdb_src
+                except Exception:
+                    pass
+
+        # Only use TP53 if absolutely no other structure available AND no protein detected
+        if not pdb:
+            detected_gene = (protein_info or {}).get("gene_name","")
+            if not detected_gene or detected_gene.upper() == "TP53":
+                with st.spinner("Loading structure..."):
+                    pdb = fetch_pdb_fallback()
+                pdb_label = "TP53 reference (PDB 2OCJ) — upload data with protein name in Q&A for correct structure"
+            else:
+                pdb_label = f"Structure for {detected_gene} could not be loaded — check internet"
 
         if pdb_label:
             st.caption(f"🏗️ {pdb_label}")
@@ -647,7 +786,6 @@ with tab1:
             cmap = {"HIGH":"#FF4C4C","MEDIUM":"#FFA500","LOW":"#4CA8FF"}
             rmap = {"HIGH":1.1,"MEDIUM":0.75,"LOW":0.45}
 
-            # Parse PDB residues for overlap check
             pdb_residues = set()
             for line in pdb.split('\n'):
                 if line.startswith('ATOM'):
@@ -661,20 +799,20 @@ with tab1:
                 rs = {int(row["residue_position"]): {"color":cmap[str(row[pc])], "radius":rmap[str(row[pc])]}
                       for _, row in scored.iterrows()}
             else:
-                pdb_range = sorted(pdb_residues) if pdb_residues else list(range(94,293))
+                pdb_range = sorted(pdb_residues) if pdb_residues else list(range(1,500))
                 n = min(len(scored), len(pdb_range))
                 mapped = [pdb_range[i] for i in np.linspace(0,len(pdb_range)-1,n,dtype=int)]
                 rs = {}
                 for i,(_, row) in enumerate(scored.head(n).iterrows()):
                     rs[mapped[i]] = {"color":cmap[str(row[pc])], "radius":rmap[str(row[pc])]*1.5}
                 umin, umax = min(user_positions), max(user_positions)
-                st.info(f"ℹ️ Data positions ({umin}–{umax}) spread across structure for visual reference. "
-                        "Provide protein name in Q&A → Protellect fetches the exact PDB structure.")
+                st.info(f"ℹ️ Data positions ({umin}–{umax}) mapped to structure. "
+                        "Provide protein name in Q&A sidebar for exact residue-level mapping.")
 
             components.html(make_viewer(pdb, rs, 580, 455), height=460)
             st.markdown('<div style="display:flex;gap:20px;margin-top:8px;font-size:0.78rem"><span><span style="color:#FF4C4C">●</span> HIGH</span><span><span style="color:#FFA500">●</span> MEDIUM</span><span><span style="color:#4CA8FF">●</span> LOW</span></div>', unsafe_allow_html=True)
         else:
-            st.error("Could not load structure. Check internet connection.")
+            st.warning(f"Could not load 3D structure. Check internet connection or specify the protein name in Q&A.")
 
     st.divider()
     exp_df = scored.drop(columns=["hypothesis"],errors="ignore")

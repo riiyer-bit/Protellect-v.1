@@ -20,6 +20,187 @@ from __future__ import annotations
 import math
 from typing import Optional
 
+
+# ── Piggyback protein classification ─────────────────────────────────────────
+# Based on Sujay Subbayya Ithychanda's framework (Cleveland Clinic):
+# Some proteins are "space fillers" or "scaffold proteins" — they dock onto
+# essential proteins like Filamin and preserve their structure, but have no
+# independent essential function. They are extensively studied in vitro because
+# they are easy to study (soluble, abundant, bindable) but their lack of ClinVar
+# variants is the truth: humans can break them without getting sick.
+# The disease implications lie in THEIR INTERACTION PARTNERS, not in them.
+
+KNOWN_PIGGYBACK_PROTEINS = {
+    # Protein: {partners: [essential proteins they scaffold],
+    #           note: explanation, type: classification}
+    "ARRB1": {
+        "common_name": "β-arrestin 1",
+        "partners": ["FLNA", "FLNB", "FLNC", "GPCRs"],
+        "note": "Docks onto GPCRs and Filamin. Studied as GPCR regulator but has zero confirmed pathogenic variants in humans. The real signal in GPCR/Filamin studies is coming from the receptor or Filamin, not β-arrestin.",
+        "type": "Scaffold/space filler",
+    },
+    "ARRB2": {
+        "common_name": "β-arrestin 2",
+        "partners": ["FLNA","FLNB","FLNC","GPCRs"],
+        "note": "Structural homologue of β-arrestin 1. Same pattern — zero pathogenic variants, extensively studied, but dispensable in humans.",
+        "type": "Scaffold/space filler",
+    },
+    "TALN1": {
+        "common_name": "Talin 1",
+        "partners": ["Integrins","Vinculin","Actin"],
+        "note": "Taught in every textbook as 'the integrin activator'. Talin KO mouse dies — but zero human disease variants in ClinVar. Talin holds the structure together but the disease implications are in the integrin or downstream effectors.",
+        "type": "Structural scaffold",
+    },
+    "TALN2": {
+        "common_name": "Talin 2",
+        "partners": ["Integrins","Vinculin"],
+        "note": "Same pattern as Talin 1 — structural role, tolerated in humans.",
+        "type": "Structural scaffold",
+    },
+    "VCL": {
+        "common_name": "Vinculin",
+        "partners": ["Talin","Actin","Integrins"],
+        "note": "Cytoskeletal linker. Limited pathogenic variants relative to the volume of literature.",
+        "type": "Structural linker",
+    },
+}
+
+# Proteins that ARE the real drivers — high ClinVar burden
+KNOWN_ESSENTIAL_PROTEINS = {
+    "FLNA": {
+        "common_name": "Filamin A",
+        "chromosome": "X",
+        "dbr_approx": 0.8,
+        "diseases": ["Periventricular nodular heterotopia","Cardiac arrhythmia","Aortic aneurysm","Intellectual disability","Epilepsy","Prune belly syndrome (interaction)"],
+        "note": "Ubiquitous. Docks 100s of GPCRs. Mutations cause intellectual disability, epilepsy in females (males often die). The hub protein for GPCR scaffolding — β-arrestin attaches to Filamin, not the other way round.",
+    },
+    "FLNB": {
+        "common_name": "Filamin B",
+        "chromosome": "3",
+        "dbr_approx": 0.6,
+        "diseases": ["Boomerang dysplasia","Larsen syndrome","Atelosteogenesis","Spondylocarpotarsal syndrome"],
+        "note": "All mutations cause skeletal/bone disorders. Chromosome 3.",
+    },
+    "FLNC": {
+        "common_name": "Filamin C",
+        "chromosome": "7",
+        "dbr_approx": 1.58,
+        "diseases": ["Arrhythmogenic cardiomyopathy","Dilated cardiomyopathy","Distal myopathy","Myofibrillar myopathy"],
+        "note": "Skeletal and cardiac muscle specific. DBR >1.5 — one of the most constrained proteins in the human genome. Every mutation here is serious.",
+    },
+    "CHRM2": {
+        "common_name": "CHRM2 (Muscarinic M2)",
+        "chromosome": "7",
+        "dbr_approx": 0.22,
+        "diseases": ["Dilated cardiomyopathy","Cardiac arrhythmia"],
+        "note": "The cardiac muscarinic receptor Sujay flagged as critically important. Dominant-form cardiomyopathies.",
+    },
+    "CHRM3": {
+        "common_name": "CHRM3 (Muscarinic M3)",
+        "chromosome": "1",
+        "dbr_approx": 0.009,
+        "diseases": ["Prune belly syndrome","Congenital bladder malformation"],
+        "note": "Rare Mendelian disease — frameshift mutations in the 3rd intracellular loop cause PBS. Confirmed in ClinVar.",
+    },
+}
+
+
+def classify_protein_role(gene_name: str, n_pathogenic: int,
+                           interaction_partners: list = None) -> dict:
+    """
+    Classify a protein as essential driver, scaffold/piggyback, or unclassified.
+
+    CLINVAR IS THE ONLY SOURCE OF TRUTH (Sujay Subbayya Ithychanda framework):
+    - If n_pathogenic > 0 from ClinVar: protein causes real human disease. PERIOD.
+      It can NEVER be classified as piggyback regardless of any known list.
+      A protein with ClinVar pathogenic variants is essential by definition.
+    - If n_pathogenic == 0: protein may be a structural scaffold/piggyback.
+      Even then, check the known list for guidance.
+
+    FLNA has hundreds of pathogenic ClinVar variants → ESSENTIAL, never piggyback.
+    β-arrestin has ZERO → correctly flagged as scaffold.
+    """
+    gene_upper = gene_name.upper()
+
+    # ── CLINVAR FIRST — always overrides any static classification ────────────
+    # Any confirmed pathogenic variant = this protein causes human disease
+    if n_pathogenic > 0:
+        # Check known essential list for additional context
+        if gene_upper in KNOWN_ESSENTIAL_PROTEINS:
+            ess = KNOWN_ESSENTIAL_PROTEINS[gene_upper]
+            return {
+                "role":     "essential",
+                "label":    "Confirmed essential driver",
+                "icon":     "⚡",
+                "color":    "#FF4C4C",
+                "name":     ess["common_name"],
+                "note":     ess["note"],
+                "diseases": ess.get("diseases",[]),
+            }
+        # Not in known list but has ClinVar evidence — classify by count
+        if n_pathogenic >= 500:
+            return {
+                "role":  "critical_driver",
+                "label": "Critical disease driver",
+                "icon":  "🔴",
+                "color": "#FF4C4C",
+                "note":  f"{n_pathogenic} confirmed pathogenic ClinVar variants. One of the most pathogenically constrained proteins known.",
+            }
+        elif n_pathogenic >= 50:
+            return {
+                "role":  "validated",
+                "label": "Genomically validated disease gene",
+                "icon":  "🟠",
+                "color": "#FFA500",
+                "note":  f"{n_pathogenic} confirmed pathogenic variants in ClinVar. Solid human genetic disease evidence.",
+            }
+        elif n_pathogenic >= 5:
+            return {
+                "role":  "validated",
+                "label": "Validated disease gene",
+                "icon":  "🟠",
+                "color": "#FFA500",
+                "note":  f"{n_pathogenic} confirmed pathogenic variants. Human genetic evidence supports disease relevance.",
+            }
+        else:
+            return {
+                "role":  "rare_mendelian",
+                "label": "Confirmed rare Mendelian disease gene",
+                "icon":  "🟡",
+                "color": "#FFD700",
+                "note":  f"{n_pathogenic} confirmed pathogenic variant(s). Rare disease — low count reflects disease rarity, NOT protein dispensability. This is NOT the β-arrestin pattern.",
+            }
+
+    # ── n_pathogenic == 0: Check for known scaffold/piggyback pattern ─────────
+    if gene_upper in KNOWN_PIGGYBACK_PROTEINS:
+        pb = KNOWN_PIGGYBACK_PROTEINS[gene_upper]
+        return {
+            "role":    "piggyback",
+            "label":   f"Structural scaffold / piggyback protein ({pb['type']})",
+            "icon":    "🔗",
+            "color":   "#888888",
+            "name":    pb["common_name"],
+            "note":    pb["note"],
+            "partners":pb["partners"],
+            "warning": (
+                f"{pb['common_name']} has ZERO confirmed pathogenic variants in ClinVar. "
+                f"It acts as a {pb['type'].lower()} for proteins like {', '.join(pb['partners'][:3])}. "
+                "Disease implications reside in the interaction partners, not this protein. "
+                "Pursuing this as a drug target risks the β-arrestin trap."
+            ),
+        }
+
+    # Zero ClinVar variants, not in known piggyback list
+    return {
+        "role":    "unvalidated",
+        "label":   "No ClinVar disease evidence",
+        "icon":    "⚪",
+        "color":   "#555555",
+        "note":    "Zero pathogenic variants in ClinVar. Cannot confirm human disease relevance from genetics alone.",
+        "warning": "Zero ClinVar pathogenic variants. Run gnomAD pLI check. If pLI < 0.1, protein is likely dispensable.",
+    }
+
+
 # ── Core papers ──────────────────────────────────────────────────────────────
 PAPERS = {
     "king_2024": {
