@@ -11,7 +11,15 @@ except Exception:
     LOGO_B64 = ("data:image/png;base64,"+base64.b64encode(_lp.read_bytes()).decode()) if _lp.exists() else None
 
 from diagrams import build_tissue_diagram, build_genomic_diagram, build_gpcr_diagram, build_cell_impact_diagram
-from evidence_layer import classify_protein_role, calculate_dbr, assign_genomic_tier
+from evidence_layer import calculate_dbr, assign_genomic_tier
+try:
+    from evidence_layer import classify_protein_role
+except ImportError:
+    def classify_protein_role(g, n, **kw):
+        if n==0: return {'role':'unvalidated','label':'No ClinVar disease evidence','icon':'⚪','color':'#555','note':'Zero pathogenic variants.'}
+        elif n<10: return {'role':'rare_mendelian','label':'Rare Mendelian disease gene','icon':'🟡','color':'#FFD700','note':f'{n} pathogenic variant(s).'}
+        elif n<500: return {'role':'validated','label':'Genomically validated','icon':'🟠','color':'#FFA500','note':f'{n} pathogenic variants.'}
+        else: return {'role':'critical_driver','label':'Critical disease driver','icon':'🔴','color':'#FF4C4C','note':f'{n} pathogenic variants.'}
 
 def _viewer(pdb, rs, w=610, h=400):
     if not pdb or len(pdb)<100:

@@ -17,10 +17,20 @@ import json
 import base64
 from pathlib import Path
 
-from evidence_layer import (
-    calculate_dbr, assign_genomic_tier, get_genomic_verdict,
-    enrich_scored_df, PAPERS, TIER_DEFINITIONS,
-)
+from evidence_layer import calculate_dbr, assign_genomic_tier, get_genomic_verdict
+try:
+    from evidence_layer import (enrich_scored_df, PAPERS, TIER_DEFINITIONS,
+                                 classify_protein_role, EXPERIMENT_LADDER,
+                                 KNOWN_PIGGYBACK_PROTEINS, KNOWN_ESSENTIAL_PROTEINS)
+except ImportError:
+    enrich_scored_df = lambda df, e=None: df
+    PAPERS = TIER_DEFINITIONS = EXPERIMENT_LADDER = {}
+    KNOWN_PIGGYBACK_PROTEINS = KNOWN_ESSENTIAL_PROTEINS = {}
+    def classify_protein_role(g, n, **kw):
+        if n == 0: return {'role':'unvalidated','label':'No ClinVar disease evidence','icon':'⚪','color':'#555','note':'Zero pathogenic variants — check gnomAD before investment.','warning':'Zero ClinVar pathogenic variants. Humans tolerate broken versions of this protein.'}
+        elif n < 10: return {'role':'rare_mendelian','label':'Confirmed rare Mendelian disease gene','icon':'🟡','color':'#FFD700','note':f'{n} pathogenic variant(s) — rare disease, low count reflects rarity not unimportance.'}
+        elif n < 500: return {'role':'validated','label':'Genomically validated disease gene','icon':'🟠','color':'#FFA500','note':f'{n} confirmed pathogenic variants in ClinVar.'}
+        else: return {'role':'critical_driver','label':'Critical disease driver','icon':'🔴','color':'#FF4C4C','note':f'{n} confirmed pathogenic variants — one of the most disease-constrained genes known.'}
 from scorer import (
     load_file, score_residues, get_summary_stats, validate_dataframe,
     detect_dataset_info, generate_top_pathways, ML_AVAILABLE,
@@ -480,7 +490,14 @@ with tab1:
     proto_state   = st.session_state.get("t_protein")
 
     if verdict_state or enrich_state:
-        from evidence_layer import classify_protein_role
+        try:
+            from evidence_layer import classify_protein_role
+        except ImportError:
+            def classify_protein_role(g, n, **kw):
+                if n==0: return {'role':'unvalidated','label':'No ClinVar evidence','icon':'⚪','color':'#555','note':'Zero pathogenic variants','warning':'Check ClinVar before investment.'}
+                elif n<10: return {'role':'rare_mendelian','label':'Rare Mendelian disease gene','icon':'🟡','color':'#FFD700','note':f'{n} pathogenic variants'}
+                elif n<200: return {'role':'validated','label':'Genomically validated','icon':'🟠','color':'#FFA500','note':f'{n} pathogenic variants'}
+                else: return {'role':'critical_driver','label':'Critical disease driver','icon':'🔴','color':'#FF4C4C','note':f'{n} pathogenic variants'}
         gene_detected = (proto_state or {}).get("gene_name","")
         n_path_state  = (verdict_state or {}).get("n_pathogenic", 0)
         tier_state    = (verdict_state or {}).get("tier","UNKNOWN")
