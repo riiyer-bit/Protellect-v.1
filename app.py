@@ -174,20 +174,54 @@ def parse_aa(name):
 # ─── API functions ─────────────────────────────────────────────────
 @st.cache_data(show_spinner=False, ttl=3600)
 def fetch_uniprot(query):
-    base="https://rest.uniprot.org/uniprotkb"
-    if re.match(r"^[OPQ][0-9][A-Z0-9]{3}[0-9]$|^[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2}$",query.strip(),re.I):
-        r=requests.get(f"{base}/{query.strip().upper()}",headers={"Accept":"application/json"},timeout=20)
-        r.raise_for_status(); return r.json()
-    for qry in [f"gene:{query} AND reviewed:true AND organism_id:9606",
-                f"({query}) AND reviewed:true AND organism_id:9606", query]:
-        r=requests.get(f"{base}/search",params={"query":qry,"format":"json","size":1},
-                       headers={"Accept":"application/json"},timeout=20)
-        r.raise_for_status(); res=r.json().get("results",[])
+    base = "https://rest.uniprot.org/uniprotkb"
+    HUMAN_ORG = "organism_id:9606"
+
+    # Direct accession lookup — but validate it's human
+    if re.match(r"^[OPQ][0-9][A-Z0-9]{3}[0-9]$|^[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2}$", query.strip(), re.I):
+        r = requests.get(f"{base}/{query.strip().upper()}", headers={"Accept":"application/json"}, timeout=20)
+        r.raise_for_status()
+        entry = r.json()
+        # Check organism
+        org = entry.get("organism", {}).get("scientificName", "")
+        if "Homo sapiens" not in org:
+            org_common = entry.get("organism", {}).get("commonName", org)
+            raise ValueError(
+                f"⚠️ Accession {query.upper()} belongs to **{org_common}** ({org}), not Homo sapiens. "
+                f"Protellect only analyses human proteins. Please enter a human gene or UniProt accession."
+            )
+        return entry
+
+    # Text search — ALWAYS human-only, never fall back to non-human
+    human_queries = [
+        f"gene:{query} AND reviewed:true AND {HUMAN_ORG}",
+        f"protein_name:{query} AND reviewed:true AND {HUMAN_ORG}",
+        f"({query}) AND reviewed:true AND {HUMAN_ORG}",
+        f"({query}) AND {HUMAN_ORG}",          # include unreviewed human
+    ]
+    for qry in human_queries:
+        r = requests.get(f"{base}/search", params={"query": qry, "format": "json", "size": 1},
+                         headers={"Accept": "application/json"}, timeout=20)
+        r.raise_for_status()
+        res = r.json().get("results", [])
         if res:
-            uid=res[0]["primaryAccession"]
-            r2=requests.get(f"{base}/{uid}",headers={"Accept":"application/json"},timeout=20)
-            r2.raise_for_status(); return r2.json()
-    raise ValueError(f"No UniProt entry for '{query}'. Try a UniProt accession (e.g. P04637).")
+            uid = res[0]["primaryAccession"]
+            r2 = requests.get(f"{base}/{uid}", headers={"Accept":"application/json"}, timeout=20)
+            r2.raise_for_status()
+            entry = r2.json()
+            # Double-check organism on every result
+            org = entry.get("organism", {}).get("scientificName", "")
+            if "Homo sapiens" not in org:
+                continue   # skip non-human hits, try next query
+            return entry
+
+    raise ValueError(
+        f"⚠️ No **human** protein found for '{query}'. "
+        f"Protellect is human-only. If you entered a non-human protein "
+        f"(e.g. ovalbumin = chicken, insulin = cow), there will be no human equivalent "
+        f"unless a human orthologue exists (e.g. try 'INS' for human insulin). "
+        f"Try: TP53 · BRCA1 · EGFR · FLNC · ACM2 · P04637"
+    )
 
 @st.cache_data(show_spinner=False, ttl=3600)
 def fetch_clinvar(gene, max_v=150):
