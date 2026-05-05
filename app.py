@@ -1,23 +1,27 @@
-import streamlit as st
+iimport streamlit as st
 
-# This function handles your theme and page settings properly
-st.set_page_config(
-    page_title="Protellect v1",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+# 1. This MUST be the first line of code
+st.set_page_config(page_title="Protellect v1", layout="wide")
 
-# If you want to add custom CSS to match your colors:
+# 2. These are your variables
+base = "dark"
+primaryColor = "#00e5ff"
+backgroundColor = "#04080f"
+secondaryBackgroundColor = "#070d1a"
+textColor = "#d0e8ff"
+
+# 3. This applies your colors to the app
 st.markdown(f"""
     <style>
     .stApp {{
-        background-color: #04080f;
-        color: #d0e8ff;
+        background-color: {backgroundColor};
+        color: {textColor};
     }}
     </style>
-    """, unsafe_allow_value=True)
+    """, unsafe_allow_html=True)
+
+# 4. Use "False" with a capital F
+gatherUsageStats = False
 
 st.title("Protellect v1")
-st.write("App is now running correctly!")
-
-# Add the rest of your app logic below this line
+st.write("The theme is now applied and the code is fixed.")
