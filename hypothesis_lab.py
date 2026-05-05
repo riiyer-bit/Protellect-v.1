@@ -149,7 +149,7 @@ def render():
                     <span style="font-size:0.7rem;color:#444;font-family:IBM Plex Mono,monospace">{d.get('start',0)}–{d.get('end',0)}</span>
                   </div>
                   <div style="font-size:0.75rem;color:#555">ClinVar pathogenic variants in this domain: <span style="color:{'#FF4C4C' if n_cv_in_domain>0 else '#444'};font-weight:600">{n_cv_in_domain}</span></div>
-                  {'<div style="font-size:0.72rem;color:#888;margin-top:3px">High variant density + known functional importance → prioritise for structure-based drug design</div>' if druggable else ''}
+                  {('<div style="font-size:0.72rem;color:#888;margin-top:3px">High variant density — prioritise for structure-based drug design</div>' if druggable else '')}
                 </div>""", unsafe_allow_html=True)
         else:
             st.markdown(f'<div style="background:#0a0c16;border:1px solid #1a1d2e;border-radius:8px;padding:16px;font-size:0.82rem;color:#555">Domain data not loaded. Enable DB enrichment to identify druggable domains for {gene}.</div>', unsafe_allow_html=True)

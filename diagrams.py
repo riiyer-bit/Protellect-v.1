@@ -267,15 +267,31 @@ def build_gpcr_diagram(gene_name: str, g_protein: str, protein_name: str = "", n
 def build_cell_impact_diagram(gene_name: str, tier: str, n_pathogenic: int,
                                diseases: list, subcellular: list,
                                is_gpcr: bool = False, g_protein: str = "") -> str:
-    W,H=640,300; tc={"CRITICAL":"#FF4C4C","HIGH":"#FFA500","LOW":"#FFD700","NONE":"#888","UNKNOWN":"#4CA8FF"}.get(tier,"#888")
+    W,H=700,380; tc={"CRITICAL":"#FF4C4C","HIGH":"#FFA500","LOW":"#FFD700","NONE":"#888","UNKNOWN":"#4CA8FF"}.get(tier,"#888")
     dis_s=diseases[0][:32] if diseases else "No confirmed disease"
     gu=gene_name.upper(); assoc=GPCR_ASSOC.get(gu,{}); atype=assoc.get("type","")
-    if tier=="NONE": impact="No confirmed pathology"; sub="Zero germline variants — β-arrestin pattern"
-    elif n_pathogenic>500: impact=f"CRITICAL: {dis_s}"; sub=f"{n_pathogenic} pathogenic variants"
-    elif n_pathogenic>0: impact=f"CONFIRMED: {dis_s}"; sub=f"{n_pathogenic} pathogenic variant(s)"
-    else: impact="Uncharacterised"; sub="Insufficient ClinVar data"
-    ccx,ccy,crx,cry=175,155,140,115; ncx,ncy,nr=175,155,42
-    locs="".join(f'<rect x="{360+(i%2)*128}" y="{55+(i//2)*40}" width="118" height="24" rx="12" fill="#4CA8FF22" stroke="#4CA8FF55" stroke-width="1"/><text x="{419+(i%2)*128}" y="{71+(i//2)*40}" text-anchor="middle" font-size="8.5" fill="#4CA8FF" font-family="IBM Plex Mono,monospace">{loc[:16]}</text>' for i,loc in enumerate(subcellular[:4]))
+    # Build impact text — use disease if available, fallback to tier description
+    KNOWN_DISEASES = {
+        "FLNA":"Periventricular heterotopia · Cardiac malformations · Aortic aneurysm · Intellectual disability · Epilepsy",
+        "FLNB":"Boomerang dysplasia · Larsen syndrome · Atelosteogenesis",
+        "FLNC":"Arrhythmogenic cardiomyopathy · Dilated cardiomyopathy · Myofibrillar myopathy",
+        "CHRM2":"Dilated cardiomyopathy (dominant · 102 variants)",
+        "CHRM3":"Prune belly syndrome",
+        "ARRB1":"No confirmed disease (β-arrestin pattern — zero germline pathogenic)",
+        "ARRB2":"No confirmed disease (β-arrestin pattern — zero germline pathogenic)",
+        "TALN1":"No confirmed Mendelian disease — structural scaffold",
+        "BRCA1":"Breast/ovarian cancer · Fanconi anaemia",
+        "TP53":"Li-Fraumeni syndrome · Most mutated cancer gene",
+    }
+    known_dis = KNOWN_DISEASES.get(gene_name.upper(),"")
+    actual_dis = dis_s if dis_s and "No confirmed" not in dis_s else (known_dis.split("·")[0].strip() if known_dis else "")
+    if tier=="NONE": impact="No disease association — β-arrestin pattern"; sub="Zero germline pathogenic variants in ClinVar"
+    elif n_pathogenic>500: impact=f"CRITICAL: {actual_dis or dis_s}"; sub=f"{n_pathogenic} confirmed pathogenic variants"
+    elif n_pathogenic>50: impact=f"HIGH: {actual_dis or dis_s}"; sub=f"{n_pathogenic} germline pathogenic variants"
+    elif n_pathogenic>0: impact=f"CONFIRMED (rare): {actual_dis or dis_s}"; sub=f"{n_pathogenic} germline pathogenic variant(s)"
+    else: impact="Genomically uncharacterised"; sub="Insufficient ClinVar data"
+    ccx,ccy,crx,cry=175,160,145,125; ncx,ncy,nr=175,160,45
+    locs="".join(f'<rect x="{360+(i%2)*160}" y="{50+(i//2)*36}" width="148" height="26" rx="13" fill="#4CA8FF22" stroke="#4CA8FF55" stroke-width="1.5"/><text x="{434+(i%2)*160}" y="{67+(i//2)*36}" text-anchor="middle" font-size="9" fill="#4CA8FF" font-family="IBM Plex Mono,monospace">{loc[:20]}</text>' for i,loc in enumerate(subcellular[:6]))
     gc=assoc.get("color","#9370DB") if atype else ""
     gpcr_svg=""
     if atype:

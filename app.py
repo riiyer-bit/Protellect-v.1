@@ -516,18 +516,53 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
 with tab1:
     if not gene:
         if LOGO_B64:
-            st.markdown(f'<div style="text-align:center;padding:40px 0"><img src="{LOGO_B64}" style="height:64px;object-fit:contain;border-radius:12px;margin-bottom:16px"><h2 style="font-family:IBM Plex Mono,monospace;color:#f0f0f0;margin:0">Protellect</h2><p style="color:#555;margin:8px 0 24px">Enter a protein name in the sidebar to begin. Wet lab data is optional.</p></div>', unsafe_allow_html=True)
-        st.markdown(f"""
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;max-width:900px;margin:0 auto">
-          <div class="block"><div class="label">How it works</div><p style="font-size:0.82rem;color:#666;line-height:1.7">Enter any gene/protein → Protellect fetches AlphaFold structure, ClinVar germline variants, UniProt annotation. Wet lab data augments the analysis but is never the primary truth.</p></div>
-          <div class="block"><div class="label">ClinVar first</div><p style="font-size:0.82rem;color:#666;line-height:1.7">The only ground truth for target validation is germline pathogenic variants in humans. {paper_chip("king_2024")} Proteins with variants = essential. Proteins without = question everything.</p></div>
-          <div class="block"><div class="label">Try these proteins</div>
-            <p style="font-size:0.8rem;color:#666;margin-bottom:8px">High burden: FLNA · FLNC · CHRM2 · TP53</p>
-            <p style="font-size:0.8rem;color:#666;margin-bottom:8px">Rare Mendelian: CHRM3 · LMNA</p>
-            <p style="font-size:0.8rem;color:#666">Scaffolds: ARRB1 · ARRB2 · TALN1</p>
+            st.markdown(f'<div style="text-align:center;margin-bottom:16px"><img src="{LOGO_B64}" style="height:56px;object-fit:contain;border-radius:10px"></div>', unsafe_allow_html=True)
+        # Welcome tutorial
+        from evidence_layer import calculate_dbr
+        st.markdown(f'''
+        <div style="max-width:960px;margin:0 auto;padding:10px 0">
+          <div style="text-align:center;padding:32px 24px 24px;background:#0d1020;border:2px solid #1e2845;border-radius:16px;margin-bottom:20px">
+            <div style="font-family:IBM Plex Mono,monospace;font-size:1.8rem;font-weight:700;color:#f0f0f0;margin-bottom:6px">Protellect</div>
+            <div style="font-family:IBM Plex Mono,monospace;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.2em;color:#4CA8FF;margin-bottom:14px">Experimental Intelligence Layer &bull; ClinVar-First Drug Target Validation</div>
+            <p style="font-size:0.88rem;color:#aaa;max-width:580px;margin:0 auto;line-height:1.8">Enter a gene/protein name in the sidebar. Protellect fetches the AlphaFold structure, all ClinVar germline pathogenic variants, UniProt biology, and explains what every residue does — with paper citations throughout.</p>
           </div>
-        </div>""", unsafe_allow_html=True)
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
+            <div style="background:#0d1020;border:1px solid #FF4C4C44;border-radius:10px;padding:14px">
+              <div style="font-family:IBM Plex Mono,monospace;font-size:0.63rem;text-transform:uppercase;color:#FF4C4C;margin-bottom:6px">Principle 1 — ClinVar is truth</div>
+              <p style="font-size:0.78rem;color:#999;line-height:1.7">Germline pathogenic variants prove a protein is essential for human life. Filamin A: 847. β-arrestin 1: 0. The difference is everything.</p>
+            </div>
+            <div style="background:#0d1020;border:1px solid #FFA50044;border-radius:10px;padding:14px">
+              <div style="font-family:IBM Plex Mono,monospace;font-size:0.63rem;text-transform:uppercase;color:#FFA500;margin-bottom:6px">Principle 2 — Germline vs Somatic</div>
+              <p style="font-size:0.78rem;color:#999;line-height:1.7">Somatic variants (cancer) do NOT prove essentiality. Protellect separates these everywhere. Only germline variants count for drug target validation.</p>
+            </div>
+            <div style="background:#0d1020;border:1px solid #4CAF5044;border-radius:10px;padding:14px">
+              <div style="font-family:IBM Plex Mono,monospace;font-size:0.63rem;text-transform:uppercase;color:#4CAF50;margin-bottom:6px">Principle 3 — Not all proteins matter equally</div>
+              <p style="font-size:0.78rem;color:#999;line-height:1.7">Scaffold/piggyback proteins (β-arrestin, Talin) associate with essential proteins but have zero disease variants. The disease is in their partners.</p>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+            <div style="background:#0d1020;border:1px solid #1e2845;border-radius:10px;padding:14px">
+              <div style="font-family:IBM Plex Mono,monospace;font-size:0.63rem;text-transform:uppercase;color:#5a5d7a;margin-bottom:8px">Start with these proteins</div>
+              <div style="font-size:0.78rem;color:#ccc;margin-bottom:4px"><span style="color:#FF4C4C;font-family:IBM Plex Mono,monospace">FLNA</span> &mdash; 847 pathogenic · X-linked · CRITICAL</div>
+              <div style="font-size:0.78rem;color:#ccc;margin-bottom:4px"><span style="color:#FF4C4C;font-family:IBM Plex Mono,monospace">FLNC</span> &mdash; 3800 pathogenic · Cardiac · CRITICAL</div>
+              <div style="font-size:0.78rem;color:#ccc;margin-bottom:4px"><span style="color:#FFA500;font-family:IBM Plex Mono,monospace">CHRM2</span> &mdash; 102 pathogenic · Cardiomyopathy</div>
+              <div style="font-size:0.78rem;color:#ccc;margin-bottom:4px"><span style="color:#FFD700;font-family:IBM Plex Mono,monospace">CHRM3</span> &mdash; 8 pathogenic · Prune belly syndrome</div>
+              <div style="font-size:0.78rem;color:#888;margin-bottom:4px"><span style="color:#888;font-family:IBM Plex Mono,monospace">ARRB1</span> &mdash; 0 pathogenic · Scaffold pattern</div>
+            </div>
+            <div style="background:#0d1020;border:1px solid #1e2845;border-radius:10px;padding:14px">
+              <div style="font-family:IBM Plex Mono,monospace;font-size:0.63rem;text-transform:uppercase;color:#5a5d7a;margin-bottom:8px">Six tabs — what each does</div>
+              <div style="font-size:0.76rem;color:#888;margin-bottom:4px"><span style="color:#4CA8FF">Tab 1:</span> AlphaFold structure · Click residue for triage · ClinVar banner · Excel export</div>
+              <div style="font-size:0.76rem;color:#888;margin-bottom:4px"><span style="color:#4CA8FF">Tab 2:</span> Full protein biology · ClinVar germline vs somatic · PubMed papers</div>
+              <div style="font-size:0.76rem;color:#888;margin-bottom:4px"><span style="color:#4CA8FF">Tab 3:</span> Tissue map · Genomic breakdown · GPCR schematic · Cell impact</div>
+              <div style="font-size:0.76rem;color:#888;margin-bottom:4px"><span style="color:#4CA8FF">Tab 4:</span> Drug strategy · Druggable spots · Progression timeline · Experiments</div>
+              <div style="font-size:0.76rem;color:#888;margin-bottom:4px"><span style="color:#4CA8FF">Tab 5:</span> Standalone protein deep dive (no data upload needed)</div>
+              <div style="font-size:0.76rem;color:#888"><span style="color:#4CA8FF">Tab 6:</span> Disease → all affiliated proteins ranked by ClinVar burden</div>
+            </div>
+          </div>
+        </div>
+        ''', unsafe_allow_html=True)
         st.stop()
+
 
     if "prot_data" not in st.session_state:
         st.info("👈 Click **▶ Analyse** to load the protein.")
@@ -646,11 +681,20 @@ with tab1:
             cv_pos_map = {}
             for v_cv in cv.get("pathogenic",[]) + cv.get("likely_pathogenic",[]):
                 pos_cv = v_cv.get("pos",0)
+                # Try regex if pos is 0
+                if not pos_cv:
+                    title = v_cv.get("title","")
+                    m = re.search(r'[A-Z](\d+)[A-Z=\*]', title)
+                    if m: pos_cv = int(m.group(1))
                 if pos_cv > 0:
                     cv_pos_map[pos_cv] = {
                         "sig": v_cv.get("germline","") or v_cv.get("sig",""),
                         "conditions": v_cv.get("conditions",[]),
                     }
+            # Also add UniProt disease natural variants
+            for nv in pd_s.get("natural_variants",[]):
+                if nv.get("disease") and nv.get("pos",0) > 0 and nv["pos"] not in cv_pos_map:
+                    cv_pos_map[nv["pos"]] = {"sig":"UniProt disease variant","conditions":[nv.get("note","")[:50]]}
             components.html(make_3d_viewer(pdb, rs, 700, 450,
                                             clinvar_positions=cv_pos_map,
                                             residue_annotations=res_annot,
@@ -989,8 +1033,15 @@ with tab3:
         for v in cv.get("pathogenic",[]) + cv.get("likely_pathogenic",[]):
             for c in v.get("conditions",[]):
                 if c and "not provided" not in c.lower() and c not in dis4: dis4.append(c)
+        # Fallback to ground truth diseases if ClinVar query returned few results
+        if len(dis4) < 2:
+            gt_diseases = gt.get("diseases","")
+            if gt_diseases:
+                for d2 in gt_diseases.split("·"):
+                    d2s = d2.strip()
+                    if d2s and d2s not in dis4: dis4.append(d2s)
         # EXPANDED cell impact — full width, more height
-        components.html(build_cell_impact_diagram(gene, tier, n_path, dis4[:6], subcel, is_gpcr, g_prot), height=460, scrolling=True)
+        components.html(build_cell_impact_diagram(gene, tier, n_path, dis4[:6], subcel, is_gpcr, g_prot), height=480, scrolling=True)
         st.caption(f"Cell impact for {gene} · {n_path} ClinVar germline pathogenic variants · Germline only")
         # Real biology from protein_data
         pdata_v4 = get_protein_info(gene)
@@ -1016,10 +1067,23 @@ with tab3:
         st.markdown('<div class="label">Experiment recommender — click a residue to get specific protocols</div>', unsafe_allow_html=True)
         gpath=cv.get("pathogenic",[])+cv.get("likely_pathogenic",[])
         if gpath:
-            positions=[v.get("pos",0) for v in gpath if v.get("pos",0)>0][:20]
-            selected_pos = st.selectbox("Select a pathogenic residue position from ClinVar", ["—"]+[str(p) for p in positions], key="res_sel")
+            # Extract positions from ClinVar and UniProt natural variants
+            positions_raw = [v.get("pos",0) for v in gpath if v.get("pos",0)>0]
+            # Also extract from titles using regex
+            for v in gpath:
+                if v.get("pos",0) == 0:
+                    title = v.get("title","")
+                    m = re.search(r'[A-Z](\d+)[A-Z=\*]', title)
+                    if m:
+                        positions_raw.append(int(m.group(1)))
+            # Add UniProt disease variants
+            for nv in pd_s.get("natural_variants",[]):
+                if nv.get("disease") and nv.get("pos",0) > 0:
+                    positions_raw.append(nv["pos"])
+            positions = sorted(list(set(p for p in positions_raw if p > 0)))[:30]
+            selected_pos = st.selectbox("Select a pathogenic residue position from ClinVar", ["—"]+[f"Pos {p}" for p in positions], key="res_sel")
             if selected_pos and selected_pos != "—":
-                pos=int(selected_pos)
+                pos=int(selected_pos.replace("Pos ","").strip())
                 variant=[v for v in gpath if v.get("pos")==pos]
                 if variant:
                     v=variant[0]; sig=v.get("germline","") or v.get("sig",""); dis=v.get("conditions",["—"])[0] if v.get("conditions") else "—"
