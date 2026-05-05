@@ -1,0 +1,373 @@
+"""
+Tab 2 — Case Study
+• Tissue associations
+• Genomic data (NCBI Gene)
+• GPCR association (piggybacked or important)
+• Disease classification — somatic vs germline (UniProt + ClinVar)
+"""
+
+import streamlit as st
+import plotly.graph_objects as go
+import plotly.express as px
+from utils.uniprot import UniProtClient
+from utils.ncbi import NCBIClient
+from utils.pubmed import render_citations
+
+
+def render_case_study_tab(
+    protein_data: dict,
+    clinvar_data: dict | None,
+    ncbi_client:  NCBIClient,
+    papers:       list | None,
+    gene_name:    str,
+):
+    st.markdown("#### 📋 Case Study — Molecular Profile")
+
+    # Fetch NCBI gene data (cached per session)
+    @st.cache_data(show_spinner=False)
+    def _get_ncbi(gene):
+        return ncbi_client.fetch_gene(gene)
+
+    gene_data = _get_ncbi(gene_name)
+
+    # ── Row 1: Tissue + Subcellular location ──────────────────────────────────
+    col_tissue, col_sub = st.columns([1, 1], gap="large")
+
+    with col_tissue:
+        _render_tissue_section(protein_data)
+
+    with col_sub:
+        _render_subcellular_section(protein_data)
+
+    st.markdown("<hr class='divider'>", unsafe_allow_html=True)
+
+    # ── Row 2: Genomic data ───────────────────────────────────────────────────
+    _render_genomic_section(protein_data, gene_data, gene_name)
+
+    st.markdown("<hr class='divider'>", unsafe_allow_html=True)
+
+    # ── Row 3: GPCR association ───────────────────────────────────────────────
+    _render_gpcr_section(protein_data)
+
+    st.markdown("<hr class='divider'>", unsafe_allow_html=True)
+
+    # ── Row 4: Disease classification (somatic / germline) ────────────────────
+    _render_disease_classification(protein_data, clinvar_data)
+
+    st.markdown("<hr class='divider'>", unsafe_allow_html=True)
+
+    # ── Citations ─────────────────────────────────────────────────────────────
+    render_citations(papers or [], max_show=4)
+
+
+# ─── Tissue section ───────────────────────────────────────────────────────────
+def _render_tissue_section(pdata: dict):
+    st.markdown("##### 🫀 Tissue Associations")
+
+    tissue_text = UniProtClient.extract_tissue_specificity(pdata)
+    if tissue_text:
+        st.markdown(
+            f"<div class='card'><p style='color:#c9d8e8;font-size:0.88rem;line-height:1.6;'>"
+            f"{tissue_text}</p></div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.caption("No specific tissue annotation in UniProt.")
+
+    # HPA-style tissue bar (from keywords / comments)
+    tissues_kw = _infer_tissue_keywords(pdata)
+    if tissues_kw:
+        fig = go.Figure(go.Bar(
+            y=list(tissues_kw.keys()),
+            x=list(tissues_kw.values()),
+            orientation="h",
+            marker=dict(
+                color=list(tissues_kw.values()),
+                colorscale=[[0,"#1e3a5f"],[0.5,"#0090ff"],[1,"#00d4ff"]],
+                cmin=0, cmax=5,
+            ),
+        ))
+        fig.update_layout(
+            paper_bgcolor="#060e18", plot_bgcolor="#060e18",
+            font_color="#8ab4d4", margin=dict(l=0,r=0,t=20,b=0),
+            xaxis=dict(showgrid=False, zeroline=False),
+            yaxis=dict(tickfont=dict(size=11)),
+            height=200 + len(tissues_kw) * 22,
+            title=dict(text="Inferred expression pattern", font_size=12, font_color="#00d4ff"),
+        )
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
+
+def _infer_tissue_keywords(pdata: dict) -> dict:
+    """Rough tissue evidence from keywords / function text."""
+    mapping = {
+        "Brain": ["brain","neuron","cerebral","cortex","hippocampus","nervous"],
+        "Liver": ["liver","hepatic","hepatocyte"],
+        "Heart": ["heart","cardiac","myocardium","myocyte"],
+        "Kidney": ["kidney","renal","nephron"],
+        "Lung": ["lung","pulmonary","alveolar"],
+        "Blood": ["blood","erythrocyte","leukocyte","platelet","haematop"],
+        "Breast": ["breast","mammary"],
+        "Colon": ["colon","colorectal","intestine"],
+        "Prostate": ["prostate"],
+        "Skin": ["skin","keratinocyte","melanocyte"],
+        "Muscle": ["muscle","skeletal","myoblast"],
+        "Pancreas": ["pancreas","islet","beta cell"],
+        "Thyroid": ["thyroid"],
+        "Bone": ["bone","osteoblast","osteoclast"],
+        "Testis": ["testis","sperm","spermatogen"],
+        "Ovary": ["ovary","oocyte"],
+        "Placenta": ["placenta","trophoblast"],
+    }
+    text = " ".join([
+        UniProtClient.extract_tissue_specificity(pdata),
+        UniProtClient.extract_function(pdata),
+        " ".join(kw.get("value","") for kw in pdata.get("keywords",[])),
+    ]).lower()
+    scores = {}
+    for tissue, kws in mapping.items():
+        sc = sum(1 for k in kws if k in text)
+        if sc:
+            scores[tissue] = sc
+    return dict(sorted(scores.items(), key=lambda x: -x[1])[:10])
+
+
+# ─── Subcellular location ─────────────────────────────────────────────────────
+def _render_subcellular_section(pdata: dict):
+    st.markdown("##### 📍 Subcellular Localisation")
+    locs = UniProtClient.extract_subcellular_locations(pdata)
+    if locs:
+        for loc in locs:
+            st.markdown(
+                f"<div style='display:flex;align-items:center;gap:8px;margin:6px 0;'>"
+                f"<span style='color:#00d4ff;font-size:1.1rem;'>◆</span>"
+                f"<span style='color:#c9d8e8;font-size:0.88rem;'>{loc}</span>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+    else:
+        st.caption("No subcellular localisation data.")
+
+    # PTMs
+    st.markdown("##### ⚗️ Post-Translational Modifications")
+    ptm_text = next(
+        (c.get("texts",[{}])[0].get("value","")
+         for c in pdata.get("comments",[])
+         if c.get("commentType") == "PTM"),
+        ""
+    )
+    if ptm_text:
+        st.markdown(
+            f"<div class='card'><p style='color:#c9d8e8;font-size:0.85rem;line-height:1.6;'>"
+            f"{ptm_text[:600]}</p></div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.caption("No PTM annotation.")
+
+
+# ─── Genomic data section ─────────────────────────────────────────────────────
+def _render_genomic_section(pdata: dict, gene_data: dict, gene_name: str):
+    st.markdown("##### 🧬 Genomic Data")
+
+    uid  = pdata.get("primaryAccession", "—")
+    seq  = UniProtClient.extract_sequence(pdata)
+    length = pdata.get("sequence", {}).get("length", len(seq))
+
+    # Cross-references
+    xrefs = pdata.get("uniProtKBCrossReferences", [])
+    omim  = next((x.get("id","—") for x in xrefs if x.get("database") == "MIM"), "—")
+    hgnc  = next((x.get("id","—") for x in xrefs if x.get("database") == "HGNC"), "—")
+    ensembl = next((x.get("id","—") for x in xrefs if x.get("database") == "Ensembl"), "—")
+    refseq  = next((x.get("id","—") for x in xrefs if x.get("database") == "RefSeq"), "—")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown(
+            f"<div class='card'>"
+            f"<h4>Protein</h4>"
+            f"<p>UniProt: <b style='color:#00d4ff;'>{uid}</b><br>"
+            f"Length: <b>{length} aa</b><br>"
+            f"HGNC: {hgnc}</p>"
+            f"</div>", unsafe_allow_html=True)
+    with col2:
+        chrom = gene_data.get("chromosome", "—")
+        loc   = gene_data.get("map_location", "—")
+        start = gene_data.get("start", "—")
+        stop  = gene_data.get("stop", "—")
+        st.markdown(
+            f"<div class='card'>"
+            f"<h4>Genomic Location</h4>"
+            f"<p>Chr: <b style='color:#00d4ff;'>{chrom}</b><br>"
+            f"Cytoband: <b>{loc}</b><br>"
+            f"Start–Stop: {start}–{stop}</p>"
+            f"</div>", unsafe_allow_html=True)
+    with col3:
+        exons = gene_data.get("exon_count", "—")
+        ncbi_id = gene_data.get("gene_id", "—")
+        st.markdown(
+            f"<div class='card'>"
+            f"<h4>Gene</h4>"
+            f"<p>NCBI Gene ID: <b style='color:#00d4ff;'>{ncbi_id}</b><br>"
+            f"Exons: <b>{exons}</b><br>"
+            f"Ensembl: {ensembl[:20] if ensembl != '—' else '—'}</p>"
+            f"</div>", unsafe_allow_html=True)
+
+    # NCBI Gene summary
+    if gene_data.get("summary"):
+        with st.expander("📖 NCBI Gene Summary"):
+            st.write(gene_data["summary"])
+
+    # External links
+    links = []
+    if uid != "—":
+        links.append(f"[UniProt ↗](https://www.uniprot.org/uniprotkb/{uid})")
+    if omim != "—":
+        links.append(f"[OMIM ↗](https://www.omim.org/entry/{omim})")
+    if gene_data.get("gene_id"):
+        links.append(f"[NCBI Gene ↗](https://www.ncbi.nlm.nih.gov/gene/{gene_data['gene_id']})")
+    if ensembl and ensembl != "—":
+        links.append(f"[Ensembl ↗](https://www.ensembl.org/id/{ensembl})")
+
+    if links:
+        st.markdown("**External links:** " + " · ".join(links))
+
+
+# ─── GPCR section ─────────────────────────────────────────────────────────────
+def _render_gpcr_section(pdata: dict):
+    st.markdown("##### 📡 GPCR Association")
+    gpcr = UniProtClient.extract_gpcr_info(pdata)
+
+    if gpcr["is_gpcr"]:
+        coupling_str = ", ".join(gpcr["coupling"]) if gpcr["coupling"] else "Unknown"
+        st.markdown(
+            f"<div style='background:#0a2a4a;border:2px solid #00d4ff;border-radius:10px;"
+            f"padding:1rem 1.5rem;'>"
+            f"<div style='display:flex;align-items:center;gap:12px;'>"
+            f"<span style='font-size:2rem;'>📡</span>"
+            f"<div>"
+            f"<p style='color:#00d4ff;font-weight:700;font-size:1rem;margin:0;'>GPCR — Important / Piggybacked</p>"
+            f"<p style='color:#c9d8e8;margin:4px 0 0;font-size:0.88rem;'>"
+            f"Class: <b>{gpcr.get('class','—')}</b> · G-protein coupling: <b>{coupling_str}</b></p>"
+            f"</div></div></div>",
+            unsafe_allow_html=True,
+        )
+        # Therapeutic implications
+        st.markdown("""
+        <div class='card' style='margin-top:0.8rem;'>
+          <h4>Therapeutic Relevance</h4>
+          <p>GPCRs are the most druggable protein class (~34% of FDA-approved drugs target GPCRs).
+          This protein's GPCR nature makes it a prime therapeutic target.
+          Consider: biased agonism, allosteric modulation, and antibody-based approaches.</p>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown(
+            "<div style='background:#0a1929;border:1px solid #1e3a5f;border-radius:8px;"
+            "padding:0.8rem 1.2rem;color:#5a7a9a;font-size:0.88rem;'>"
+            "Not classified as a GPCR in UniProt.</div>",
+            unsafe_allow_html=True,
+        )
+
+    # Interaction partners
+    _render_interactions(pdata)
+
+
+def _render_interactions(pdata: dict):
+    interactions = []
+    for c in pdata.get("comments", []):
+        if c.get("commentType") == "INTERACTION":
+            for inter in c.get("interactions", []):
+                p2 = inter.get("interactantTwo", {})
+                gene2 = p2.get("geneName", p2.get("uniProtKBAccession","?"))
+                interactions.append(gene2)
+    if interactions:
+        st.markdown(f"**Known interactors:** " + " · ".join(f"`{i}`" for i in interactions[:12]))
+
+
+# ─── Disease classification: somatic vs germline ───────────────────────────────
+def _render_disease_classification(pdata: dict, clinvar_data: dict | None):
+    st.markdown("##### 🧬 Disease Classification — Somatic vs Germline")
+
+    diseases = UniProtClient.extract_diseases(pdata)
+    variants = (clinvar_data or {}).get("variants", [])
+
+    # From ClinVar origin field
+    somatic_conditions  = set()
+    germline_conditions = set()
+    for v in variants:
+        origin = v.get("origin", "").lower()
+        cond   = v.get("condition", "")
+        if not cond or cond == "Not specified":
+            continue
+        if "somatic" in origin:
+            somatic_conditions.add(cond)
+        elif "germline" in origin or "inherited" in origin or "de novo" in origin:
+            germline_conditions.add(cond)
+        else:
+            # Infer from ClinVar sig
+            sig = v.get("clinical_significance","").lower()
+            if "somatic" in sig:
+                somatic_conditions.add(cond)
+            elif v.get("path_score",0) >= 4:
+                germline_conditions.add(cond)
+
+    col_g, col_s = st.columns(2)
+
+    with col_g:
+        st.markdown(
+            f"<div style='background:#0a2a1a;border:1px solid #00c896;border-radius:10px;"
+            f"padding:1rem;margin-bottom:0.5rem;'>"
+            f"<p style='color:#00c896;font-weight:700;font-size:1rem;margin:0 0 0.5rem;'>"
+            f"🧬 Germline ({len(germline_conditions)})</p>"
+            f"<p style='color:#8ab4d4;font-size:0.78rem;margin:0 0 0.5rem;'>"
+            f"Heritable — present in all cells from birth</p>",
+            unsafe_allow_html=True,
+        )
+        if germline_conditions:
+            for c in sorted(germline_conditions)[:10]:
+                st.markdown(
+                    f"<div style='color:#b2e4d0;font-size:0.82rem;margin:3px 0;'>◆ {c[:70]}</div>",
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.markdown("<p style='color:#5a7a9a;font-size:0.82rem;'>No germline classifications found.</p>",
+                        unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with col_s:
+        st.markdown(
+            f"<div style='background:#2a0a1a;border:1px solid #ff2d55;border-radius:10px;"
+            f"padding:1rem;margin-bottom:0.5rem;'>"
+            f"<p style='color:#ff2d55;font-weight:700;font-size:1rem;margin:0 0 0.5rem;'>"
+            f"🔴 Somatic ({len(somatic_conditions)})</p>"
+            f"<p style='color:#8ab4d4;font-size:0.78rem;margin:0 0 0.5rem;'>"
+            f"Acquired — arises in specific cell populations</p>",
+            unsafe_allow_html=True,
+        )
+        if somatic_conditions:
+            for c in sorted(somatic_conditions)[:10]:
+                st.markdown(
+                    f"<div style='color:#ffb3c6;font-size:0.82rem;margin:3px 0;'>◆ {c[:70]}</div>",
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.markdown("<p style='color:#5a7a9a;font-size:0.82rem;'>No somatic classifications found.</p>",
+                        unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # UniProt disease cards
+    if diseases:
+        st.markdown("**UniProt Disease Annotations**")
+        for d in diseases[:8]:
+            note = d.get("note","")
+            omim = d.get("omim","")
+            omim_link = f" · [OMIM {omim}](https://www.omim.org/entry/{omim})" if omim else ""
+            st.markdown(
+                f"<div class='card'>"
+                f"<h4>{d['name']}{omim_link}</h4>"
+                f"<p>{d.get('desc','')[:300]}</p>"
+                f"{'<p style=\"color:#ffd60a;font-size:0.8rem;\">' + note[:200] + '</p>' if note else ''}"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
