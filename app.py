@@ -1,624 +1,290 @@
 from __future__ import annotations
-"""
-Tab 3 — Protein Explorer
-• Large interactive 3D structure (backbone + ribbon + residue spheres)
-• Clickable residues → detailed breakdown + "If Mutated" section with slider
-• Mutation animation (conformational fluctuation simulation)
-• Disease–mutation–genomic implication table
-"""
+"""All API calls: UniProt, ClinVar, AlphaFold, PubMed, NCBI Gene."""
 
+import requests, time, re
 import streamlit as st
-import streamlit.components.v1 as components
-import plotly.graph_objects as go
-import plotly.express as px
-import pandas as pd
-import json
-import math
-import numpy as np
-from utils.alphafold import AlphaFoldClient
-from utils.uniprot import UniProtClient
-from utils.pubmed import render_citations
 
+ESEARCH  = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+ESUMMARY = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
+AF_API   = "https://alphafold.ebi.ac.uk/api"
+UNIPROT  = "https://rest.uniprot.org/uniprotkb"
 
-def render_explorer_tab(
-    protein_data:  dict,
-    alphafold_pdb: str | None,
-    clinvar_data:  dict | None,
-    ml_scores:     dict | None,
-    papers:        list | None,
-    gene_name:     str,
-):
-    st.markdown("#### 🔬 Protein Explorer")
-    st.caption("Click any residue sphere to inspect its properties and predicted mutational consequences.")
+SIG_SCORE = {
+    "pathogenic": 5, "likely pathogenic": 4,
+    "pathogenic/likely pathogenic": 4, "risk factor": 3,
+    "uncertain significance": 2, "conflicting interpretations": 2,
+    "likely benign": 1, "benign": 0, "benign/likely benign": 0,
+    "not provided": -1,
+}
 
-    # ── Large 3D explorer ─────────────────────────────────────────────────────
-    _render_large_structure(alphafold_pdb, clinvar_data, ml_scores, protein_data)
+# ── UniProt ─────────────────────────────────────────────────────────────────
+def fetch_uniprot(query: str) -> dict:
+    acc_pat = re.compile(r"^[OPQ][0-9][A-Z0-9]{3}[0-9]$|^[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2}$", re.I)
+    if acc_pat.match(query.strip()):
+        r = requests.get(f"{UNIPROT}/{query.strip().upper()}", headers={"Accept":"application/json"}, timeout=20)
+        r.raise_for_status(); return r.json()
 
-    st.markdown("<hr class='divider'>", unsafe_allow_html=True)
+    params = {
+        "query": f'(gene:{query} OR protein_name:{query}) AND reviewed:true',
+        "format": "json", "size": 1,
+        "fields": "accession,gene_names,protein_name,organism_name,length,"
+                  "cc_disease,cc_tissue_specificity,cc_function,keyword,"
+                  "cc_subcellular_location,xref_omim,xref_hgnc,sequence,"
+                  "ft_variant,cc_pathway,cc_interaction,cc_ptm,feature",
+    }
+    r = requests.get(f"{UNIPROT}/search", params=params, headers={"Accept":"application/json"}, timeout=20)
+    r.raise_for_status()
+    results = r.json().get("results", [])
+    if not results:
+        params["query"] = query
+        r = requests.get(f"{UNIPROT}/search", params=params, headers={"Accept":"application/json"}, timeout=20)
+        r.raise_for_status(); results = r.json().get("results", [])
+    if not results: raise ValueError(f"No UniProt entry found for '{query}'.")
+    acc = results[0]["primaryAccession"]
+    r2 = requests.get(f"{UNIPROT}/{acc}", headers={"Accept":"application/json"}, timeout=20)
+    r2.raise_for_status(); return r2.json()
 
-    # ── Residue detail panel ──────────────────────────────────────────────────
-    _render_residue_detail_panel(protein_data, clinvar_data, ml_scores, alphafold_pdb)
+def get_gene_name(pdata: dict) -> str:
+    try: return pdata["genes"][0]["geneName"]["value"]
+    except: return pdata.get("primaryAccession","?")
 
-    st.markdown("<hr class='divider'>", unsafe_allow_html=True)
+def get_protein_name(pdata: dict) -> str:
+    try: return pdata["proteinDescription"]["recommendedName"]["fullName"]["value"]
+    except: return "Unknown protein"
 
-    # ── Disease–mutation–genomic implication list ─────────────────────────────
-    _render_disease_mutation_map(protein_data, clinvar_data, ml_scores, gene_name)
+def get_sequence(pdata: dict) -> str:
+    return pdata.get("sequence",{}).get("value","")
 
-    st.markdown("<hr class='divider'>", unsafe_allow_html=True)
-    render_citations(papers or [], max_show=4)
+def get_diseases(pdata: dict) -> list:
+    out = []
+    for c in pdata.get("comments",[]):
+        if c.get("commentType") == "DISEASE":
+            d = c.get("disease",{})
+            out.append({
+                "name": d.get("diseaseId", d.get("diseaseAcronym","Unknown")),
+                "desc": d.get("description",""),
+                "omim": d.get("diseaseCrossReference",{}).get("id",""),
+                "note": (c.get("note",{}).get("texts",[{}])[0].get("value","") if c.get("note") else ""),
+            })
+    return out
 
+def get_subcellular(pdata: dict) -> list:
+    locs = []
+    for c in pdata.get("comments",[]):
+        if c.get("commentType") == "SUBCELLULAR LOCATION":
+            for e in c.get("subcellularLocations",[]):
+                v = e.get("location",{}).get("value","")
+                if v: locs.append(v)
+    return list(dict.fromkeys(locs))
 
-# ─── Large structure viewer ────────────────────────────────────────────────────
-def _render_large_structure(pdb_text, clinvar_data, ml_scores, pdata):
-    if not pdb_text:
-        st.warning("No AlphaFold structure available. Enter a valid UniProt accession for 3D visualisation.")
-        return
+def get_tissue(pdata: dict) -> str:
+    for c in pdata.get("comments",[]):
+        if c.get("commentType") == "TISSUE SPECIFICITY":
+            t = c.get("texts",[])
+            if t: return t[0].get("value","")
+    return ""
 
-    top_vars   = (ml_scores or {}).get("top_variants", [])
-    bfactors   = AlphaFoldClient.parse_bfactors(pdb_text)
-    variants   = (clinvar_data or {}).get("variants", [])
+def get_function(pdata: dict) -> str:
+    for c in pdata.get("comments",[]):
+        if c.get("commentType") == "FUNCTION":
+            t = c.get("texts",[])
+            if t: return t[0].get("value","")
+    return ""
 
-    # Pathogenic positions
-    path_positions = {}
-    for v in top_vars[:40]:
-        pos = v.get("start") or v.get("position")
+def get_gpcr(pdata: dict) -> dict:
+    kws = [k.get("value","").lower() for k in pdata.get("keywords",[])]
+    is_gpcr = any(x in " ".join(kws) for x in ["gpcr","g protein","rhodopsin","adrenergic"])
+    return {"is_gpcr": is_gpcr, "keywords": kws}
+
+def get_xref(pdata: dict, db: str) -> str:
+    for x in pdata.get("uniProtKBCrossReferences",[]):
+        if x.get("database") == db: return x.get("id","")
+    return ""
+
+def get_variants_from_uniprot(pdata: dict) -> list:
+    out = []
+    for f in pdata.get("features",[]):
+        if f.get("type") in ("Natural variant","VARIANT"):
+            loc = f.get("location",{})
+            out.append({
+                "position": loc.get("start",{}).get("value","?"),
+                "original": f.get("alternativeSequence",{}).get("originalSequence",""),
+                "alt":      ", ".join(f.get("alternativeSequence",{}).get("alternativeSequences",[])),
+                "desc":     f.get("description",""),
+            })
+    return out
+
+# ── ClinVar ──────────────────────────────────────────────────────────────────
+def fetch_clinvar(gene: str, max_results: int = 300) -> dict:
+    params = {"db":"clinvar","term":f"{gene}[gene]","retmax":max_results,"retmode":"json"}
+    try:
+        r = requests.get(ESEARCH, params=params, timeout=20); r.raise_for_status()
+        ids = r.json().get("esearchresult",{}).get("idlist",[])
+    except: return {"variants":[], "summary":{}}
+    if not ids: return {"variants":[], "summary":{}}
+
+    variants = []
+    for i in range(0, len(ids), 100):
+        batch = ids[i:i+100]
         try:
-            p = int(pos)
-            score = v.get("ml_pathogenicity", 0)
-            cond  = v.get("condition", "")
-            sig   = v.get("clinical_significance", "")
-            path_positions[p] = {"score": score, "condition": cond, "sig": sig,
-                                  "variant": v.get("variant_name",""), "rank": v.get("ml_rank","NEUTRAL")}
-        except (TypeError, ValueError):
-            pass
+            r2 = requests.get(ESUMMARY, params={"db":"clinvar","id":",".join(batch),"retmode":"json"}, timeout=30)
+            r2.raise_for_status(); data = r2.json().get("result",{})
+            for uid in data.get("uids",[]):
+                e = data.get(uid,{}); gc = e.get("germline_classification",{})
+                sig = gc.get("description","Not provided")
+                score = SIG_SCORE.get(sig.lower().strip(), 0)
+                traits = [t.get("trait_name","") for t in e.get("trait_set",{}).get("trait",[]) if t.get("trait_name")]
+                locs = e.get("location_list",[{}])
+                vset = e.get("variation_set",[{}])
+                variants.append({
+                    "uid": uid,
+                    "title": e.get("title",""),
+                    "variant_name": vset[0].get("variation_name","") if vset else "",
+                    "sig": sig, "score": score,
+                    "rank": _score_rank(score),
+                    "condition": "; ".join(traits) if traits else "Not specified",
+                    "origin": e.get("origin",{}).get("origin",""),
+                    "review": gc.get("review_status",""),
+                    "chr": locs[0].get("chr","") if locs else "",
+                    "start": locs[0].get("start","") if locs else "",
+                    "url": f"https://www.ncbi.nlm.nih.gov/clinvar/variation/{e.get('variation_id',uid)}/",
+                    "somatic": bool(e.get("somatic_classifications",{})),
+                })
+        except: pass
+        time.sleep(0.1)
 
-    path_pos_js  = json.dumps({str(k): v for k, v in path_positions.items()})
-    pdb_escaped  = pdb_text.replace("`", "\\`").replace("\\", "\\\\")
-
-    # Sequence for residue list
-    sequence = UniProtClient.extract_sequence(pdata)
-    seq_js   = json.dumps(sequence)
-
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <script src="https://cdnjs.cloudflare.com/ajax/libs/3Dmol/2.1.0/3Dmol-min.js"></script>
-      <style>
-        * {{ box-sizing: border-box; margin:0; padding:0; }}
-        body {{ background:#060e18; font-family:Inter,sans-serif; display:flex; flex-direction:column; }}
-        #controls {{ display:flex; gap:10px; padding:10px; background:#0a1929; border-bottom:1px solid #1e3a5f; flex-wrap:wrap; }}
-        .ctrl-btn {{
-          background:#0d2a4a; color:#8ab4d4; border:1px solid #1e3a5f;
-          padding:5px 14px; border-radius:20px; cursor:pointer; font-size:12px;
-          transition:all 0.2s;
-        }}
-        .ctrl-btn:hover, .ctrl-btn.active {{ background:#00d4ff; color:#000; font-weight:700; border-color:#00d4ff; }}
-        #viewer-wrap {{ position:relative; }}
-        #viewer {{ width:100%; height:600px; }}
-        #info-panel {{
-          position:absolute; top:10px; right:10px; width:260px;
-          background:rgba(6,14,24,0.92); border:1px solid #1e3a5f;
-          border-radius:10px; padding:14px; font-size:12px; color:#c9d8e8;
-          display:none; max-height:580px; overflow-y:auto;
-        }}
-        #info-panel h3 {{ color:#00d4ff; font-size:14px; margin-bottom:8px; }}
-        #info-panel .prop {{ margin:5px 0; }}
-        #info-panel .prop span {{ color:#8ab4d4; }}
-        #info-panel .rank-badge {{
-          display:inline-block; padding:2px 10px; border-radius:12px;
-          font-weight:700; font-size:11px; margin-bottom:6px;
-        }}
-        .legend {{
-          display:flex; gap:14px; padding:8px 12px; background:#0a1929;
-          border-top:1px solid #1e3a5f; flex-wrap:wrap;
-        }}
-        .leg-item {{ display:flex; align-items:center; gap:6px; font-size:11px; color:#8ab4d4; }}
-        .leg-dot {{ width:10px; height:10px; border-radius:50%; flex-shrink:0; }}
-        #spin-toggle {{ position:absolute; top:10px; left:10px; }}
-      </style>
-    </head>
-    <body>
-    <div id="controls">
-      <button class="ctrl-btn active" onclick="setStyle('cartoon')">🎀 Cartoon</button>
-      <button class="ctrl-btn" onclick="setStyle('stick')">🦴 Stick</button>
-      <button class="ctrl-btn" onclick="setStyle('sphere')">⚬ Sphere</button>
-      <button class="ctrl-btn" onclick="setStyle('surface')">🌊 Surface</button>
-      <button class="ctrl-btn" onclick="toggleSpin()">🔄 Spin</button>
-      <button class="ctrl-btn" onclick="resetView()">🎯 Reset</button>
-      <button class="ctrl-btn" onclick="togglePathogenic()">🔴 Toggle Pathogenic</button>
-      <button class="ctrl-btn" onclick="toggleLabels()">🏷️ Labels</button>
-    </div>
-    <div id="viewer-wrap">
-      <div id="viewer"></div>
-      <div id="info-panel">
-        <h3 id="ip-title">Residue Info</h3>
-        <div id="ip-content"></div>
-      </div>
-    </div>
-    <div class="legend">
-      <div class="leg-item"><div class="leg-dot" style="background:#0053D6;"></div>pLDDT ≥90 (very high)</div>
-      <div class="leg-item"><div class="leg-dot" style="background:#65CBF3;"></div>pLDDT 70–90</div>
-      <div class="leg-item"><div class="leg-dot" style="background:#FFDB13;"></div>pLDDT 50–70</div>
-      <div class="leg-item"><div class="leg-dot" style="background:#FF7D45;"></div>pLDDT &lt;50</div>
-      <div class="leg-item"><div class="leg-dot" style="background:#ff2d55;border:2px solid white;"></div>Pathogenic variant</div>
-      <div class="leg-item"><div class="leg-dot" style="background:#ffd60a;border:2px solid white;"></div>VUS / Medium</div>
-    </div>
-    <script>
-    const pathData = {path_pos_js};
-    const sequence = {seq_js};
-    let spinning = false;
-    let showLabels = false;
-    let showPathogenic = true;
-    let currentStyle = 'cartoon';
-
-    const viewer = $3Dmol.createViewer(document.getElementById('viewer'), {{
-      backgroundColor: '0x060e18'
-    }});
-
-    const pdbText = `{pdb_escaped}`;
-    viewer.addModel(pdbText, 'pdb');
-    applyStyle();
-
-    // Add pathogenic spheres
-    function addPathogenicSpheres() {{
-      Object.entries(pathData).forEach(([pos, info]) => {{
-        const rk = info.rank;
-        const col = rk === 'CRITICAL' ? '#ff2d55' : rk === 'HIGH' ? '#ff6b00' :
-                    rk === 'MEDIUM'   ? '#ffd60a' : '#636e72';
-        viewer.addStyle(
-          {{resi: parseInt(pos), atom: 'CA'}},
-          {{sphere: {{radius: 1.4, color: col, opacity: 0.9}}}}
-        );
-      }});
-    }}
-    addPathogenicSpheres();
-
-    viewer.setClickable({{}}, true, function(atom) {{
-      showResidueInfo(atom);
-    }});
-
-    viewer.zoomTo();
-    viewer.render();
-
-    function applyStyle() {{
-      viewer.setStyle({{}}, {{
-        cartoon: {{
-          colorfunc: function(atom) {{
-            const b = atom.b;
-            if (b >= 90) return '#0053D6';
-            if (b >= 70) return '#65CBF3';
-            if (b >= 50) return '#FFDB13';
-            return '#FF7D45';
-          }},
-          thickness: 0.5,
-        }}
-      }});
-      if (currentStyle === 'stick') {{
-        viewer.addStyle({{}}, {{stick: {{colorscheme: 'chainHetatm', radius: 0.15}}}});
-      }} else if (currentStyle === 'sphere') {{
-        viewer.setStyle({{}}, {{sphere: {{colorfunc: function(atom) {{
-          const b = atom.b;
-          if (b >= 90) return '#0053D6';
-          if (b >= 70) return '#65CBF3';
-          if (b >= 50) return '#FFDB13';
-          return '#FF7D45';
-        }}, radius: 0.8}}}});
-      }} else if (currentStyle === 'surface') {{
-        viewer.addSurface($3Dmol.SurfaceType.VDW, {{
-          colorfunc: function(atom) {{
-            const b = atom.b;
-            if (b >= 90) return '#0053D6';
-            if (b >= 70) return '#65CBF3';
-            if (b >= 50) return '#FFDB13';
-            return '#FF7D45';
-          }}, opacity: 0.75
-        }});
-      }}
-      addPathogenicSpheres();
-      viewer.render();
-    }}
-
-    function setStyle(s) {{
-      currentStyle = s;
-      viewer.removeAllSurfaces();
-      document.querySelectorAll('.ctrl-btn').forEach(b => b.classList.remove('active'));
-      event.target.classList.add('active');
-      applyStyle();
-    }}
-
-    function toggleSpin() {{
-      spinning = !spinning;
-      viewer.spin(spinning ? 'y' : false, 0.5);
-    }}
-
-    function resetView() {{
-      viewer.zoomTo(); viewer.render();
-    }}
-
-    function togglePathogenic() {{
-      showPathogenic = !showPathogenic;
-      applyStyle();
-    }}
-
-    function toggleLabels() {{
-      showLabels = !showLabels;
-      viewer.removeAllLabels();
-      if (showLabels) {{
-        Object.entries(pathData).forEach(([pos, info]) => {{
-          if (info.rank === 'CRITICAL' || info.rank === 'HIGH') {{
-            viewer.addLabel('P' + pos, {{
-              position: {{resi: parseInt(pos), atom: 'CA'}},
-              backgroundColor: '#ff2d55', backgroundOpacity: 0.8,
-              fontSize: 10, fontColor: 'white', borderRadius: 4,
-            }});
-          }}
-        }});
-      }}
-      viewer.render();
-    }}
-
-    const aa3to1 = {{ALA:'A',ARG:'R',ASN:'N',ASP:'D',CYS:'C',GLN:'Q',GLU:'E',
-                     GLY:'G',HIS:'H',ILE:'I',LEU:'L',LYS:'K',MET:'M',PHE:'F',
-                     PRO:'P',SER:'S',THR:'T',TRP:'W',TYR:'Y',VAL:'V'}};
-    const aaFullName = {{A:'Alanine',R:'Arginine',N:'Asparagine',D:'Aspartate',
-                         C:'Cysteine',Q:'Glutamine',E:'Glutamate',G:'Glycine',
-                         H:'Histidine',I:'Isoleucine',L:'Leucine',K:'Lysine',
-                         M:'Methionine',F:'Phenylalanine',P:'Proline',S:'Serine',
-                         T:'Threonine',W:'Tryptophan',Y:'Tyrosine',V:'Valine'}};
-    const hydropathy = {{A:1.8,R:-4.5,N:-3.5,D:-3.5,C:2.5,Q:-3.5,E:-3.5,
-                         G:-0.4,H:-3.2,I:4.5,L:3.8,K:-3.9,M:1.9,F:2.8,
-                         P:-1.6,S:-0.8,T:-0.7,W:-0.9,Y:-1.3,V:4.2}};
-
-    function showResidueInfo(atom) {{
-      const pos  = atom.resi;
-      const res3 = atom.resn || '';
-      const res1 = aa3to1[res3.toUpperCase()] || '?';
-      const full = aaFullName[res1] || res3;
-      const plddt = atom.b || 0;
-      const conf  = plddt >= 90 ? 'Very High' : plddt >= 70 ? 'Confident' :
-                    plddt >= 50 ? 'Low' : 'Very Low';
-      const hydro = hydropathy[res1] !== undefined ? hydropathy[res1].toFixed(1) : '?';
-      const varInfo = pathData[String(pos)];
-
-      let html = '';
-      if (varInfo) {{
-        const rk = varInfo.rank;
-        const rankCol = {{CRITICAL:'#ff2d55',HIGH:'#ff6b00',MEDIUM:'#ffd60a',NEUTRAL:'#636e72'}}[rk] || '#636e72';
-        const rankBg  = {{CRITICAL:'#3d0010',HIGH:'#3d1a00',MEDIUM:'#3d3000',NEUTRAL:'#1a1a2e'}}[rk] || '#1a1a2e';
-        html += `<span class="rank-badge" style="background:${{rankBg}};color:${{rankCol}};border:1px solid ${{rankCol}};">${{rk}}</span>`;
-      }}
-
-      html += `
-        <div class="prop"><span>Residue:</span> <b>${{res1}} / ${{full}}</b></div>
-        <div class="prop"><span>Position:</span> <b>${{pos}}</b></div>
-        <div class="prop"><span>pLDDT:</span> <b>${{plddt.toFixed(1)}} (${{conf}})</b></div>
-        <div class="prop"><span>Hydropathy:</span> <b>${{hydro}}</b></div>
-      `;
-
-      if (varInfo) {{
-        html += `
-          <hr style="border-color:#1e3a5f;margin:8px 0;">
-          <div class="prop"><span>Variant:</span> ${{varInfo.variant || '—'}}</div>
-          <div class="prop"><span>Significance:</span> ${{varInfo.sig || '—'}}</div>
-          <div class="prop"><span>Condition:</span> ${{varInfo.condition || '—'}}</div>
-          <div class="prop"><span>ML Score:</span> <b style="color:#00d4ff">${{(varInfo.score*100).toFixed(0)}}%</b></div>
-        `;
-      }}
-
-      document.getElementById('ip-title').textContent = res3 + pos;
-      document.getElementById('ip-content').innerHTML = html;
-      document.getElementById('info-panel').style.display = 'block';
-    }}
-    </script>
-    </body>
-    </html>
-    """
-    components.html(html, height=720, scrolling=False)
-
-
-# ─── Residue detail + mutation panel ──────────────────────────────────────────
-def _render_residue_detail_panel(pdata, clinvar_data, ml_scores, pdb_text):
-    st.markdown("#### 🔍 Residue Mutation Analysis")
-    st.caption("Select a residue position to explore mutational consequences.")
-
-    sequence = UniProtClient.extract_sequence(pdata)
-    if not sequence:
-        st.info("No sequence available.")
-        return
-
-    bfactors = AlphaFoldClient.parse_bfactors(pdb_text) if pdb_text else {}
-    variants = (clinvar_data or {}).get("variants", [])
-
-    # Map positions to variant data
-    pos_to_variant = {}
+    variants.sort(key=lambda x: -x["score"])
+    from collections import Counter
+    sigs  = Counter(v["sig"] for v in variants)
+    ranks = Counter(v["rank"] for v in variants)
+    conds = Counter()
     for v in variants:
-        pos = v.get("start") or v.get("position")
-        try:
-            pos_to_variant[int(pos)] = v
-        except (TypeError, ValueError):
-            pass
-
-    col_sel, col_res = st.columns([1, 2])
-
-    with col_sel:
-        max_pos  = len(sequence)
-        position = st.number_input(
-            "Residue position", min_value=1, max_value=max_pos, value=1, step=1,
-            help="Enter a residue number (1-indexed)"
-        )
-        position = int(position)
-        aa = sequence[position - 1] if position <= len(sequence) else "?"
-
-        plddt = bfactors.get(position, None)
-        vdata = pos_to_variant.get(position)
-
-        st.markdown(f"""
-        <div class='card'>
-          <h4>Residue {position} — {aa}</h4>
-          <p>pLDDT: <b style='color:#00d4ff;'>{f'{plddt:.1f}' if plddt else '—'}</b><br>
-          Structural confidence: <b>{AlphaFoldClient.confidence_label(plddt) if plddt else '—'}</b></p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with col_res:
-        _render_mutation_panel(position, aa, vdata, sequence, bfactors)
-
-
-def _render_mutation_panel(position, aa, vdata, sequence, bfactors):
-    AA_NAMES = {
-        "A":"Alanine","R":"Arginine","N":"Asparagine","D":"Aspartate","C":"Cysteine",
-        "Q":"Glutamine","E":"Glutamate","G":"Glycine","H":"Histidine","I":"Isoleucine",
-        "L":"Leucine","K":"Lysine","M":"Methionine","F":"Phenylalanine","P":"Proline",
-        "S":"Serine","T":"Threonine","W":"Tryptophan","Y":"Tyrosine","V":"Valine",
+        for c in v["condition"].split(";"):
+            c = c.strip()
+            if c and c != "Not specified": conds[c] += 1
+    return {
+        "variants": variants,
+        "summary": {
+            "total": len(variants),
+            "by_sig": dict(sigs.most_common(8)),
+            "by_rank": dict(ranks),
+            "top_conds": dict(conds.most_common(10)),
+            "pathogenic": sum(1 for v in variants if v["score"] >= 4),
+            "vus": sum(1 for v in variants if v["score"] == 2),
+            "benign": sum(1 for v in variants if v["score"] <= 0),
+        }
     }
-    AA_HYDRO = {
-        "A":1.8,"R":-4.5,"N":-3.5,"D":-3.5,"C":2.5,"Q":-3.5,"E":-3.5,"G":-0.4,
-        "H":-3.2,"I":4.5,"L":3.8,"K":-3.9,"M":1.9,"F":2.8,"P":-1.6,"S":-0.8,
-        "T":-0.7,"W":-0.9,"Y":-1.3,"V":4.2,
-    }
-    AA_CHARGE = {"R":1,"H":0.5,"K":1,"D":-1,"E":-1}
 
-    full_name = AA_NAMES.get(aa, "Unknown")
-    hydro     = AA_HYDRO.get(aa, 0)
-    charge    = AA_CHARGE.get(aa, 0)
+def _score_rank(s: int) -> str:
+    if s >= 5: return "CRITICAL"
+    if s >= 4: return "HIGH"
+    if s >= 2: return "MEDIUM"
+    return "NEUTRAL"
 
-    tab_props, tab_mutant = st.tabs(["Properties", "If Mutated →"])
+# ── AlphaFold ─────────────────────────────────────────────────────────────────
+def fetch_alphafold_pdb(uniprot_id: str) -> str:
+    if not uniprot_id: return ""
+    try:
+        r = requests.get(f"{AF_API}/prediction/{uniprot_id}", timeout=15)
+        if r.status_code == 404: return ""
+        r.raise_for_status(); entries = r.json()
+        if not entries: return ""
+        pdb_url = entries[0].get("pdbUrl","")
+        if not pdb_url: return ""
+        r2 = requests.get(pdb_url, timeout=30); r2.raise_for_status()
+        return r2.text
+    except: return ""
 
-    with tab_props:
-        c1, c2 = st.columns(2)
-        c1.metric("Amino Acid", aa)
-        c1.metric("Full Name",  full_name)
-        c2.metric("Hydropathy Index", f"{hydro:+.1f}")
-        c2.metric("Charge",    f"{charge:+.0f}" if charge else "Neutral")
+def parse_bfactors(pdb: str) -> dict:
+    out = {}
+    for line in pdb.splitlines():
+        if line.startswith(("ATOM","HETATM")):
+            try:
+                rn = int(line[22:26]); bf = float(line[60:66]); an = line[12:16].strip()
+                if an == "CA": out[rn] = bf
+            except: pass
+    return out
 
-        if vdata:
-            sig  = vdata.get("clinical_significance","—")
-            cond = vdata.get("condition","—")
-            rank = vdata.get("ml_rank") or vdata.get("triage_rank","—")
-            rank_col = {"CRITICAL":"#ff2d55","HIGH":"#ff6b00","MEDIUM":"#ffd60a","NEUTRAL":"#636e72"}.get(rank,"#636e72")
-            st.markdown(
-                f"<div class='card' style='border-color:{rank_col};'>"
-                f"<h4 style='color:{rank_col};'>⚠️ ClinVar Variant at This Position</h4>"
-                f"<p>Significance: <b>{sig}</b><br>Condition: {cond}<br>"
-                f"Variant: {vdata.get('variant_name','—')}</p>"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
-        else:
-            st.success("No ClinVar variant reported at this position.", icon="✅")
+def plddt_colour(v: float) -> str:
+    if v >= 90: return "#1565C0"
+    if v >= 70: return "#29B6F6"
+    if v >= 50: return "#FDD835"
+    return "#FF7043"
 
-    with tab_mutant:
-        st.markdown("**Simulate amino acid substitution:**")
-        all_aa   = list(AA_NAMES.keys())
-        all_aa   = [a for a in all_aa if a != aa]
-        alt_aa   = st.selectbox("Substitute with:", all_aa, key=f"alt_aa_{position}")
+# ── PubMed ───────────────────────────────────────────────────────────────────
+def fetch_papers(gene: str, n: int = 6) -> list:
+    try:
+        r = requests.get(ESEARCH, params={"db":"pubmed","term":gene,"retmax":n*2,"retmode":"json","sort":"relevance"}, timeout=15)
+        r.raise_for_status(); ids = r.json().get("esearchresult",{}).get("idlist",[])
+        if not ids: return []
+        r2 = requests.get(ESUMMARY, params={"db":"pubmed","id":",".join(ids),"retmode":"json"}, timeout=15)
+        r2.raise_for_status(); data = r2.json().get("result",{})
+        papers = []
+        for uid in data.get("uids",[]):
+            e = data.get(uid,{})
+            authors = ", ".join(a.get("name","") for a in e.get("authors",[])[:3])
+            if len(e.get("authors",[])) > 3: authors += " et al."
+            ptype = [p.get("value","").lower() for p in e.get("pubtype",[])]
+            score = (3 if "review" in ptype else 0) + (2 if e.get("pubdate","")[:4] >= "2020" else 0)
+            papers.append({"pmid":uid,"title":e.get("title",""),"authors":authors,
+                           "journal":e.get("source",""),"year":e.get("pubdate","")[:4],
+                           "url":f"https://pubmed.ncbi.nlm.nih.gov/{uid}/","score":score,"ptype":ptype})
+        return sorted(papers, key=lambda x:-x["score"])[:n]
+    except: return []
 
-        severity_slider = st.slider(
-            "Perturbation magnitude", 0.0, 1.0, 0.5, 0.05,
-            key=f"slider_{position}",
-            help="Simulates how structurally disruptive the mutation may be.",
-        )
+# ── NCBI Gene ────────────────────────────────────────────────────────────────
+def fetch_ncbi_gene(symbol: str) -> dict:
+    try:
+        r = requests.get(ESEARCH, params={"db":"gene","term":f"{symbol}[gene name] AND Homo sapiens[organism] AND alive[property]","retmax":1,"retmode":"json"}, timeout=15)
+        r.raise_for_status(); ids = r.json().get("esearchresult",{}).get("idlist",[])
+        if not ids: return {}
+        gid = ids[0]
+        r2 = requests.get(ESUMMARY, params={"db":"gene","id":gid,"retmode":"json"}, timeout=15)
+        r2.raise_for_status(); e = r2.json().get("result",{}).get(gid,{})
+        gi = e.get("genomicinfo",[{}])[0] if e.get("genomicinfo") else {}
+        return {
+            "id":e.get("name",""),"full":e.get("description",""),"chr":e.get("chromosome",""),
+            "map":e.get("maplocation",""),"summary":e.get("summary",""),
+            "start":gi.get("chrstart",""),"stop":gi.get("chrstop",""),"exons":gi.get("exoncount",""),
+            "link":f"https://www.ncbi.nlm.nih.gov/gene/{gid}",
+        }
+    except: return {}
 
-        _render_mutation_animation(position, aa, alt_aa, severity_slider, sequence, bfactors)
-        _render_mutation_genomic_implications(position, aa, alt_aa)
+# ── ML scoring (pure numpy, no sklearn) ──────────────────────────────────────
+AA_HYDRO = {"A":1.8,"R":-4.5,"N":-3.5,"D":-3.5,"C":2.5,"Q":-3.5,"E":-3.5,
+            "G":-0.4,"H":-3.2,"I":4.5,"L":3.8,"K":-3.9,"M":1.9,"F":2.8,
+            "P":-1.6,"S":-0.8,"T":-0.7,"W":-0.9,"Y":-1.3,"V":4.2,"*":-10}
+AA_CHG   = {"R":1,"K":1,"H":0.5,"D":-1,"E":-1}
 
+def ml_score_variants(variants: list) -> list:
+    import numpy as np
+    out = []
+    for v in variants:
+        name  = v.get("variant_name","") or v.get("title","")
+        orig, alt = _parse_aa(name)
+        h_d = abs(AA_HYDRO.get(orig,0) - AA_HYDRO.get(alt,0))
+        c_d = abs(AA_CHG.get(orig,0)   - AA_CHG.get(alt,0))
+        stop   = float(alt == "*")
+        frame  = float("frame" in name.lower())
+        stars  = {"practice guideline":1,"reviewed by expert panel":0.9,
+                  "criteria provided, multiple submitters":0.7,
+                  "criteria provided, single submitter":0.5}.get(v.get("review","").lower(),0.2)
+        base   = v.get("score",0) / 5.0
+        ml     = min(1.0, base*0.5 + stop*0.25 + frame*0.15 + (h_d/10)*0.05 + (c_d*0.03) + stars*0.02)
+        vc = dict(v); vc["ml"] = round(float(ml),3); vc["ml_rank"] = _ml_rank(ml)
+        out.append(vc)
+    return sorted(out, key=lambda x:-x["ml"])
 
-def _render_mutation_animation(position, orig, alt, severity, sequence, bfactors):
-    """Render a plotly animation of pLDDT profile perturbation."""
-    if not bfactors:
-        return
+def _parse_aa(name: str):
+    m = re.search(r"p\.([A-Z][a-z]{2})\d+([A-Z][a-z]{2}|Ter|\*)", name or "")
+    if not m: return "?","?"
+    aa3 = {"Ala":"A","Arg":"R","Asn":"N","Asp":"D","Cys":"C","Gln":"Q","Glu":"E","Gly":"G",
+           "His":"H","Ile":"I","Leu":"L","Lys":"K","Met":"M","Phe":"F","Pro":"P","Ser":"S",
+           "Thr":"T","Trp":"W","Tyr":"Y","Val":"V","Ter":"*","Xaa":"X"}
+    return aa3.get(m.group(1),"?"), aa3.get(m.group(2),"?")
 
-    positions = sorted(bfactors.keys())
-    window    = 30
-    center    = min(max(position, window+1), max(positions)-window)
-    display_pos = [p for p in positions if abs(p - center) <= window]
-
-    plddt_vals = [bfactors.get(p, 70) for p in display_pos]
-
-    # Simulated mutant profile: dip around the mutation site
-    import math
-    mut_vals = []
-    for i, p in enumerate(display_pos):
-        dist = abs(p - position)
-        drop = severity * 30 * math.exp(-0.5 * (dist / 5)**2)
-        mut_vals.append(max(0, plddt_vals[i] - drop))
-
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=display_pos, y=plddt_vals,
-        mode="lines+markers",
-        name="Wild-type",
-        line=dict(color="#00d4ff", width=2),
-        marker=dict(size=4),
-    ))
-    fig.add_trace(go.Scatter(
-        x=display_pos, y=mut_vals,
-        mode="lines+markers",
-        name=f"Mutant {orig}{position}{alt}",
-        line=dict(color="#ff2d55", width=2, dash="dash"),
-        marker=dict(size=4),
-    ))
-    fig.add_vline(x=position, line_color="#ffd60a", line_dash="dot",
-                  annotation_text=f"p.{orig}{position}{alt}", annotation_font_color="#ffd60a")
-
-    # Shade difference
-    fig.add_trace(go.Scatter(
-        x=display_pos + display_pos[::-1],
-        y=mut_vals + plddt_vals[::-1],
-        fill="toself",
-        fillcolor="rgba(255,45,85,0.1)",
-        line=dict(color="rgba(0,0,0,0)"),
-        showlegend=False,
-    ))
-
-    fig.update_layout(
-        paper_bgcolor="#060e18", plot_bgcolor="#060e18",
-        font_color="#8ab4d4",
-        xaxis=dict(title="Residue Position", gridcolor="#1e3a5f"),
-        yaxis=dict(title="pLDDT Score", range=[0,100], gridcolor="#1e3a5f"),
-        legend=dict(bgcolor="#060e18"),
-        margin=dict(t=10, b=30, l=30, r=10),
-        height=260,
-    )
-    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-    st.caption(f"Simulated structural perturbation of **{orig}{position}{alt}** · severity: {severity:.0%}")
-
-
-def _render_mutation_genomic_implications(position, orig, alt):
-    """Rule-based genomic implication text."""
-    AA_CHARGE = {"R":1,"H":0.5,"K":1,"D":-1,"E":-1}
-    AA_HYDRO  = {"A":1.8,"R":-4.5,"N":-3.5,"D":-3.5,"C":2.5,"Q":-3.5,"E":-3.5,"G":-0.4,
-                 "H":-3.2,"I":4.5,"L":3.8,"K":-3.9,"M":1.9,"F":2.8,"P":-1.6,"S":-0.8,
-                 "T":-0.7,"W":-0.9,"Y":-1.3,"V":4.2}
-    hydro_orig = AA_HYDRO.get(orig, 0)
-    hydro_alt  = AA_HYDRO.get(alt, 0)
-    chg_orig   = AA_CHARGE.get(orig, 0)
-    chg_alt    = AA_CHARGE.get(alt, 0)
-    hydro_diff = abs(hydro_orig - hydro_alt)
-    chg_diff   = abs(chg_orig - chg_alt)
-
-    implications = []
-    if alt == "*":
-        implications.append("🔴 **Nonsense / stop-gain mutation** — premature termination codon → likely NMD (Nonsense-Mediated Decay) → loss-of-function.")
-    if hydro_diff > 3:
-        implications.append(f"🔶 Large hydropathy shift ({hydro_diff:.1f}) — buried residue polarity change may destabilise core packing.")
-    if chg_diff >= 1:
-        implications.append(f"⚡ Charge reversal/loss — disrupted electrostatic interactions; may affect DNA/RNA binding or protein–protein contacts.")
-    if orig == "C":
-        implications.append("🔗 Loss of cysteine — potential disulfide bond disruption or metal-binding deficiency.")
-    if alt == "P":
-        implications.append("🔀 Proline introduction — rigid backbone; may disrupt helix/sheet secondary structure.")
-    if orig == "G" or alt == "G":
-        implications.append("🔄 Glycine involved — conformational flexibility altered; hinged regions may rigidify or gain flexibility.")
-    if not implications:
-        implications.append("🟡 Conservative substitution — physicochemical change minimal; functional impact likely low. Validate with structural modelling.")
-
-    st.markdown("**Genomic & Structural Implications:**")
-    for imp in implications:
-        st.markdown(imp)
-
-
-# ─── Disease–mutation–genomic map ─────────────────────────────────────────────
-def _render_disease_mutation_map(pdata, clinvar_data, ml_scores, gene_name):
-    st.markdown("#### 🗺️ Disease → Mutation → Genomic Implication")
-    st.caption("Complete map of diseases caused by this protein, which mutations drive them, and the underlying genomic mechanism.")
-
-    variants  = (clinvar_data or {}).get("variants", [])
-    top_vars  = (ml_scores or {}).get("top_variants", variants[:30])
-    diseases  = UniProtClient.extract_diseases(pdata)
-
-    if not top_vars and not diseases:
-        st.info("No variant or disease data to map.")
-        return
-
-    # Group by condition
-    cond_map = {}
-    for v in top_vars:
-        cond = v.get("condition", "Not specified")
-        if cond not in cond_map:
-            cond_map[cond] = []
-        cond_map[cond].append(v)
-
-    for cond, vlist in list(cond_map.items())[:15]:
-        vlist_sorted = sorted(vlist, key=lambda x: -x.get("ml_pathogenicity",0))
-        rank    = vlist_sorted[0].get("ml_rank","NEUTRAL")
-        rank_col = {"CRITICAL":"#ff2d55","HIGH":"#ff6b00","MEDIUM":"#ffd60a","NEUTRAL":"#636e72"}.get(rank,"#636e72")
-
-        with st.expander(f"🔴 {cond[:80]}", expanded=(rank in ("CRITICAL","HIGH"))):
-            col_v, col_mech = st.columns([2, 3])
-            with col_v:
-                st.markdown(f"**Top variants ({len(vlist_sorted)}):**")
-                for v in vlist_sorted[:5]:
-                    ml = v.get("ml_pathogenicity", 0)
-                    sig = v.get("clinical_significance","—")
-                    vname = v.get("variant_name") or v.get("title","—")
-                    url  = v.get("clinvar_url","")
-                    link = f"[↗]({url})" if url else ""
-                    st.markdown(
-                        f"- `{vname[:50]}` — **{sig}** · ML: {ml:.2f} {link}",
-                    )
-            with col_mech:
-                st.markdown("**Genomic mechanism:**")
-                _infer_disease_mechanism(cond, vlist_sorted)
-
-            # Visual: variant position vs ML score
-            if len(vlist_sorted) >= 3:
-                pos_list  = []
-                score_list = []
-                for v in vlist_sorted[:20]:
-                    pos = v.get("start") or v.get("position")
-                    try:
-                        pos_list.append(int(pos))
-                        score_list.append(v.get("ml_pathogenicity",0))
-                    except (TypeError, ValueError):
-                        pass
-                if pos_list:
-                    fig = go.Figure(go.Scatter(
-                        x=pos_list, y=score_list,
-                        mode="markers",
-                        marker=dict(
-                            size=10,
-                            color=score_list,
-                            colorscale=[[0,"#636e72"],[0.5,"#ffd60a"],[1,"#ff2d55"]],
-                            cmin=0, cmax=1,
-                            showscale=True,
-                            colorbar=dict(title="ML Score", thickness=10, len=0.6),
-                        ),
-                        text=[v.get("variant_name","")[:30] for v in vlist_sorted[:20]],
-                        hovertemplate="%{text}<br>Pos: %{x}<br>Score: %{y:.2f}<extra></extra>",
-                    ))
-                    fig.update_layout(
-                        paper_bgcolor="#060e18", plot_bgcolor="#060e18",
-                        font_color="#8ab4d4",
-                        xaxis=dict(title="Residue Position", gridcolor="#1e3a5f"),
-                        yaxis=dict(title="ML Pathogenicity", range=[0,1], gridcolor="#1e3a5f"),
-                        height=200, margin=dict(t=10,b=30,l=30,r=10),
-                    )
-                    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar":False})
-
-
-def _infer_disease_mechanism(condition: str, variants: list):
-    """Rule-based mechanism inference from condition name + variant types."""
-    cond_lower = condition.lower()
-    v_names    = " ".join(v.get("variant_name","") for v in variants).lower()
-
-    mechanisms = []
-    if "cancer" in cond_lower or "carcinoma" in cond_lower or "tumor" in cond_lower:
-        mechanisms.append("Oncogenic transformation via gain-of-function or dominant-negative mechanism.")
-        mechanisms.append("Somatic acquisition leads to clonal expansion.")
-    if "stop" in v_names or "nonsense" in v_names or "ter" in v_names:
-        mechanisms.append("Premature stop codon → truncated protein → haploinsufficiency or NMD.")
-    if "frameshift" in v_names or "del" in v_names:
-        mechanisms.append("Reading frame disruption → nonfunctional protein isoform.")
-    if "splice" in v_names:
-        mechanisms.append("Splice-site mutation → exon skipping / intron retention → aberrant mRNA.")
-    if "missense" in v_names:
-        mechanisms.append("Missense substitution → altered protein conformation or binding affinity.")
-    if "developmental" in cond_lower or "syndrome" in cond_lower:
-        mechanisms.append("Germline variant disrupts developmental signalling pathway.")
-    if not mechanisms:
-        mechanisms.append("Mechanism not fully characterised — functional assays recommended.")
-
-    for m in mechanisms:
-        st.markdown(f"• {m}")
+def _ml_rank(ml: float) -> str:
+    if ml >= 0.85: return "CRITICAL"
+    if ml >= 0.65: return "HIGH"
+    if ml >= 0.40: return "MEDIUM"
+    return "NEUTRAL"
