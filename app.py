@@ -44,6 +44,11 @@ except ImportError:
 
 from diagrams import build_tissue_diagram, build_genomic_diagram, build_cell_impact_diagram, GPCR_ASSOC, TISSUE_DATA
 try:
+    from protein_data import get_protein_info
+except ImportError:
+    def get_protein_info(gene):
+        return {"real_biology":"","gpcr_interaction":{},"experiments_specific":[],"timeline_stages":[],"piggyback_relationship":{}}
+try:
     from diagrams import build_gpcr_association_diagram
 except ImportError:
     def build_gpcr_association_diagram(gene, g_protein="", protein_name="", is_gpcr=False):
@@ -261,34 +266,110 @@ def get_protein_ground_truth(gene: str) -> dict:
                 "diseases":diseases,"dbr":dbr,"tier":tier,"from_ground_truth":True}
     return {"n_path":0,"length":0,"protein_name":"","chromosome":"","diseases":"","dbr":None,"tier":"UNKNOWN","from_ground_truth":False}
 
-def make_3d_viewer(pdb_text: str, scored_residues: dict, width=680, height=440) -> str:
+def make_3d_viewer(pdb_text, scored_residues, width=700, height=450,
+                   clinvar_positions=None, residue_annotations=None, gene_label=""):
+    """Bright clickable 3D viewer — click any residue for full mutation triage."""
     if not pdb_text or len(pdb_text)<100:
-        return f"""<html><body style="margin:0;background:#060910;display:flex;align-items:center;justify-content:center;height:{height}px;font-family:IBM Plex Mono,monospace;color:#333;text-align:center;font-size:12px">Structure loading...<br><span style="font-size:10px;display:block;margin-top:8px;color:#222">AlphaFold / PDB query in progress</span></body></html>"""
-    esc=pdb_text.replace("\\","\\\\").replace("`","\\`").replace("${","\\${")[:380000]
+        return f"<html><body style='margin:0;background:#0a0e1a;display:flex;align-items:center;justify-content:center;height:{height}px;font-family:IBM Plex Mono,monospace;color:#4CA8FF;text-align:center;font-size:12px'>AlphaFold structure loading...</body></html>"
+    esc = pdb_text[:380000].replace("\\","\\\\").replace("`","\\`").replace("${","\\${")
     res_list=[]
     for line in pdb_text.split('\n'):
         if line.startswith('ATOM'):
             try: res_list.append(int(line[22:26].strip()))
             except: pass
-    zoom=f"{min(res_list)}-{max(res_list)}" if res_list else "1-999"
+    zoom = f"{min(res_list)}-{max(res_list)}" if res_list else "1-999"
+    # Sphere JS
     sph_parts=[]
     for r,d in scored_residues.items():
-        sph_parts.append("v.addStyle({resi:%d},{sphere:{color:'%s',radius:%s}});" % (r,d["color"],d["radius"]))
-    sph="\n".join(sph_parts)
-    return f"""<!DOCTYPE html><html><head>
+        sph_parts.append("v.addStyle({resi:%d},{sphere:{color:'%s',radius:%s,opacity:0.95}});" % (r,d["color"],d["radius"]))
+    cv_positions = clinvar_positions or {}
+    for pos in cv_positions:
+        if int(pos) not in scored_residues:
+            sph_parts.append("v.addStyle({resi:%d},{sphere:{color:'#FF2244',radius:0.8,opacity:0.9}});" % int(pos))
+    sph = "\n".join(sph_parts)
+    annot_json = json.dumps(residue_annotations or {})
+    cv_json    = json.dumps({str(k):v for k,v in cv_positions.items()})
+    gene_safe  = gene_label.replace("'","").replace('"',"")
+
+    html = f"""<!DOCTYPE html><html><head>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Inter:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/3Dmol/2.0.3/3Dmol-min.js"></script>
-<style>body{{margin:0;background:#060910;overflow:hidden}}#v{{width:{width}px;height:{height}px}}
-#tt{{position:absolute;top:8px;left:8px;background:#0f1117ee;border:1px solid #1e2030;border-radius:6px;padding:6px 10px;font-size:10px;font-family:IBM Plex Mono,monospace;display:none;pointer-events:none;z-index:10;color:#eee;max-width:180px;line-height:1.4}}</style>
-</head><body style="position:relative"><div id="v"></div><div id="tt"></div>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{background:#0a0e1a;overflow:hidden}}
+#wrap{{display:flex;height:{height}px}}
+#v{{flex:1;min-width:0}}
+#panel{{width:0;background:#0c1428;border-left:2px solid #1e3060;transition:width 0.25s;overflow:hidden}}
+#panel.open{{width:240px}}
+#pi{{padding:14px;width:240px}}
+.pt{{font-family:'IBM Plex Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:0.14em;color:#4477aa;margin-bottom:4px;margin-top:10px}}
+.pv{{font-size:11px;color:#cce0ff;line-height:1.6;margin-bottom:2px}}
+.badge{{display:inline-block;padding:3px 10px;border-radius:10px;font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;margin:2px}}
+.exp{{background:#0a1830;border:1px solid #1e3060;border-radius:6px;padding:8px 10px;margin-top:6px;font-size:10px;color:#88aacc;line-height:1.6}}
+.hint{{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);background:#0c1428cc;border:1px solid #1e3060;border-radius:20px;padding:4px 16px;font-size:10px;font-family:'IBM Plex Mono',monospace;color:#336699;pointer-events:none}}
+</style>
+</head><body style="position:relative">
+<div id="wrap"><div id="v"></div><div id="panel"><div id="pi"><div id="pc" style="color:#336699;font-family:'IBM Plex Mono',monospace;font-size:10px;text-align:center;padding-top:50px">🔬<br><br>Click any residue<br>sphere to see full<br>mutation triage</div></div></div></div>
+<div class="hint">● Click residue sphere for triage · ● = ClinVar pathogenic · ● = Wet lab hit</div>
 <script>
-const p=`{esc}`;
-let v=$3Dmol.createViewer('v',{{backgroundColor:'#060910',antialias:true}});
-v.addModel(p,'pdb');
-v.setStyle({{}},{{cartoon:{{color:'#1a1e2e',opacity:0.6}}}});
+const pdb=`{esc}`;
+const ANNOT={annot_json};
+const CV={cv_json};
+const GENE='{gene_safe}';
+let v=$3Dmol.createViewer('v',{{backgroundColor:'#0a0e1a',antialias:true}});
+v.addModel(pdb,'pdb');
+// BRIGHT high-contrast cartoon
+v.setStyle({{}},{{cartoon:{{color:'spectrum',opacity:0.82,thickness:0.5,smoothSheet:true}}}});
+// Faint surface
+v.addSurface($3Dmol.VDW,{{opacity:0.04,color:'#4488ff'}});
 {sph}
-v.setHoverable({{}},true,function(a){{if(!a||!a.resi)return;document.getElementById('tt').innerHTML='<b style="color:#eee">Pos '+a.resi+'</b><br>'+a.resn+' · Chain '+a.chain;document.getElementById('tt').style.display='block';}},function(){{document.getElementById('tt').style.display='none';}});
+v.setHoverable({{}},true,function(a){{
+  if(!a||!a.resi)return;
+  const cv=CV[String(a.resi)]||{{}};
+  const an=ANNOT[String(a.resi)]||{{}};
+  const p=an.priority||'';
+  const pc=p==='HIGH'?'#FF4444':p==='MEDIUM'?'#FFA500':'#4CA8FF';
+  const hint=document.querySelector('.hint');
+  if(hint)hint.innerHTML='<b style="color:'+pc+'">['+p+']</b> '+a.resn+'-'+a.resi+(cv.sig?' · ClinVar: '+cv.sig.slice(0,25):'');
+}},function(){{const h=document.querySelector('.hint');if(h)h.innerHTML='● Click residue sphere for triage · ● = ClinVar pathogenic · ● = Wet lab hit';}});
+function applyStyles(){{
+  v.setStyle({{}},{{cartoon:{{color:'spectrum',opacity:0.82,thickness:0.5,smoothSheet:true}}}});
+  {sph}
+}}
+v.setClickable({{}},true,function(atom){{
+  if(!atom||!atom.resi)return;
+  const r=atom.resi; const resn=atom.resn||'';
+  const cv=CV[String(r)]||{{}};
+  const an=ANNOT[String(r)]||{{}};
+  const priority=an.priority||'—';
+  const score=typeof an.score==='number'?an.score.toFixed(3):an.score||'—';
+  const hyp=(an.hypothesis||'').slice(0,140);
+  const pc=priority==='HIGH'?'#FF4444':priority==='MEDIUM'?'#FFA500':'#4CA8FF';
+  const cvHtml=cv.sig?
+    '<div class="pt">ClinVar (germline)</div><div class="pv" style="color:#ff6688">'+cv.sig+'</div><div class="pv" style="color:#aac">'+(cv.conditions||[]).slice(0,2).join(' · ')+'</div>':
+    '<div class="pt">ClinVar</div><div class="pv" style="color:#336699">No germline pathogenic at Pos '+r+'</div>';
+  const expText=priority==='HIGH'?'ITC binding assay (gold standard) — quantify Kd change vs WT. No fluorescent artefacts. Recommended by Sujay Ithychanda, Cleveland Clinic':
+    priority==='MEDIUM'?'Thermal shift DSF — confirm ΔTm vs WT. Expect 3-8°C for moderate variants. Then ITC if confirmed':
+    'ClinVar + gnomAD database check first — free, <1h. Confirm this position has no known human disease variant';
+  document.getElementById('pc').innerHTML=
+    '<div class="pt" style="margin-top:0">'+GENE+' · Position '+r+'</div>'+
+    '<div style="font-size:14px;font-weight:600;color:#eef;font-family:IBM Plex Mono,monospace;margin:4px 0">'+resn+'-'+r+'</div>'+
+    '<span class="badge" style="background:'+pc+'22;color:'+pc+';border:1px solid '+pc+'66">'+priority+' PRIORITY</span>'+
+    '<span class="badge" style="background:#1a2040;color:#99aacc;border:1px solid #252840">score '+score+'</span>'+
+    cvHtml+
+    (hyp?'<div class="pt">Hypothesis</div><div class="pv">'+hyp+'</div>':'')+
+    '<div class="pt">Recommended experiment</div>'+
+    '<div class="exp">'+expText+'</div>'+
+    '<div style="margin-top:10px;font-size:9px;color:#336699;text-align:center;font-family:IBM Plex Mono,monospace">Click another residue to compare</div>';
+  document.getElementById('panel').classList.add('open');
+  applyStyles();
+  v.addStyle({{resi:r}},{{sphere:{{color:'#ffffff',radius:1.4,opacity:1}}}});
+  v.render();
+}});
 v.zoomTo({{resi:'{zoom}'}});v.spin(false);v.render();
 </script></body></html>"""
+    return html
+
 
 def paper_chip(key: str) -> str:
     p=PAPERS.get(key,{})
@@ -307,19 +388,19 @@ st.markdown("""
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;600&family=Inter:wght@300;400;500;600&display=swap');
 html,body,[class*="css"]{font-family:'Inter',sans-serif}
 h1,h2,h3{font-family:'IBM Plex Mono',monospace}
-[data-testid="stSidebar"]{background:#07080f;border-right:1px solid #12141e}
-.block{background:#0a0c16;border:1px solid #1a1d2e;border-radius:10px;padding:16px 18px;margin-bottom:12px}
+[data-testid="stSidebar"]{background:#0a0b14;border-right:1px solid #12141e}
+.block{background:#0d1020;border:1px solid #252840;border-radius:10px;padding:16px 18px;margin-bottom:12px}
 .block-red{background:#0a0607;border:1px solid #FF4C4C55;border-radius:10px;padding:16px 18px;margin-bottom:12px}
 .block-green{background:#070a07;border:1px solid #4CAF5055;border-radius:10px;padding:16px 18px;margin-bottom:12px}
-.label{font-family:'IBM Plex Mono',monospace;font-size:0.63rem;text-transform:uppercase;letter-spacing:0.18em;color:#3a3d5a;padding-bottom:5px;border-bottom:1px solid #12141e;margin-bottom:10px}
-.stat{background:#07080f;border:1px solid #12141e;border-radius:8px;padding:14px;text-align:center}
+.label{font-family:'IBM Plex Mono',monospace;font-size:0.63rem;text-transform:uppercase;letter-spacing:0.18em;color:#5a5d7a;padding-bottom:5px;border-bottom:1px solid #12141e;margin-bottom:10px}
+.stat{background:#0a0b14;border:1px solid #1e2035;border-radius:8px;padding:14px;text-align:center}
 .stat-n{font-size:1.6rem;font-weight:600;font-family:'IBM Plex Mono',monospace;display:block}
-.stat-l{font-size:0.62rem;text-transform:uppercase;letter-spacing:0.1em;color:#333;margin-top:3px}
+.stat-l{font-size:0.62rem;text-transform:uppercase;letter-spacing:0.1em;color:#555;margin-top:3px}
 .row{display:flex;gap:8px;padding:5px 0;border-bottom:1px solid #0d0f18;font-size:0.8rem}
-.rl{color:#2a2d4a;min-width:100px;font-family:'IBM Plex Mono',monospace;font-size:0.68rem;flex-shrink:0}
+.rl{color:#4a4d6a;min-width:100px;font-family:'IBM Plex Mono',monospace;font-size:0.68rem;flex-shrink:0}
 .rv{color:#bbb}
 .pill{display:inline-block;padding:2px 10px;border-radius:12px;font-size:0.65rem;font-family:'IBM Plex Mono',monospace;margin:2px}
-.hyp{background:#0a0c16;border-left:2px solid #1a1d2e;padding:10px 14px;border-radius:0 6px 6px 0;font-size:0.8rem;color:#888;line-height:1.8;margin-bottom:8px}
+.hyp{background:#0d1020;border-left:2px solid #1a1d2e;padding:10px 14px;border-radius:0 6px 6px 0;font-size:0.8rem;color:#aaaaaa;line-height:1.8;margin-bottom:8px}
 .dis-pill{padding:5px 12px;margin-bottom:4px;background:#0a0607;border:1px solid #FF4C4C22;border-radius:5px;font-size:0.78rem;color:#bbb}
 </style>""", unsafe_allow_html=True)
 
@@ -327,7 +408,7 @@ h1,h2,h3{font-family:'IBM Plex Mono',monospace}
 with st.sidebar:
     if LOGO_B64:
         st.markdown(f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:4px"><img src="{LOGO_B64}" style="width:32px;height:32px;object-fit:contain;border-radius:6px"><span style="font-family:IBM Plex Mono,monospace;font-size:1.1rem;font-weight:600;color:#eee">Protellect</span></div>', unsafe_allow_html=True)
-    st.markdown('<p style="font-size:0.65rem;color:#2a2d4a;font-family:IBM Plex Mono,monospace;margin:-2px 0 12px">Experimental Intelligence Layer v4</p>', unsafe_allow_html=True)
+    st.markdown('<p style="font-size:0.65rem;color:#4a4d6a;font-family:IBM Plex Mono,monospace;margin:-2px 0 12px">Experimental Intelligence Layer v4</p>', unsafe_allow_html=True)
     if ML_AVAILABLE:
         st.markdown('<div style="background:#0a0c1a;border:1px solid #1a2a4a;border-radius:6px;padding:6px 10px;font-size:0.72rem;color:#6688cc;margin-bottom:12px">🤖 ML scoring active</div>', unsafe_allow_html=True)
 
@@ -361,16 +442,24 @@ with st.sidebar:
     # Sidebar results summary
     if "prot_data" in st.session_state and st.session_state.prot_data.get("found"):
         pd_s = st.session_state.prot_data; gt = st.session_state.get("gt",{})
-        n_path=gt.get("n_path",0); tc={"CRITICAL":"#FF4C4C","HIGH":"#FFA500","LOW":"#FFD700","NONE":"#888","UNKNOWN":"#4CA8FF"}.get(gt.get("tier","UNKNOWN"),"#888")
+        n_path=gt.get("n_path",0)
+        tc={"CRITICAL":"#FF4C4C","HIGH":"#FFA500","LOW":"#FFD700","NONE":"#888","UNKNOWN":"#4CA8FF"}.get(gt.get("tier","UNKNOWN"),"#888")
+        cur_gene = st.session_state.get("gene","")
+        pdata_sb = get_protein_info(cur_gene) if cur_gene else {}
+        role_sb  = classify_protein_role(cur_gene, n_path)
+        gpcr_type_sb = pdata_sb.get("gpcr_interaction",{}).get("type","")
         st.divider()
-        st.markdown(f"""<div class="block" style="border-color:{tc}44">
-          <div style="font-family:IBM Plex Mono,monospace;font-size:0.65rem;color:{tc};text-transform:uppercase;margin-bottom:8px">{gt.get("tier","—")} · DBR {f"{gt.get('dbr',0):.3f}" if gt.get("dbr") else "—"}</div>
-          <div style="font-size:0.85rem;font-weight:600;color:#eee;margin-bottom:4px">{pd_s.get("gene","")}</div>
-          <div style="font-size:0.75rem;color:#555">{pd_s.get("protein_name","")[:45]}</div>
-          <div style="font-size:1.5rem;font-weight:700;font-family:IBM Plex Mono,monospace;color:{tc};margin-top:8px">{n_path}</div>
-          <div style="font-size:0.62rem;color:#333;text-transform:uppercase">Germline pathogenic (ClinVar)</div>
-          {dbr_bar(gt.get("dbr"))}
-        </div>""", unsafe_allow_html=True)
+        dbr_val_sb = gt.get("dbr",0)
+        dbr_str_sb = f"{dbr_val_sb:.3f}" if dbr_val_sb else "—"
+        role_label_sb = role_sb["label"][:22] if role_sb.get("label") else "—"
+        gpcr_label_sb = ("GPCR: "+gpcr_type_sb[:18]) if gpcr_type_sb else "Non-GPCR"
+        prot_name_sb = pd_s.get("protein_name","")[:40]
+        gene_sb = pd_s.get("gene","")
+        st.markdown(f'<div style="background:#0d1020;border:1px solid {tc};border-radius:10px;padding:12px 14px;margin-bottom:8px"><div style="font-family:IBM Plex Mono,monospace;font-size:0.62rem;color:{tc};text-transform:uppercase;margin-bottom:6px">{gt.get("tier","—")} · DBR {dbr_str_sb}</div><div style="font-size:0.88rem;font-weight:600;color:#f0f0f0;margin-bottom:2px">{gene_sb}</div><div style="font-size:0.72rem;color:#777;margin-bottom:8px">{prot_name_sb}</div><div style="display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:1.6rem;font-weight:700;font-family:IBM Plex Mono,monospace;color:{tc}">{n_path}</div><div style="font-size:0.6rem;color:#666;text-transform:uppercase">Germline pathogenic</div></div><div style="text-align:right"><div style="font-family:IBM Plex Mono,monospace;font-size:0.68rem;color:{tc}">{role_sb["icon"]} {role_label_sb}</div><div style="font-size:0.62rem;color:#666;margin-top:2px">{gpcr_label_sb}</div></div></div>{dbr_bar(dbr_val_sb)}</div>', unsafe_allow_html=True)
+        spec_exps_sb = pdata_sb.get("experiments_specific",[])
+        if spec_exps_sb:
+            next_exp_sb = spec_exps_sb[0]
+            st.markdown(f'<div style="background:#070a07;border:1px solid #1a3a1a;border-radius:8px;padding:10px 12px;margin-bottom:8px"><div style="font-family:IBM Plex Mono,monospace;font-size:0.6rem;text-transform:uppercase;color:#4CAF50;margin-bottom:4px">Recommended next experiment</div><div style="font-size:0.75rem;color:#dddddd;font-weight:600;margin-bottom:3px">{next_exp_sb["name"][:42]}</div><div style="font-size:0.68rem;color:#777">{next_exp_sb.get("rationale","")[:75]}...</div></div>', unsafe_allow_html=True)
         st.markdown(paper_chip("king_2024"), unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -427,7 +516,7 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
 with tab1:
     if not gene:
         if LOGO_B64:
-            st.markdown(f'<div style="text-align:center;padding:40px 0"><img src="{LOGO_B64}" style="height:64px;object-fit:contain;border-radius:12px;margin-bottom:16px"><h2 style="font-family:IBM Plex Mono,monospace;color:#eee;margin:0">Protellect</h2><p style="color:#333;margin:8px 0 24px">Enter a protein name in the sidebar to begin. Wet lab data is optional.</p></div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="text-align:center;padding:40px 0"><img src="{LOGO_B64}" style="height:64px;object-fit:contain;border-radius:12px;margin-bottom:16px"><h2 style="font-family:IBM Plex Mono,monospace;color:#f0f0f0;margin:0">Protellect</h2><p style="color:#555;margin:8px 0 24px">Enter a protein name in the sidebar to begin. Wet lab data is optional.</p></div>', unsafe_allow_html=True)
         st.markdown(f"""
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;max-width:900px;margin:0 auto">
           <div class="block"><div class="label">How it works</div><p style="font-size:0.82rem;color:#666;line-height:1.7">Enter any gene/protein → Protellect fetches AlphaFold structure, ClinVar germline variants, UniProt annotation. Wet lab data augments the analysis but is never the primary truth.</p></div>
@@ -480,17 +569,17 @@ with tab1:
         banner_style = "border-color:#FFD700"
 
     st.markdown(f"""
-    <div style="background:#0a0a14;border:2px solid;{banner_style};border-radius:14px;padding:22px 26px;margin-bottom:20px">
+    <div style="background:#0d0e1a;border:2px solid;{banner_style};border-radius:14px;padding:22px 26px;margin-bottom:20px">
       <div style="font-family:'IBM Plex Mono',monospace;font-size:1rem;font-weight:700;color:{tc};margin-bottom:8px">{banner_title}</div>
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
         <div style="flex:1">
-          <div style="font-size:0.88rem;color:#eee;font-weight:600;margin-bottom:4px">{gene} — {prot_name}</div>
-          <div style="font-size:0.82rem;color:#888;line-height:1.7;margin-bottom:8px">{banner_body}</div>
+          <div style="font-size:0.88rem;color:#f0f0f0;font-weight:600;margin-bottom:4px">{gene} — {prot_name}</div>
+          <div style="font-size:0.82rem;color:#aaaaaa;line-height:1.7;margin-bottom:8px">{banner_body}</div>
           <div style="font-size:0.8rem;color:#4CAF50">{banner_action}</div>
         </div>
         <div style="text-align:right;min-width:140px">
           <div style="font-size:2.2rem;font-weight:700;font-family:'IBM Plex Mono',monospace;color:{tc}">{n_path}</div>
-          <div style="font-size:0.65rem;color:#444;text-transform:uppercase;letter-spacing:0.1em">germline pathogenic</div>
+          <div style="font-size:0.65rem;color:#666;text-transform:uppercase;letter-spacing:0.1em">germline pathogenic</div>
           <div style="font-size:0.75rem;color:{tc};font-family:'IBM Plex Mono',monospace;margin-top:4px">DBR {f"{dbr:.3f}" if dbr else "N/A"}</div>
           {dbr_bar(dbr)}
         </div>
@@ -503,7 +592,7 @@ with tab1:
         st.markdown(f"""
         <div class="block-red">
           <div class="label" style="color:#FF4C4C44;border-color:#FF4C4C22">⚠ Structural scaffold / piggyback protein</div>
-          <p style="font-size:0.83rem;color:#aaa;line-height:1.7;margin:0">{role.get('note','')} Study these proteins instead: <strong style="color:#eee">{' · '.join(partners)}</strong></p>
+          <p style="font-size:0.83rem;color:#cccccc;line-height:1.7;margin:0">{role.get('note','')} Study these proteins instead: <strong style="color:#eee">{' · '.join(partners)}</strong></p>
           <div style="margin-top:8px">{paper_chip('minikel_2021')} {paper_chip('plenge_2016')}</div>
         </div>""", unsafe_allow_html=True)
 
@@ -542,10 +631,33 @@ with tab1:
                 if pos>0: rs[pos]={"color":"#FF4C4C","radius":0.9}
 
         if pdb:
-            components.html(make_3d_viewer(pdb, rs, 660, 420), height=426)
+            # Build residue annotation dict for click panel
+            res_annot = {}
+            if scored is not None:
+                pc_col_v = "priority_final" if "priority_final" in scored.columns else "priority"
+                for _, row_v in scored.iterrows():
+                    pos_v = int(row_v["residue_position"])
+                    res_annot[str(pos_v)] = {
+                        "priority": str(row_v.get(pc_col_v,"LOW")),
+                        "score":    float(row_v.get("normalized_score",0)),
+                        "hypothesis": str(row_v.get("hypothesis",""))[:200],
+                    }
+            # Build ClinVar position dict
+            cv_pos_map = {}
+            for v_cv in cv.get("pathogenic",[]) + cv.get("likely_pathogenic",[]):
+                pos_cv = v_cv.get("pos",0)
+                if pos_cv > 0:
+                    cv_pos_map[pos_cv] = {
+                        "sig": v_cv.get("germline","") or v_cv.get("sig",""),
+                        "conditions": v_cv.get("conditions",[]),
+                    }
+            components.html(make_3d_viewer(pdb, rs, 700, 450,
+                                            clinvar_positions=cv_pos_map,
+                                            residue_annotations=res_annot,
+                                            gene_label=gene), height=456)
             st.markdown('<div style="display:flex;gap:18px;margin-top:5px;font-size:0.75rem"><span><span style="color:#FF4C4C">●</span> HIGH / Pathogenic</span><span><span style="color:#FFA500">●</span> MEDIUM</span><span><span style="color:#4CA8FF">●</span> LOW / Benign</span></div>', unsafe_allow_html=True)
         else:
-            st.markdown(f"""<div style="background:#060910;border:1px solid #12141e;border-radius:10px;height:380px;display:flex;align-items:center;justify-content:center;text-align:center;color:#333;font-family:IBM Plex Mono,monospace;font-size:12px">
+            st.markdown(f"""<div style="background:#060910;border:1px solid #1e2035;border-radius:10px;height:380px;display:flex;align-items:center;justify-content:center;text-align:center;color:#555;font-family:IBM Plex Mono,monospace;font-size:12px">
               AlphaFold structure loading...<br><span style="font-size:10px;color:#222;display:block;margin-top:8px">Enable DB enrichment and click Analyse</span></div>""", unsafe_allow_html=True)
 
     with tc2:
@@ -579,7 +691,7 @@ with tab1:
         if scored is not None and stats:
             st.markdown("<br>", unsafe_allow_html=True)
             st.markdown('<div class="label">Wet Lab Triage Results</div>', unsafe_allow_html=True)
-            st.markdown(f'<div style="font-size:0.72rem;color:#555;margin-bottom:6px">{info.get("assay_guess","") if info else ""}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="font-size:0.72rem;color:#777;margin-bottom:6px">{info.get("assay_guess","") if info else ""}</div>', unsafe_allow_html=True)
             c5,c6,c7 = st.columns(3)
             c5.markdown(f'<div class="stat"><span class="stat-n" style="color:#FF4C4C">{stats["high_priority"]}</span><span class="stat-l">HIGH</span></div>', unsafe_allow_html=True)
             c6.markdown(f'<div class="stat"><span class="stat-n" style="color:#FFA500">{stats["medium_priority"]}</span><span class="stat-l">MEDIUM</span></div>', unsafe_allow_html=True)
@@ -617,8 +729,8 @@ with tab1:
             st.markdown(
                 f'<div style="margin-bottom:10px">'
                 f'<span style="font-family:IBM Plex Mono,monospace;font-size:0.72rem;font-weight:600;color:{col}">[{p}]</span> '
-                f'<span style="color:#eee;font-family:IBM Plex Mono,monospace;font-size:0.82rem">{mut}</span>'
-                f'<span style="color:#444;font-size:0.7rem;font-family:IBM Plex Mono,monospace"> · score {score}{conf_s}</span>'
+                f'<span style="color:#f0f0f0;font-family:IBM Plex Mono,monospace;font-size:0.82rem">{mut}</span>'
+                f'<span style="color:#666;font-size:0.7rem;font-family:IBM Plex Mono,monospace"> · score {score}{conf_s}</span>'
                 f'{cv_badge}{dom}{active_badge}'
                 f'<div class="hyp">{hyp}</div></div>',
                 unsafe_allow_html=True)
@@ -669,8 +781,8 @@ with tab2:
     prot_name=pd_s.get("protein_name","") or gt.get("protein_name","") or gene
     diseases_str=gt.get("diseases",""); role=classify_protein_role(gene,n_path)
 
-    st.markdown(f'<h2 style="font-family:IBM Plex Mono,monospace;font-size:1.4rem;color:#eee;margin-bottom:4px">{gene} — {prot_name}</h2>', unsafe_allow_html=True)
-    st.markdown(f'<p style="color:#555;font-size:0.82rem;margin-bottom:16px">UniProt {pd_s.get("uid","")} · {pd_s.get("length",0)} aa · Chr {gt.get("chromosome","—")} · {"GPCR" if pd_s.get("is_gpcr") else "Non-GPCR"} · {role["icon"]} {role["label"]}</p>', unsafe_allow_html=True)
+    st.markdown(f'<h2 style="font-family:IBM Plex Mono,monospace;font-size:1.4rem;color:#f0f0f0;margin-bottom:4px">{gene} — {prot_name}</h2>', unsafe_allow_html=True)
+    st.markdown(f'<p style="color:#777;font-size:0.82rem;margin-bottom:16px">UniProt {pd_s.get("uid","")} · {pd_s.get("length",0)} aa · Chr {gt.get("chromosome","—")} · {"GPCR" if pd_s.get("is_gpcr") else "Non-GPCR"} · {role["icon"]} {role["label"]}</p>', unsafe_allow_html=True)
 
     col1, col2, col3 = st.columns([1,1,1], gap="medium")
 
@@ -678,7 +790,7 @@ with tab2:
         st.markdown('<div class="block"><div class="label">Function</div>', unsafe_allow_html=True)
         func = pd_s.get("function","")
         if func:
-            st.markdown(f'<p style="font-size:0.81rem;color:#aaa;line-height:1.7">{func[:500]}</p>', unsafe_allow_html=True)
+            st.markdown(f'<p style="font-size:0.81rem;color:#cccccc;line-height:1.7">{func[:500]}</p>', unsafe_allow_html=True)
         else:
             st.markdown(f'<p style="font-size:0.81rem;color:#555">Function data from UniProt — enable DB enrichment to load</p>', unsafe_allow_html=True)
 
@@ -687,7 +799,7 @@ with tab2:
         if subcel:
             for loc in subcel[:5]:
                 ico = "🔬" if "nucle" in loc.lower() else "🧬" if "membran" in loc.lower() else "⚙️" if any(x in loc.lower() for x in ("mitoch","cytopl")) else "📍"
-                st.markdown(f'<div style="padding:4px 0;font-size:0.8rem;color:#bbb;border-bottom:1px solid #0d0f18">{ico} {loc}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="padding:4px 0;font-size:0.8rem;color:#dddddd;border-bottom:1px solid #0d0f18">{ico} {loc}</div>', unsafe_allow_html=True)
         else:
             st.markdown('<p style="font-size:0.8rem;color:#444">Enable DB enrichment to load subcellular locations</p>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
@@ -706,8 +818,8 @@ with tab2:
             st.markdown(f"""<div class="block" style="border-color:{gc}44;margin-top:0">
               <div class="label" style="color:{gc}44;border-color:{gc}22">GPCR Association</div>
               <div style="font-family:'IBM Plex Mono',monospace;font-size:0.75rem;color:{gc};font-weight:600;margin-bottom:6px">{atype}</div>
-              <p style="font-size:0.78rem;color:#888;line-height:1.6">{assoc["mechanism"][:180]}</p>
-              <div style="font-size:0.7rem;color:#444;margin-top:6px">📄 {assoc.get("paper","")}</div>
+              <p style="font-size:0.78rem;color:#aaaaaa;line-height:1.6">{assoc["mechanism"][:180]}</p>
+              <div style="font-size:0.7rem;color:#666;margin-top:6px">📄 {assoc.get("paper","")}</div>
             </div>""", unsafe_allow_html=True)
 
     with col3:
@@ -722,11 +834,11 @@ with tab2:
           <div class="stat"><span class="stat-n" style="color:#555">{n_vus}</span><span class="stat-l">VUS</span></div>
           <div class="stat"><span class="stat-n" style="color:{tc}">{f"{dbr:.3f}" if dbr else "0.000"}</span><span class="stat-l">DBR</span></div>
         </div>""", unsafe_allow_html=True)
-        st.markdown(f'<div style="font-size:0.73rem;color:#888;line-height:1.6;margin-bottom:8px">{role.get("note","")[:150]}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="font-size:0.73rem;color:#aaaaaa;line-height:1.6;margin-bottom:8px">{role.get("note","")[:150]}</div>', unsafe_allow_html=True)
         if diseases_str:
             st.markdown('<div class="label">Confirmed diseases</div>', unsafe_allow_html=True)
             for d in diseases_str.split("·")[:5]:
-                if d.strip(): st.markdown(f'<div style="font-size:0.75rem;color:#aaa;padding:3px 0;border-bottom:1px solid #0d0f18">● {d.strip()}</div>', unsafe_allow_html=True)
+                if d.strip(): st.markdown(f'<div style="font-size:0.75rem;color:#cccccc;padding:3px 0;border-bottom:1px solid #0d0f18">● {d.strip()}</div>', unsafe_allow_html=True)
         st.markdown(f'<div style="margin-top:8px">{paper_chip("king_2024")}{paper_chip("minikel_2021")}</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -749,7 +861,7 @@ with tab2:
 
     if cv.get("somatic"):
         with st.expander(f"⚠ Somatic variants ({len(cv['somatic'])}) — cancer-acquired, NOT germline disease evidence"):
-            st.markdown(f'<div class="block" style="margin-bottom:10px"><p style="font-size:0.8rem;color:#888;line-height:1.7;margin:0">Somatic variants are mutations in individual cancer cells — NOT inherited. They do NOT prove the protein is essential for human development. A protein in COSMIC is not necessarily a valid drug target. {paper_chip("plenge_2016")}</p></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="block" style="margin-bottom:10px"><p style="font-size:0.8rem;color:#aaaaaa;line-height:1.7;margin:0">Somatic variants are mutations in individual cancer cells — NOT inherited. They do NOT prove the protein is essential for human development. A protein in COSMIC is not necessarily a valid drug target. {paper_chip("plenge_2016")}</p></div>', unsafe_allow_html=True)
             sdf=pd.DataFrame([{"Variant":v.get("title","")[:60],"Somatic classification":v.get("somatic",""),"Context":(v.get("conditions",[""])[0] if v.get("conditions") else "")[:40]} for v in cv["somatic"][:20]])
             if len(sdf)>0: st.dataframe(sdf,use_container_width=True,height=180)
 
@@ -761,7 +873,7 @@ with tab2:
         c1p,c2p=st.columns(2,gap="medium")
         for i,p in enumerate(papers_pm):
             with (c1p if i%2==0 else c2p):
-                st.markdown(f'<div class="block" style="margin-bottom:8px"><div style="font-size:0.8rem;font-weight:600;color:#eee;margin-bottom:3px;line-height:1.4">{p["title"]}</div><div style="font-size:0.7rem;color:#444;margin-bottom:5px">{p["journal"]} · {p["year"]}</div><a href="{p["url"]}" target="_blank" style="font-size:0.68rem;color:#4CA8FF;text-decoration:none">PubMed →</a></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="block" style="margin-bottom:8px"><div style="font-size:0.8rem;font-weight:600;color:#f0f0f0;margin-bottom:3px;line-height:1.4">{p["title"]}</div><div style="font-size:0.7rem;color:#666;margin-bottom:5px">{p["journal"]} · {p["year"]}</div><a href="{p["url"]}" target="_blank" style="font-size:0.68rem;color:#4CA8FF;text-decoration:none">PubMed →</a></div>', unsafe_allow_html=True)
     else:
         st.markdown(f'<p style="font-size:0.8rem;color:#444">Loading papers for {gene}... or no disease-specific papers found.</p>', unsafe_allow_html=True)
 
@@ -779,8 +891,8 @@ with tab3:
     prot_name=pd_s.get("protein_name","") or gene; chrom=gt.get("chromosome","")
     domains=pd_s.get("domains",[]); subcel=pd_s.get("subcellular",[]); is_gpcr=pd_s.get("is_gpcr",False); g_prot=pd_s.get("g_protein","")
 
-    st.markdown(f'<h2 style="font-family:IBM Plex Mono,monospace;font-size:1.3rem;color:#eee;margin-bottom:4px">{gene} — Visual Context</h2>', unsafe_allow_html=True)
-    st.markdown(f'<p style="color:#555;font-size:0.8rem;margin-bottom:16px">Tissue distribution · Genomic breakdown · GPCR association · Cell impact · Click-residue experiments</p>', unsafe_allow_html=True)
+    st.markdown(f'<h2 style="font-family:IBM Plex Mono,monospace;font-size:1.3rem;color:#f0f0f0;margin-bottom:4px">{gene} — Visual Context</h2>', unsafe_allow_html=True)
+    st.markdown(f'<p style="color:#777;font-size:0.8rem;margin-bottom:16px">Tissue distribution · Genomic breakdown · GPCR association · Cell impact · Click-residue experiments</p>', unsafe_allow_html=True)
 
     v1,v2,v3,v4 = st.tabs(["🧬 Tissue & Location","📍 Genomic Breakdown","⚡ GPCR Association","🔬 Cell Impact"])
 
@@ -796,7 +908,7 @@ with tab3:
                 st.markdown(f'<div style="background:{c}22;border:1px solid {c}88;border-radius:8px;padding:6px 14px;font-size:0.78rem;color:{c};font-family:IBM Plex Mono,monospace;font-weight:600">{tissue}<br><span style="font-weight:400;font-size:0.65rem;opacity:0.7">{lbl}</span></div>', unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
         elif pd_s.get("tissue"):
-            st.markdown(f'<div class="block"><p style="font-size:0.82rem;color:#aaa;line-height:1.7">{pd_s["tissue"]}</p></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="block"><p style="font-size:0.82rem;color:#cccccc;line-height:1.7">{pd_s["tissue"]}</p></div>', unsafe_allow_html=True)
 
         # Chromosome location
         st.markdown(f'<div class="label">Chromosomal location</div>', unsafe_allow_html=True)
@@ -810,7 +922,7 @@ with tab3:
             st.markdown('<div class="label">Subcellular locations</div>', unsafe_allow_html=True)
             for loc in subcel[:6]:
                 ico="🔬" if "nucle" in loc.lower() else "🧬" if "membran" in loc.lower() else "⚙️" if any(x in loc.lower() for x in ("mitoch","cytopl")) else "📍"
-                st.markdown(f'<div style="padding:6px 12px;margin-bottom:4px;background:#0a0c16;border:1px solid #1a1d2e;border-radius:6px;font-size:0.8rem;color:#bbb">{ico} {loc}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="padding:6px 12px;margin-bottom:4px;background:#0d1020;border:1px solid #252840;border-radius:6px;font-size:0.8rem;color:#bbb">{ico} {loc}</div>', unsafe_allow_html=True)
 
         # Tissue diagram
         components.html(build_tissue_diagram(gene, pd_s.get("tissue",""), None), height=320, scrolling=False)
@@ -842,28 +954,34 @@ with tab3:
             for i,d in enumerate(domains[:8]):
                 with (c1d if i%2==0 else c2d):
                     c=dc[i%len(dc)]
-                    st.markdown(f'<div style="padding:5px 10px;margin-bottom:4px;background:{c}11;border:1px solid {c}44;border-radius:5px;font-size:0.75rem"><span style="color:{c};font-weight:600">{d.get("name","")[:30]}</span><span style="color:#555;font-size:0.68rem;font-family:IBM Plex Mono,monospace;margin-left:8px">{d.get("start")}–{d.get("end")}</span></div>', unsafe_allow_html=True)
+                    st.markdown(f'<div style="padding:5px 10px;margin-bottom:4px;background:{c}11;border:1px solid {c}44;border-radius:5px;font-size:0.75rem"><span style="color:{c};font-weight:600">{d.get("name","")[:30]}</span><span style="color:#777;font-size:0.68rem;font-family:IBM Plex Mono,monospace;margin-left:8px">{d.get("start")}–{d.get("end")}</span></div>', unsafe_allow_html=True)
 
     with v3:
-        st.markdown('<div class="label">GPCR association — IS it a GPCR, or does it ASSOCIATE with the GPCR pathway?</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="block" style="margin-bottom:12px"><p style="font-size:0.8rem;color:#666;line-height:1.7;margin:0">Being a GPCR and associating with GPCR signalling are different. Filamin A is not a GPCR but docks 100s of GPCRs via its repeat domains. β-arrestin associates with activated GPCRs but has zero disease variants. The disease biology is in Filamin. {paper_chip("king_2024")}</p></div>', unsafe_allow_html=True)
-        assoc=GPCR_ASSOC.get(gene.upper())
-        if assoc:
-            gc=assoc.get("color","#9370DB"); atype=assoc.get("type",""); note=assoc.get("note","")
-            st.markdown(f"""<div class="block" style="border-color:{gc}44;margin-bottom:12px">
-              <div style="font-family:'IBM Plex Mono',monospace;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.12em;color:{gc};margin-bottom:6px">{atype}</div>
-              <p style="font-size:0.82rem;color:#bbb;line-height:1.7;margin-bottom:8px">{assoc["mechanism"]}</p>
-              <div style="font-size:0.72rem;color:#555">Partners: {" · ".join(assoc.get("partners",["—"])[:5])}</div>
-              {'<div style="margin-top:6px;padding:8px 12px;background:#1a0808;border-radius:5px;font-size:0.77rem;color:#888;border-left:2px solid #FF4C4C"><strong style="color:#FF4C4C">Note: </strong>'+note+"</div>" if note else ""}
-              <div style="margin-top:8px;font-size:0.7rem;color:#444">📄 {assoc.get("paper","")}</div>
-            </div>""", unsafe_allow_html=True)
+        pdata = get_protein_info(gene)
+        gpcr_info = pdata.get('gpcr_interaction', {})
+        atype_pk = gpcr_info.get('type','')
+        mech_pk  = gpcr_info.get('mechanism','')
+        why_pk   = pdata.get('why_mutations_major','') or pdata.get('why_mutations_minor','')
+        tc2_ = '#FFA500' if 'IS A GPCR' in atype_pk else '#9370DB' if 'SCAFFOLD' in atype_pk else '#4CA8FF' if 'INDIRECT' in atype_pk else '#888'
+        if atype_pk:
+            st.markdown(f'<div style="display:inline-block;background:{tc2_}22;border:1px solid {tc2_};border-radius:8px;padding:6px 16px;font-family:IBM Plex Mono,monospace;font-size:0.72rem;font-weight:600;color:{tc2_};margin-bottom:12px">{atype_pk}</div>', unsafe_allow_html=True)
+        if mech_pk:
+            st.markdown(f'<div style="background:#0d1020;border:1px solid #252840;border-radius:8px;padding:14px 16px;margin-bottom:12px"><p style="font-size:0.82rem;color:#dddddd;line-height:1.8;margin:0">{mech_pk}</p></div>', unsafe_allow_html=True)
+        if why_pk:
+            label_why = 'Why mutations are major' if n_path>50 else 'Why mutations are minor — the real biology' if n_path==0 else 'Rare Mendelian — why low count matters'
+            st.markdown(f'<div style="background:#0d1020;border-left:3px solid {tc};border-radius:0 8px 8px 0;padding:12px 16px;margin-bottom:12px"><div style="font-family:IBM Plex Mono,monospace;font-size:0.63rem;text-transform:uppercase;letter-spacing:0.12em;color:{tc};margin-bottom:6px">{label_why}</div><p style="font-size:0.79rem;color:#cccccc;line-height:1.8;margin:0">{why_pk[:800]}</p></div>', unsafe_allow_html=True)
+        partners_pk = gpcr_info.get('which_gpcrs', [])
+        if partners_pk:
+            st.markdown('<div style="font-family:IBM Plex Mono,monospace;font-size:0.63rem;text-transform:uppercase;letter-spacing:0.12em;color:#5a5d7a;margin-bottom:6px">GPCR partners</div>', unsafe_allow_html=True)
+            st.markdown(' '.join(f'<span style="background:#0d1020;border:1px solid #252840;color:#cccccc;font-family:IBM Plex Mono,monospace;font-size:0.68rem;padding:2px 10px;border-radius:8px;margin:2px;display:inline-block">{p}</span>' for p in partners_pk[:8]), unsafe_allow_html=True)
+        downstream_pk = gpcr_info.get('downstream', [])
+        if downstream_pk:
+            st.markdown('<br><div style="font-family:IBM Plex Mono,monospace;font-size:0.63rem;text-transform:uppercase;letter-spacing:0.12em;color:#5a5d7a;margin-bottom:6px">Downstream effects</div>', unsafe_allow_html=True)
+            st.markdown(' '.join(f'<span style="background:#0a140a;border:1px solid #1a3a1a;color:#4CAF50;font-family:IBM Plex Mono,monospace;font-size:0.68rem;padding:2px 10px;border-radius:8px;margin:2px;display:inline-block">{d}</span>' for d in downstream_pk[:6]), unsafe_allow_html=True)
         components.html(build_gpcr_association_diagram(gene, g_prot, prot_name, is_gpcr), height=340, scrolling=False)
-        if is_gpcr:
-            st.caption(f"{gene} IS a G protein-coupled receptor · G-protein: {g_prot} · Source: UniProt + IUPHAR/BPS Guide to Pharmacology")
-        elif assoc:
-            st.caption(f"{gene} associates with GPCR pathway via {assoc['type']} — not a GPCR itself · Source: Published literature")
-        else:
-            st.caption(f"{gene} — GPCR association not in curated database. Check UniProt interaction partners for GPCR links.")
+        assoc=GPCR_ASSOC.get(gene.upper(),{})
+        paper_line = assoc.get('paper','') if assoc else ''
+        st.caption(f'{gene} GPCR association · {paper_line[:80] if paper_line else "Source: UniProt + IUPHAR/BPS + Protellect knowledge base"}')
 
     with v4:
         st.markdown('<div class="label">Cell impact — what breaks when this protein is mutated</div>', unsafe_allow_html=True)
@@ -871,9 +989,28 @@ with tab3:
         for v in cv.get("pathogenic",[]) + cv.get("likely_pathogenic",[]):
             for c in v.get("conditions",[]):
                 if c and "not provided" not in c.lower() and c not in dis4: dis4.append(c)
-        components.html(build_cell_impact_diagram(gene, tier, n_path, dis4[:4], subcel, is_gpcr, g_prot), height=330, scrolling=False)
-        st.caption(f"Based on {n_path} ClinVar germline pathogenic variants · Not inferred — derived from confirmed human genetic evidence")
+        # EXPANDED cell impact — full width, more height
+        components.html(build_cell_impact_diagram(gene, tier, n_path, dis4[:6], subcel, is_gpcr, g_prot), height=460, scrolling=True)
+        st.caption(f"Cell impact for {gene} · {n_path} ClinVar germline pathogenic variants · Germline only")
+        # Real biology from protein_data
+        pdata_v4 = get_protein_info(gene)
+        real_bio = pdata_v4.get('real_biology','')
+        pig_rel  = pdata_v4.get('piggyback_relationship',{})
+        if real_bio and len(real_bio) > 100:
+            st.markdown('<br>', unsafe_allow_html=True)
+            st.markdown('<div class="label">What this protein actually does — full biology</div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="background:#0d1020;border:1px solid #252840;border-radius:8px;padding:16px 18px;font-size:0.79rem;color:#cccccc;line-height:1.9;white-space:pre-line">{real_bio[:1200]}</div>', unsafe_allow_html=True)
+        if pig_rel:
+            ess = pig_rel.get('essential_partners',[])
+            mech_pig = pig_rel.get('mechanism','')
+            analogy  = pig_rel.get('analogy','')
+            st.markdown('<br>', unsafe_allow_html=True)
+            st.markdown('<div class="label" style="color:#FF4C4C44;border-color:#FF4C4C22">Piggyback relationship — essential partners carry the disease burden</div>', unsafe_allow_html=True)
+            partners_str = ' '.join(f'<span style="background:#1a0808;border:1px solid #FF4C4C44;color:#FF4C4C;font-family:IBM Plex Mono,monospace;font-size:0.68rem;padding:2px 10px;border-radius:8px;margin:2px;display:inline-block">{p}</span>' for p in ess[:4])
+            analogy_html = f'<div style="font-size:0.75rem;color:#777;font-style:italic;margin-top:6px">{analogy}</div>' if analogy else ''
+            st.markdown(f'<div style="background:#0a0607;border:1px solid #FF4C4C33;border-radius:8px;padding:14px 16px"><p style="font-size:0.79rem;color:#dddddd;line-height:1.7;margin-bottom:8px">{mech_pig}</p>{analogy_html}<div style="margin-top:8px">Essential partners: {partners_str}</div></div>', unsafe_allow_html=True)
 
+        # Click-to-residue experiment recommender
         # Click-to-residue experiment recommender
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<div class="label">Experiment recommender — click a residue to get specific protocols</div>', unsafe_allow_html=True)
@@ -891,10 +1028,10 @@ with tab3:
                         if d["start"]<=pos<=d["end"]: dom_at=d.get("name",""); break
                     st.markdown(f"""<div class="block-red">
                       <div style="font-family:'IBM Plex Mono',monospace;font-size:0.7rem;color:#FF4C4C;margin-bottom:6px">Position {pos} — {sig}</div>
-                      <div style="font-size:0.82rem;color:#eee;margin-bottom:4px">{v.get("title","")[:80]}</div>
-                      <div style="font-size:0.78rem;color:#888;margin-bottom:8px">Disease: {dis} {"· Domain: "+dom_at if dom_at else ""}</div>
+                      <div style="font-size:0.82rem;color:#f0f0f0;margin-bottom:4px">{v.get("title","")[:80]}</div>
+                      <div style="font-size:0.78rem;color:#aaaaaa;margin-bottom:8px">Disease: {dis} {"· Domain: "+dom_at if dom_at else ""}</div>
                       <div class="label" style="margin-top:8px">Recommended experiments for this specific residue</div>
-                      <div style="font-size:0.78rem;color:#aaa;line-height:2">
+                      <div style="font-size:0.78rem;color:#cccccc;line-height:2">
                         1. <strong>ClinVar + gnomAD (free, 1h):</strong> Confirm this exact variant · check population frequency · verify dominant vs recessive<br>
                         2. <strong>Thermal shift DSF (2-3 days, ~$300):</strong> Express WT + Pos{pos} mutant · expect ΔTm of {'6-12°C' if sig and 'Pathogenic' in sig and 'Likely' not in sig else '3-8°C'}<br>
                         3. <strong>ITC binding assay (1-2 weeks, ~$2,000):</strong> Measure Kd change at {'domain: '+dom_at if dom_at else 'this position'} · ITC is robust, no false positives (Sujay Ithychanda, Cleveland Clinic)<br>
@@ -910,7 +1047,7 @@ with tab3:
             if len(top3)>0:
                 selected_r=st.selectbox("Select residue",["—"]+[f"Pos{int(r['residue_position'])} (score {round(float(r['normalized_score']),3)})" for _,r in top3.iterrows()],key="res_sel2")
                 if selected_r and selected_r!="—":
-                    st.markdown(f'<div class="block"><div style="font-family:IBM Plex Mono,monospace;font-size:0.7rem;color:#FF4C4C;margin-bottom:6px">{selected_r}</div><p style="font-size:0.78rem;color:#aaa;line-height:1.8">1. DSF thermal shift · 2. ITC binding · 3. ClinVar position check · 4. Functional assay in relevant cell line</p></div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="block"><div style="font-family:IBM Plex Mono,monospace;font-size:0.7rem;color:#FF4C4C;margin-bottom:6px">{selected_r}</div><p style="font-size:0.78rem;color:#cccccc;line-height:1.8">1. DSF thermal shift · 2. ITC binding · 3. ClinVar position check · 4. Functional assay in relevant cell line</p></div>', unsafe_allow_html=True)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # TAB 4 — THERAPY

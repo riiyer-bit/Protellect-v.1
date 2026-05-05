@@ -2,7 +2,11 @@
 import streamlit as st
 import re
 from diagrams import GPCR_ASSOC
-from protein_data import get_protein_info
+try:
+    from protein_data import get_protein_info
+except ImportError:
+    def get_protein_info(gene):
+        return {"real_biology":"","gpcr_interaction":{},"experiments_specific":[],"timeline_stages":[],"piggyback_relationship":{}}
 
 DRUG_DB = {
     "FLNA": {"strategy":"Gene/mRNA therapy justified by 847 ClinVar pathogenic variants (DBR 0.320, CRITICAL).","approved":[],"investigational":[{"name":"AAV-FLNA gene therapy","stage":"Preclinical","mechanism":"Replace loss-of-function allele in neurons/smooth muscle","evidence":"X-linked disease models"},{"name":"mRNA replacement therapy","stage":"Preclinical","mechanism":"Restore FLNA in deficient tissues","evidence":"Proof of concept in other X-linked conditions"}],"warning":False},

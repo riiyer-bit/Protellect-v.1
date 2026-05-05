@@ -161,6 +161,106 @@ def build_gpcr_association_diagram(gene_name: str, g_protein: str = "", protein_
 </svg>'''
     return _wrap(svg)
 
+def build_gpcr_association_diagram(gene_name: str, g_protein: str = "", protein_name: str = "", is_gpcr: bool = False) -> str:
+    """Proper GPCR pathway diagram — structural schematic with actual pathway elements."""
+    gu = gene_name.upper(); assoc = GPCR_ASSOC.get(gu); W, H = 720, 360
+    if not assoc and not is_gpcr:
+        return _no_data(gene_name, "GPCR association", f"{gene_name} has no curated GPCR association. Check UniProt interaction partners.")
+    if assoc:
+        atype=assoc["type"]; color=assoc["color"]; mech=assoc["mechanism"][:140]
+        partners=assoc.get("partners",["—"])[:5]; paper=assoc.get("paper",""); note=assoc.get("note","")[:100]; gp=assoc["g_protein"]
+    else:
+        atype="IS A GPCR"; color="#9370DB"; gp=g_protein or "—"; mech=f"{gene_name} is a GPCR. Couples to {g_protein}."; partners=[]; paper="IUPHAR/BPS"; note=""
+
+    # Get cascade
+    gp_key = g_protein if g_protein in G_CASCADES else ("Gi/o" if "i" in gp.lower() else "Gq/11" if "q" in gp.lower() else "Gs" if "s" in gp.lower() else "Gq/11")
+    cascade = G_CASCADES.get(gp_key, G_CASCADES["Gq/11"])
+    steps = cascade["steps"]; cc = cascade["color"]; effects = cascade.get("effects",[])
+
+    # Build SVG with structural elements (7TM helix bundle, G-protein, second messengers)
+    # 7TM helix bundle representation
+    helix_svg = ""
+    helix_x, helix_y, helix_w, helix_h = 20, 80, 110, 180
+    # Draw 7 TM helices
+    for i in range(7):
+        hx = helix_x + i*14
+        h_top = helix_y + (15 if i%2==0 else 0)
+        h_bot = h_top + helix_h - (15 if i%2==0 else 0)
+        helix_svg += f'<rect x="{hx}" y="{h_top}" width="11" height="{h_bot-h_top}" rx="5" fill="{color}55" stroke="{color}" stroke-width="1.5"/>'
+        # Loop connections
+        if i < 6:
+            next_x = hx+14
+            if i%2==0: # extracellular loop (top)
+                helix_svg += f'<path d="M{hx+11},{h_top} Q{hx+18},{h_top-12} {next_x},{h_top}" stroke="{color}" stroke-width="1.5" fill="none" opacity="0.6"/>'
+            else: # intracellular loop (bottom)
+                helix_svg += f'<path d="M{hx+11},{h_bot} Q{hx+18},{h_bot+10} {next_x},{h_bot}" stroke="{color}" stroke-width="1.5" fill="none" opacity="0.6"/>'
+    # Membrane lines
+    helix_svg += f'<line x1="{helix_x-5}" y1="{helix_y+30}" x2="{helix_x+7*14+10}" y2="{helix_y+30}" stroke="#2a3550" stroke-width="1" stroke-dasharray="3,2"/>'
+    helix_svg += f'<line x1="{helix_x-5}" y1="{helix_y+helix_h-20}" x2="{helix_x+7*14+10}" y2="{helix_y+helix_h-20}" stroke="#2a3550" stroke-width="1" stroke-dasharray="3,2"/>'
+    # Labels
+    helix_svg += f'<text x="{helix_x+45}" y="{helix_y-8}" text-anchor="middle" font-size="9" fill="{color}" font-family="IBM Plex Mono,monospace" font-weight="600">{gene_name if is_gpcr or "IS A GPCR" in atype else "GPCR"}</text>'
+    helix_svg += f'<text x="{helix_x+45}" y="{helix_y+helix_h+14}" text-anchor="middle" font-size="8" fill="{color}88" font-family="IBM Plex Mono,monospace">7-TM</text>'
+    # Ligand
+    helix_svg += f'<ellipse cx="{helix_x+45}" cy="{helix_y-25}" rx="22" ry="12" fill="{color}33" stroke="{color}" stroke-width="1.5"/>'
+    helix_svg += f'<text x="{helix_x+45}" y="{helix_y-21}" text-anchor="middle" font-size="8" fill="{color}" font-family="IBM Plex Mono,monospace">Ligand</text>'
+    helix_svg += f'<line x1="{helix_x+45}" y1="{helix_y-13}" x2="{helix_x+45}" y2="{helix_y}" stroke="{color}" stroke-width="1.5" stroke-dasharray="3,2"/>'
+
+    # G-protein heterotrimer
+    gp_x, gp_y = helix_x+120, helix_y+helix_h-40
+    helix_svg += f'<ellipse cx="{gp_x+20}" cy="{gp_y+20}" rx="28" ry="18" fill="{cc}33" stroke="{cc}" stroke-width="1.5"/>'
+    helix_svg += f'<text x="{gp_x+20}" y="{gp_y+17}" text-anchor="middle" font-size="9" fill="{cc}" font-family="IBM Plex Mono,monospace" font-weight="600">Gα</text>'
+    helix_svg += f'<text x="{gp_x+20}" y="{gp_y+28}" text-anchor="middle" font-size="7" fill="{cc}aa" font-family="IBM Plex Mono,monospace">{gp_key}</text>'
+    helix_svg += f'<ellipse cx="{gp_x+54}" cy="{gp_y+24}" rx="16" ry="12" fill="{cc}22" stroke="{cc}88" stroke-width="1"/>'
+    helix_svg += f'<text x="{gp_x+54}" y="{gp_y+28}" text-anchor="middle" font-size="7.5" fill="{cc}aa" font-family="IBM Plex Mono,monospace">Gβγ</text>'
+    # Arrow from GPCR to Gp
+    helix_svg += f'<line x1="{helix_x+7*14+8}" y1="{helix_y+helix_h-25}" x2="{gp_x-4}" y2="{gp_y+18}" stroke="{cc}" stroke-width="1.5" stroke-dasharray="4,3"/>'
+    helix_svg += f'<polygon points="{gp_x-4},{gp_y+18} {gp_x-10},{gp_y+12} {gp_x-10},{gp_y+24}" fill="{cc}" opacity="0.7"/>'
+
+    # Cascade boxes (right side)
+    box_start_x = 280; box_y_start = 40; bw, bh, bgap = 110, 28, 8
+    boxes = ""; arrows_svg = ""
+    for i, step in enumerate(steps[:5]):
+        bx = box_start_x; by = box_y_start + i*(bh+bgap)
+        alpha = max(0.45, 1-i*0.1)
+        short = step[:20]+"…" if len(step)>20 else step
+        boxes += f'<rect x="{bx}" y="{by}" width="{bw}" height="{bh}" rx="6" fill="{cc}22" stroke="{cc}" stroke-width="1.5" opacity="{alpha}"/>'
+        boxes += f'<text x="{bx+8}" y="{by+12}" font-size="7.5" fill="{cc}" font-family="IBM Plex Mono,monospace" font-weight="600" opacity="{alpha}">{i+1}</text>'
+        boxes += f'<text x="{bx+20}" y="{by+12}" font-size="7" fill="#cce" font-family="Inter,sans-serif" opacity="{alpha}">{short}</text>'
+        if i < 4:
+            ay = by+bh+1
+            boxes += f'<line x1="{bx+bw//2}" y1="{ay}" x2="{bx+bw//2}" y2="{ay+bgap-2}" stroke="{cc}" stroke-width="1.5" opacity="{alpha*0.7}"/>'
+            boxes += f'<polygon points="{bx+bw//2-4},{ay+bgap-4} {bx+bw//2+4},{ay+bgap-4} {bx+bw//2},{ay+bgap+2}" fill="{cc}" opacity="{alpha*0.7}"/>'
+
+    # Effects on right
+    eff_x = 410; eff_y = 40
+    for i, eff in enumerate(effects[:3]):
+        by2 = eff_y + i*42
+        boxes += f'<rect x="{eff_x}" y="{by2}" width="120" height="32" rx="6" fill="#0a1428" stroke="#1e3060" stroke-width="1.5"/>'
+        boxes += f'<text x="{eff_x+60}" y="{by2+20}" text-anchor="middle" font-size="9" fill="#ccddff" font-family="Inter,sans-serif">{eff[:20]}</text>'
+        boxes += f'<line x1="{box_start_x+bw}" y1="{box_y_start+20+i*36}" x2="{eff_x}" y2="{by2+16}" stroke="{cc}" stroke-width="1" stroke-dasharray="3,3" opacity="0.4"/>'
+
+    # Filamin / scaffold note if applicable
+    scaffold_svg = ""
+    if gene_name.upper() in ("FLNA","FLNB","FLNC","ARRB1","ARRB2"):
+        assoc2 = GPCR_ASSOC.get(gene_name.upper(),{})
+        scaffold_svg += f'<rect x="20" y="{H-60}" width="{W-40}" height="42" rx="6" fill="{color}11" stroke="{color}44" stroke-width="1"/>'
+        scaffold_svg += f'<text x="30" y="{H-44}" font-size="9" font-family="IBM Plex Mono,monospace" fill="{color}" font-weight="600">{atype}</text>'
+        scaffold_svg += f'<text x="30" y="{H-30}" font-size="8" font-family="Inter,sans-serif" fill="#99aacc">{mech[:100]}</text>'
+
+    # Note
+    note_svg = f'<text x="{W//2}" y="{H-8}" text-anchor="middle" font-size="8" fill="#336699" font-family="Inter,sans-serif">{note[:100] if note else ""}</text>'
+
+    svg = f"""<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg">
+<rect width="{W}" height="{H}" fill="#0a0e1a"/>
+<text x="{W//2}" y="22" text-anchor="middle" font-size="13" font-family="IBM Plex Mono,monospace" font-weight="700" fill="#eef">{gene_name} — GPCR {"Pathway" if is_gpcr else "Association"}</text>
+{helix_svg}
+{boxes}
+{scaffold_svg}
+{note_svg}
+<text x="{W-8}" y="{H-20}" text-anchor="end" font-size="8" fill="#22334a" font-family="Inter,sans-serif">Source: UniProt · IUPHAR/BPS · {paper[:40]}</text>
+</svg>"""
+    return _wrap(svg)
+
 def build_gpcr_diagram(gene_name: str, g_protein: str, protein_name: str = "", n_tm: int = 7) -> str:
     return build_gpcr_association_diagram(gene_name, g_protein, protein_name, True)
 
