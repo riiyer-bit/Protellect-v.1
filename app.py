@@ -586,350 +586,349 @@ with tab1:
             </div>
           </div>
         </div>""", unsafe_allow_html=True)
-    if 'ss_gene' not in st.session_state:
-        pass
-    else:
-      gene      = st.session_state.ss_gene
-    n_path    = st.session_state.ss_n_path
-    tier      = st.session_state.ss_tier
-    tc        = TIER_COLORS.get(tier,"#666"); ti=TIER_ICONS.get(tier,"⚪")
-    uni       = st.session_state.ss_uni or {}
-    cv        = st.session_state.ss_cv  or {}
-    pdb       = st.session_state.ss_pdb
-    pdb_src   = st.session_state.ss_pdb_src or ""
-    scored    = st.session_state.ss_scored
-    stats     = st.session_state.ss_stats
-    diseases_str = st.session_state.ss_diseases or ""
-    pname     = st.session_state.ss_pname or gene
-    pdata     = st.session_state.ss_pdata or {}
-    pc_col    = "priority_final" if scored is not None and "priority_final" in scored.columns else "priority"
+    if "ss_gene" in st.session_state:
+        gene      = st.session_state.ss_gene
+        n_path    = st.session_state.get("ss_n_path", 0)
+        tier      = st.session_state.get("ss_tier", "UNKNOWN")
+        tc        = TIER_COLORS.get(tier,"#666"); ti=TIER_ICONS.get(tier,"⚪")
+        uni       = st.session_state.ss_uni or {}
+        cv        = st.session_state.ss_cv  or {}
+        pdb       = st.session_state.ss_pdb
+        pdb_src   = st.session_state.ss_pdb_src or ""
+        scored    = st.session_state.ss_scored
+        stats     = st.session_state.ss_stats
+        diseases_str = st.session_state.ss_diseases or ""
+        pname     = st.session_state.ss_pname or gene
+        pdata     = st.session_state.ss_pdata or {}
+        pc_col    = "priority_final" if scored is not None and "priority_final" in scored.columns else "priority"
 
-    # ── BIG DISEASE BANNER ──────────────────────────────────────────────────
-    if tier == "NEUTRAL":
-        banner_h = f"⚪ NO GERMLINE DISEASE ASSOCIATION"
-        banner_d = f"{gene} has zero confirmed germline pathogenic variants in ClinVar. Humans with broken versions are healthy. This is the β-arrestin/Talin pattern."
-        banner_a = "DO NOT pursue as primary drug target. Study interaction partners with confirmed ClinVar burden."
-    elif tier == "CRITICAL":
-        banner_h = f"🔴 CRITICAL — Essential disease gene"
-        banner_d = f"{n_path} confirmed germline pathogenic variants. Diseases: {diseases_str[:120]}"
-        banner_a = f"Strong human genetic justification for drug development. {paper_chip('king_2024')}"
-    elif tier == "HIGH":
-        banner_h = f"🟠 HIGH — Confirmed disease gene"
-        banner_d = f"{n_path} confirmed germline pathogenic variants. {diseases_str[:100]}"
-        banner_a = "Solid genetic support. Proceed with target validation."
-    elif tier == "LOW":
-        banner_h = f"🟡 CONFIRMED RARE MENDELIAN DISEASE GENE"
-        banner_d = f"{n_path} pathogenic variant(s). Low count = disease rarity, not protein dispensability."
-        banner_a = "Rare disease strategy. Orphan drug pathway applies."
-    else:
-        banner_h = "❓ GENOMICALLY UNCHARACTERISED"; banner_d = "Insufficient ClinVar data."; banner_a = "Run ClinVar query before any wet lab investment."
-
-    st.markdown(f"""
-    <div style="background:#070c1a;border:2px solid {tc};border-radius:14px;padding:20px 24px;margin-bottom:18px">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
-        <div style="flex:1">
-          <div style="font-family:JetBrains Mono;font-size:1rem;font-weight:700;color:{tc};margin-bottom:6px">{banner_h}</div>
-          <div style="font-size:0.87rem;color:#c0d0f0;font-weight:500;margin-bottom:4px">{gene} — {pname}</div>
-          <div style="font-size:0.81rem;color:#556;line-height:1.7">{banner_d}</div>
-          <div style="margin-top:10px;font-size:0.8rem;color:#4CAF50">{banner_a}</div>
-        </div>
-        <div style="text-align:right;min-width:130px">
-          <div style="font-size:2.2rem;font-weight:700;font-family:JetBrains Mono;color:{tc}">{n_path}</div>
-          <div style="font-size:0.6rem;color:#334;text-transform:uppercase">Germline pathogenic</div>
-          <div style="font-size:0.72rem;color:{tc};font-family:JetBrains Mono;margin-top:3px">DBR {f"{calculate_dbr(n_path, st.session_state.ss_plen):.3f}" if st.session_state.ss_plen else "—"}</div>
-        </div>
-      </div>
-    </div>""", unsafe_allow_html=True)
-
-    # ── Structure + triage ──────────────────────────────────────────────────
-    scol, rcol = st.columns([1.4, 1], gap="large")
-
-    with scol:
-        st.markdown(f'<div class="label">AlphaFold Structure — {gene}</div>', unsafe_allow_html=True)
-        if pdb_src: st.caption(f"🏗️ {pdb_src}")
-
-        cmap={"HIGH":"#FF4C4C","MEDIUM":"#FFA500","LOW":"#60a5fa"}
-        rmap={"HIGH":1.2,"MEDIUM":0.8,"LOW":0.45}
-        rs={}; annot_map={}
-
-        # ClinVar pathogenic positions
-        cv_pos={}
-        for v2 in cv.get("germline_pathogenic",[]) + cv.get("germline_lp",[]):
-            pos2=v2.get("pos",0)
-            if not pos2:
-                m2=re.search(r'[A-Z](\d+)[A-Z=*]', v2.get("title",""))
-                if m2: pos2=int(m2.group(1))
-            if pos2>0:
-                cv_pos[pos2]={"sig":v2.get("germline","") or v2.get("sig",""),"conds":v2.get("conditions",[])}
-
-        if scored is not None and pdb:
-            pdb_res=set()
-            for line in pdb.split('\n'):
-                if line.startswith('ATOM'):
-                    try: pdb_res.add(int(line[22:26].strip()))
-                    except: pass
-            upos=[int(r["residue_position"]) for _,r in scored.iterrows()]
-            has_overlap = pdb_res and any(p in pdb_res for p in upos)
-            for _,row in scored.iterrows():
-                pos3=int(row["residue_position"]); p3=str(row.get(pc_col,"LOW"))
-                hyp3=str(row.get("hypothesis",""))[:200]; sc3=float(row.get("normalized_score",0))
-                annot_map[pos3]={"p":p3,"s":round(sc3,3),"h":hyp3}
-                if has_overlap and pos3 in pdb_res:
-                    rs[pos3]={"c":cmap.get(p3,"#60a5fa"),"r":rmap.get(p3,0.45)}
-                elif not has_overlap:
-                    rs[pos3]={"c":cmap.get(p3,"#60a5fa"),"r":rmap.get(p3,0.45)*1.4}
-        elif pdb and cv_pos:
-            # Colour ClinVar pathogenic positions
-            pdb_res2=set()
-            for line in pdb.split('\n'):
-                if line.startswith('ATOM'):
-                    try: pdb_res2.add(int(line[22:26].strip()))
-                    except: pass
-            for cpos in list(cv_pos.keys())[:60]:
-                if cpos in pdb_res2:
-                    rs[cpos]={"c":"#FF4C4C","r":0.9}
-                    annot_map[cpos]={"p":"HIGH","s":1.0,"h":f"ClinVar pathogenic at position {cpos}"}
-
-        if pdb:
-            components.html(make_viewer(pdb, rs, cv_pos, annot_map, gene, 690, 450), height=456)
+        # ── BIG DISEASE BANNER ──────────────────────────────────────────────────
+        if tier == "NEUTRAL":
+            banner_h = f"⚪ NO GERMLINE DISEASE ASSOCIATION"
+            banner_d = f"{gene} has zero confirmed germline pathogenic variants in ClinVar. Humans with broken versions are healthy. This is the β-arrestin/Talin pattern."
+            banner_a = "DO NOT pursue as primary drug target. Study interaction partners with confirmed ClinVar burden."
+        elif tier == "CRITICAL":
+            banner_h = f"🔴 CRITICAL — Essential disease gene"
+            banner_d = f"{n_path} confirmed germline pathogenic variants. Diseases: {diseases_str[:120]}"
+            banner_a = f"Strong human genetic justification for drug development. {paper_chip('king_2024')}"
+        elif tier == "HIGH":
+            banner_h = f"🟠 HIGH — Confirmed disease gene"
+            banner_d = f"{n_path} confirmed germline pathogenic variants. {diseases_str[:100]}"
+            banner_a = "Solid genetic support. Proceed with target validation."
+        elif tier == "LOW":
+            banner_h = f"🟡 CONFIRMED RARE MENDELIAN DISEASE GENE"
+            banner_d = f"{n_path} pathogenic variant(s). Low count = disease rarity, not protein dispensability."
+            banner_a = "Rare disease strategy. Orphan drug pathway applies."
         else:
-            st.markdown(f"""<div style="background:#070c1a;border:1px solid #1a2040;border-radius:10px;height:380px;display:flex;align-items:center;justify-content:center;text-align:center;color:#1a2040;font-family:JetBrains Mono;font-size:12px">AlphaFold structure loading...<br><span style='font-size:10px;color:#0f1525;display:block;margin-top:8px'>Enable DB enrichment and click Analyse</span></div>""", unsafe_allow_html=True)
-        st.markdown('<div style="display:flex;gap:16px;margin-top:5px;font-size:0.73rem;color:#334"><span><span style="color:#FF4C4C">●</span> HIGH / ClinVar pathogenic</span><span><span style="color:#FFA500">●</span> MEDIUM</span><span><span style="color:#60a5fa">●</span> LOW / Benign</span><span><span style="color:#fff">●</span> Selected residue</span></div>', unsafe_allow_html=True)
+            banner_h = "❓ GENOMICALLY UNCHARACTERISED"; banner_d = "Insufficient ClinVar data."; banner_a = "Run ClinVar query before any wet lab investment."
 
-    with rcol:
-        # Germline vs somatic counts
-        n_gp=cv.get("n_path",0); n_s=cv.get("n_somatic",0); n_vus=len(cv.get("germline_vus",[]))
-        n_b=len(cv.get("germline_benign",[]))
-        st.markdown('<div class="label">ClinVar Evidence — Germline vs Somatic</div>', unsafe_allow_html=True)
         st.markdown(f"""
-        <div style="background:#070c1a;border:1px solid {tc}44;border-radius:8px;padding:12px;margin-bottom:10px">
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
-            <div style="background:#0a0810;border:1px solid #FF4C4C33;border-radius:6px;padding:9px;text-align:center">
-              <div style="font-size:1.5rem;font-weight:700;font-family:JetBrains Mono;color:{tc}">{n_path}</div>
-              <div style="font-size:0.58rem;color:#334;text-transform:uppercase">Germline P/LP</div>
-              <div style="font-size:0.62rem;color:#445;margin-top:2px">Ground truth</div>
+        <div style="background:#070c1a;border:2px solid {tc};border-radius:14px;padding:20px 24px;margin-bottom:18px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
+            <div style="flex:1">
+              <div style="font-family:JetBrains Mono;font-size:1rem;font-weight:700;color:{tc};margin-bottom:6px">{banner_h}</div>
+              <div style="font-size:0.87rem;color:#c0d0f0;font-weight:500;margin-bottom:4px">{gene} — {pname}</div>
+              <div style="font-size:0.81rem;color:#556;line-height:1.7">{banner_d}</div>
+              <div style="margin-top:10px;font-size:0.8rem;color:#4CAF50">{banner_a}</div>
             </div>
-            <div style="background:#0a0d10;border:1px solid #FFA50033;border-radius:6px;padding:9px;text-align:center">
-              <div style="font-size:1.5rem;font-weight:700;font-family:JetBrains Mono;color:#FFA500">{n_s}</div>
-              <div style="font-size:0.58rem;color:#334;text-transform:uppercase">Somatic only ⚠</div>
-              <div style="font-size:0.62rem;color:#445;margin-top:2px">Cancer cell mutations</div>
+            <div style="text-align:right;min-width:130px">
+              <div style="font-size:2.2rem;font-weight:700;font-family:JetBrains Mono;color:{tc}">{n_path}</div>
+              <div style="font-size:0.6rem;color:#334;text-transform:uppercase">Germline pathogenic</div>
+              <div style="font-size:0.72rem;color:{tc};font-family:JetBrains Mono;margin-top:3px">DBR {f"{calculate_dbr(n_path, st.session_state.ss_plen):.3f}" if st.session_state.ss_plen else "—"}</div>
             </div>
-          </div>
-          <div style="font-size:0.7rem;color:#334;background:#050810;border-radius:4px;padding:6px 8px;line-height:1.6">
-            Somatic = NOT inherited disease evidence. Only germline variants validate a drug target.
-            {paper_chip("minikel_2021")}
           </div>
         </div>""", unsafe_allow_html=True)
 
-        # Disease list
-        if diseases_str:
-            st.markdown('<div class="label">Confirmed diseases</div>', unsafe_allow_html=True)
-            for d in diseases_str.split("·")[:6]:
-                d=d.strip()
-                if d: st.markdown(f'<div style="padding:5px 9px;margin-bottom:3px;background:#0c0810;border:1px solid #FF4C4C22;border-radius:5px;font-size:0.78rem;color:#e0d0e0">● {d}</div>', unsafe_allow_html=True)
+        # ── Structure + triage ──────────────────────────────────────────────────
+        scol, rcol = st.columns([1.4, 1], gap="large")
 
-        # Wet lab stats
-        if stats:
-            st.markdown('<div class="label" style="margin-top:10px">Wet lab triage results</div>', unsafe_allow_html=True)
-            assay_name = (st.session_state.ss_info or {}).get("assay_guess","") if st.session_state.get("ss_info") else ""
-            if assay_name: st.caption(assay_name)
-            c1,c2,c3=st.columns(3)
-            c1.metric("HIGH",stats["high_priority"])
-            c2.metric("MEDIUM",stats["medium_priority"])
-            c3.metric("LOW",stats["low_priority"])
+        with scol:
+            st.markdown(f'<div class="label">AlphaFold Structure — {gene}</div>', unsafe_allow_html=True)
+            if pdb_src: st.caption(f"🏗️ {pdb_src}")
 
-    # ── Residue triage list ─────────────────────────────────────────────────
-    if scored is not None:
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown('<div class="label">Residue Triage — click spheres in structure for details, or expand here</div>', unsafe_allow_html=True)
-        top_n = st.slider("Show top residues", 3, min(25,len(scored)), min(10,len(scored)))
+            cmap={"HIGH":"#FF4C4C","MEDIUM":"#FFA500","LOW":"#60a5fa"}
+            rmap={"HIGH":1.2,"MEDIUM":0.8,"LOW":0.45}
+            rs={}; annot_map={}
 
-        for _,row in scored.head(top_n).iterrows():
-            p4=str(row.get(pc_col,"LOW")); c4={"HIGH":"#FF4C4C","MEDIUM":"#FFA500","LOW":"#60a5fa"}.get(p4,"#60a5fa")
-            pos4=int(row["residue_position"]); sc4=round(float(row["normalized_score"]),3)
-            mut4=str(row.get("mutation",f"Pos{pos4}")); mut4=f"Pos{pos4}" if mut4 in ("nan","") else mut4
-            hyp4=str(row.get("hypothesis",""))
-            conf4=row.get("ml_confidence",None)
-            in_cv4 = pos4 in cv_pos
-            cv_badge4 = f'<span class="tag" style="background:#FF4C4C22;color:#FF4C4C;border:1px solid #FF4C4C44">ClinVar P at pos {pos4}</span>' if in_cv4 else ""
-            dom4=""
-            for d4 in uni.get("domains",[]):
-                if d4.get("start",0)<=pos4<=d4.get("end",0):
-                    dom4=f'<span class="tag" style="background:#9370DB22;color:#9370DB;border:1px solid #9370DB44">{d4.get("name","")[:20]}</span>'; break
-            st.markdown(
-                f'<div style="margin-bottom:8px">'
-                f'<span style="font-family:JetBrains Mono;font-size:0.7rem;font-weight:600;color:{c4}">[{p4}]</span> '
-                f'<span style="color:#e0f0ff;font-family:JetBrains Mono;font-size:0.8rem">{mut4}</span>'
-                f'<span style="color:#334;font-size:0.68rem;font-family:JetBrains Mono"> · {sc4}{f" · ML {conf4:.0%}" if conf4 and pd.notna(conf4) else ""}</span>'
-                f'{cv_badge4}{dom4}'
-                f'<div style="background:#080c18;border-left:2px solid {c4}44;padding:8px 12px;font-size:0.78rem;color:#556;line-height:1.8;margin-top:4px;border-radius:0 6px 6px 0">{hyp4}</div></div>',
-                unsafe_allow_html=True)
+            # ClinVar pathogenic positions
+            cv_pos={}
+            for v2 in cv.get("germline_pathogenic",[]) + cv.get("germline_lp",[]):
+                pos2=v2.get("pos",0)
+                if not pos2:
+                    m2=re.search(r'[A-Z](\d+)[A-Z=*]', v2.get("title",""))
+                    if m2: pos2=int(m2.group(1))
+                if pos2>0:
+                    cv_pos[pos2]={"sig":v2.get("germline","") or v2.get("sig",""),"conds":v2.get("conditions",[])}
 
-        # Excel export
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("⬇ Export Excel workbook (4 sheets)"):
-            buf=io.BytesIO()
-            with pd.ExcelWriter(buf,engine="openpyxl") as w:
-                scored.to_excel(w,sheet_name="Triage Results",index=True)
-                gp=cv.get("germline_pathogenic",[])+cv.get("germline_lp",[])
-                if gp: pd.DataFrame(gp).to_excel(w,sheet_name="ClinVar Germline P-LP",index=False)
-                if cv.get("somatic"): pd.DataFrame(cv["somatic"]).to_excel(w,sheet_name="ClinVar Somatic",index=False)
-                pd.DataFrame([{"Gene":gene,"Protein":pname,"Germline pathogenic":n_path,"Somatic":n_s,"Tier":tier,"DBR":calculate_dbr(n_path,st.session_state.ss_plen)}]).to_excel(w,sheet_name="Protein Summary",index=False)
-            buf.seek(0)
-            st.download_button("Download",buf,f"protellect_{gene}.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            if scored is not None and pdb:
+                pdb_res=set()
+                for line in pdb.split('\n'):
+                    if line.startswith('ATOM'):
+                        try: pdb_res.add(int(line[22:26].strip()))
+                        except: pass
+                upos=[int(r["residue_position"]) for _,r in scored.iterrows()]
+                has_overlap = pdb_res and any(p in pdb_res for p in upos)
+                for _,row in scored.iterrows():
+                    pos3=int(row["residue_position"]); p3=str(row.get(pc_col,"LOW"))
+                    hyp3=str(row.get("hypothesis",""))[:200]; sc3=float(row.get("normalized_score",0))
+                    annot_map[pos3]={"p":p3,"s":round(sc3,3),"h":hyp3}
+                    if has_overlap and pos3 in pdb_res:
+                        rs[pos3]={"c":cmap.get(p3,"#60a5fa"),"r":rmap.get(p3,0.45)}
+                    elif not has_overlap:
+                        rs[pos3]={"c":cmap.get(p3,"#60a5fa"),"r":rmap.get(p3,0.45)*1.4}
+            elif pdb and cv_pos:
+                # Colour ClinVar pathogenic positions
+                pdb_res2=set()
+                for line in pdb.split('\n'):
+                    if line.startswith('ATOM'):
+                        try: pdb_res2.add(int(line[22:26].strip()))
+                        except: pass
+                for cpos in list(cv_pos.keys())[:60]:
+                    if cpos in pdb_res2:
+                        rs[cpos]={"c":"#FF4C4C","r":0.9}
+                        annot_map[cpos]={"p":"HIGH","s":1.0,"h":f"ClinVar pathogenic at position {cpos}"}
 
-    # Pathways
-    if st.session_state.get("ss_pathways"):
-        st.markdown('<div class="label" style="margin-top:16px">Experimental pathways — tailored to your data + goal</div>', unsafe_allow_html=True)
-        for pw in st.session_state.ss_pathways:
-            with st.expander(f"{pw['icon']} {pw['rank']}. {pw['title']} · {pw['cost']} · {pw['timeline']}"):
-                st.markdown(f"*{pw['rationale']}*")
-                for step in pw["steps"]: st.markdown(f"• {step}")
+            if pdb:
+                components.html(make_viewer(pdb, rs, cv_pos, annot_map, gene, 690, 450), height=456)
+            else:
+                st.markdown(f"""<div style="background:#070c1a;border:1px solid #1a2040;border-radius:10px;height:380px;display:flex;align-items:center;justify-content:center;text-align:center;color:#1a2040;font-family:JetBrains Mono;font-size:12px">AlphaFold structure loading...<br><span style='font-size:10px;color:#0f1525;display:block;margin-top:8px'>Enable DB enrichment and click Analyse</span></div>""", unsafe_allow_html=True)
+            st.markdown('<div style="display:flex;gap:16px;margin-top:5px;font-size:0.73rem;color:#334"><span><span style="color:#FF4C4C">●</span> HIGH / ClinVar pathogenic</span><span><span style="color:#FFA500">●</span> MEDIUM</span><span><span style="color:#60a5fa">●</span> LOW / Benign</span><span><span style="color:#fff">●</span> Selected residue</span></div>', unsafe_allow_html=True)
+
+        with rcol:
+            # Germline vs somatic counts
+            n_gp=cv.get("n_path",0); n_s=cv.get("n_somatic",0); n_vus=len(cv.get("germline_vus",[]))
+            n_b=len(cv.get("germline_benign",[]))
+            st.markdown('<div class="label">ClinVar Evidence — Germline vs Somatic</div>', unsafe_allow_html=True)
+            st.markdown(f"""
+            <div style="background:#070c1a;border:1px solid {tc}44;border-radius:8px;padding:12px;margin-bottom:10px">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+                <div style="background:#0a0810;border:1px solid #FF4C4C33;border-radius:6px;padding:9px;text-align:center">
+                  <div style="font-size:1.5rem;font-weight:700;font-family:JetBrains Mono;color:{tc}">{n_path}</div>
+                  <div style="font-size:0.58rem;color:#334;text-transform:uppercase">Germline P/LP</div>
+                  <div style="font-size:0.62rem;color:#445;margin-top:2px">Ground truth</div>
+                </div>
+                <div style="background:#0a0d10;border:1px solid #FFA50033;border-radius:6px;padding:9px;text-align:center">
+                  <div style="font-size:1.5rem;font-weight:700;font-family:JetBrains Mono;color:#FFA500">{n_s}</div>
+                  <div style="font-size:0.58rem;color:#334;text-transform:uppercase">Somatic only ⚠</div>
+                  <div style="font-size:0.62rem;color:#445;margin-top:2px">Cancer cell mutations</div>
+                </div>
+              </div>
+              <div style="font-size:0.7rem;color:#334;background:#050810;border-radius:4px;padding:6px 8px;line-height:1.6">
+                Somatic = NOT inherited disease evidence. Only germline variants validate a drug target.
+                {paper_chip("minikel_2021")}
+              </div>
+            </div>""", unsafe_allow_html=True)
+
+            # Disease list
+            if diseases_str:
+                st.markdown('<div class="label">Confirmed diseases</div>', unsafe_allow_html=True)
+                for d in diseases_str.split("·")[:6]:
+                    d=d.strip()
+                    if d: st.markdown(f'<div style="padding:5px 9px;margin-bottom:3px;background:#0c0810;border:1px solid #FF4C4C22;border-radius:5px;font-size:0.78rem;color:#e0d0e0">● {d}</div>', unsafe_allow_html=True)
+
+            # Wet lab stats
+            if stats:
+                st.markdown('<div class="label" style="margin-top:10px">Wet lab triage results</div>', unsafe_allow_html=True)
+                assay_name = (st.session_state.ss_info or {}).get("assay_guess","") if st.session_state.get("ss_info") else ""
+                if assay_name: st.caption(assay_name)
+                c1,c2,c3=st.columns(3)
+                c1.metric("HIGH",stats["high_priority"])
+                c2.metric("MEDIUM",stats["medium_priority"])
+                c3.metric("LOW",stats["low_priority"])
+
+        # ── Residue triage list ─────────────────────────────────────────────────
+        if scored is not None:
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown('<div class="label">Residue Triage — click spheres in structure for details, or expand here</div>', unsafe_allow_html=True)
+            top_n = st.slider("Show top residues", 3, min(25,len(scored)), min(10,len(scored)))
+
+            for _,row in scored.head(top_n).iterrows():
+                p4=str(row.get(pc_col,"LOW")); c4={"HIGH":"#FF4C4C","MEDIUM":"#FFA500","LOW":"#60a5fa"}.get(p4,"#60a5fa")
+                pos4=int(row["residue_position"]); sc4=round(float(row["normalized_score"]),3)
+                mut4=str(row.get("mutation",f"Pos{pos4}")); mut4=f"Pos{pos4}" if mut4 in ("nan","") else mut4
+                hyp4=str(row.get("hypothesis",""))
+                conf4=row.get("ml_confidence",None)
+                in_cv4 = pos4 in cv_pos
+                cv_badge4 = f'<span class="tag" style="background:#FF4C4C22;color:#FF4C4C;border:1px solid #FF4C4C44">ClinVar P at pos {pos4}</span>' if in_cv4 else ""
+                dom4=""
+                for d4 in uni.get("domains",[]):
+                    if d4.get("start",0)<=pos4<=d4.get("end",0):
+                        dom4=f'<span class="tag" style="background:#9370DB22;color:#9370DB;border:1px solid #9370DB44">{d4.get("name","")[:20]}</span>'; break
+                st.markdown(
+                    f'<div style="margin-bottom:8px">'
+                    f'<span style="font-family:JetBrains Mono;font-size:0.7rem;font-weight:600;color:{c4}">[{p4}]</span> '
+                    f'<span style="color:#e0f0ff;font-family:JetBrains Mono;font-size:0.8rem">{mut4}</span>'
+                    f'<span style="color:#334;font-size:0.68rem;font-family:JetBrains Mono"> · {sc4}{f" · ML {conf4:.0%}" if conf4 and pd.notna(conf4) else ""}</span>'
+                    f'{cv_badge4}{dom4}'
+                    f'<div style="background:#080c18;border-left:2px solid {c4}44;padding:8px 12px;font-size:0.78rem;color:#556;line-height:1.8;margin-top:4px;border-radius:0 6px 6px 0">{hyp4}</div></div>',
+                    unsafe_allow_html=True)
+
+            # Excel export
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("⬇ Export Excel workbook (4 sheets)"):
+                buf=io.BytesIO()
+                with pd.ExcelWriter(buf,engine="openpyxl") as w:
+                    scored.to_excel(w,sheet_name="Triage Results",index=True)
+                    gp=cv.get("germline_pathogenic",[])+cv.get("germline_lp",[])
+                    if gp: pd.DataFrame(gp).to_excel(w,sheet_name="ClinVar Germline P-LP",index=False)
+                    if cv.get("somatic"): pd.DataFrame(cv["somatic"]).to_excel(w,sheet_name="ClinVar Somatic",index=False)
+                    pd.DataFrame([{"Gene":gene,"Protein":pname,"Germline pathogenic":n_path,"Somatic":n_s,"Tier":tier,"DBR":calculate_dbr(n_path,st.session_state.ss_plen)}]).to_excel(w,sheet_name="Protein Summary",index=False)
+                buf.seek(0)
+                st.download_button("Download",buf,f"protellect_{gene}.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+        # Pathways
+        if st.session_state.get("ss_pathways"):
+            st.markdown('<div class="label" style="margin-top:16px">Experimental pathways — tailored to your data + goal</div>', unsafe_allow_html=True)
+            for pw in st.session_state.ss_pathways:
+                with st.expander(f"{pw['icon']} {pw['rank']}. {pw['title']} · {pw['cost']} · {pw['timeline']}"):
+                    st.markdown(f"*{pw['rationale']}*")
+                    for step in pw["steps"]: st.markdown(f"• {step}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 2 — CASE STUDY (tissue · genomic · GPCR · somatic/germline diseases)
 # ══════════════════════════════════════════════════════════════════════════════
 with tab2:
-    if "ss_gene" not in st.session_state:
+    _show2 = "ss_gene" in st.session_state
+    if not _show2:
         st.info("👈 Enter a protein and click Analyse.")
-    else:
+    if _show2:
         gene=st.session_state.ss_gene; uni=st.session_state.ss_uni or {}
-    cv=st.session_state.ss_cv or {}; pdata=st.session_state.ss_pdata or {}
-    n_path=st.session_state.ss_n_path; tier=st.session_state.ss_tier
-    tc=TIER_COLORS.get(tier,"#666"); pname=st.session_state.ss_pname or gene
-    plen=st.session_state.ss_plen; diseases_str=st.session_state.ss_diseases or ""
-    gt_entry=GT.get(gene,())
+        cv=st.session_state.ss_cv or {}; pdata=st.session_state.ss_pdata or {}
+        n_path=st.session_state.ss_n_path; tier=st.session_state.ss_tier
+        tc=TIER_COLORS.get(tier,"#666"); pname=st.session_state.ss_pname or gene
+        plen=st.session_state.ss_plen; diseases_str=st.session_state.ss_diseases or ""
+        gt_entry=GT.get(gene,())
 
-    st.markdown(f'<h3 style="font-family:JetBrains Mono;color:#e0f0ff;margin-bottom:4px">{gene} — Case Study</h3>', unsafe_allow_html=True)
-    st.markdown(f'<p style="color:#334;font-size:0.8rem;margin-bottom:16px">{pname} · {tier} · {n_path} germline pathogenic (ClinVar)</p>', unsafe_allow_html=True)
+        st.markdown(f'<h3 style="font-family:JetBrains Mono;color:#e0f0ff;margin-bottom:4px">{gene} — Case Study</h3>', unsafe_allow_html=True)
+        st.markdown(f'<p style="color:#334;font-size:0.8rem;margin-bottom:16px">{pname} · {tier} · {n_path} germline pathogenic (ClinVar)</p>', unsafe_allow_html=True)
 
-    col_left, col_right = st.columns([1,1], gap="large")
+        col_left, col_right = st.columns([1,1], gap="large")
 
-    with col_left:
-        # ── Tissue expression ───────────────────────────────────────────────
-        st.markdown('<div class="label">Tissue expression</div>', unsafe_allow_html=True)
-        from protein_data import PROTEIN_KNOWLEDGE
-        tissue_data = PROTEIN_KNOWLEDGE.get(gene.upper(),{}).get("tissue_expression",{})
-        if not tissue_data and uni.get("tissue"):
-            # Parse from UniProt text
-            ttext = uni["tissue"]
-            for lv,pat in [(3,r'high\w*\s+in\s+([^.,;]{3,22})'),(2,r'moderate\w*\s+in\s+([^.,;]{3,22})'),(1,r'low\w*\s+in\s+([^.,;]{3,22})')]:
-                for m in re.findall(pat, ttext, re.I):
-                    tissue_data[m.strip()[:18]] = lv
-        if tissue_data:
-            lc={3:"#FF4C4C",2:"#FFA500",1:"#60a5fa",0:"#1a2040"}; lb={3:"HIGH",2:"MED",1:"LOW",0:"—"}
-            cols_t = st.columns(2)
-            for i,(t2,lv) in enumerate(sorted(tissue_data.items(),key=lambda x:-x[1])[:10]):
-                c=lc.get(lv,"#334"); l=lb.get(lv,"—")
-                with cols_t[i%2]:
-                    st.markdown(f'<div style="background:{c}22;border:1px solid {c}55;border-radius:7px;padding:7px 10px;margin-bottom:5px"><span style="font-family:JetBrains Mono;font-size:0.6rem;font-weight:600;color:{c}">{l}</span><br><span style="font-size:0.8rem;color:#c0d0f0">{t2}</span></div>', unsafe_allow_html=True)
-            st.caption("Source: UniProt + Protein Atlas experimental evidence")
-        else:
-            st.markdown('<div style="background:#070c1a;border:1px solid #1a2040;border-radius:6px;padding:12px;font-size:0.79rem;color:#334">Enable DB enrichment to load tissue expression data</div>', unsafe_allow_html=True)
+        with col_left:
+            # ── Tissue expression ───────────────────────────────────────────────
+            st.markdown('<div class="label">Tissue expression</div>', unsafe_allow_html=True)
+            from protein_data import PROTEIN_KNOWLEDGE
+            tissue_data = PROTEIN_KNOWLEDGE.get(gene.upper(),{}).get("tissue_expression",{})
+            if not tissue_data and uni.get("tissue"):
+                # Parse from UniProt text
+                ttext = uni["tissue"]
+                for lv,pat in [(3,r'high\w*\s+in\s+([^.,;]{3,22})'),(2,r'moderate\w*\s+in\s+([^.,;]{3,22})'),(1,r'low\w*\s+in\s+([^.,;]{3,22})')]:
+                    for m in re.findall(pat, ttext, re.I):
+                        tissue_data[m.strip()[:18]] = lv
+            if tissue_data:
+                lc={3:"#FF4C4C",2:"#FFA500",1:"#60a5fa",0:"#1a2040"}; lb={3:"HIGH",2:"MED",1:"LOW",0:"—"}
+                cols_t = st.columns(2)
+                for i,(t2,lv) in enumerate(sorted(tissue_data.items(),key=lambda x:-x[1])[:10]):
+                    c=lc.get(lv,"#334"); l=lb.get(lv,"—")
+                    with cols_t[i%2]:
+                        st.markdown(f'<div style="background:{c}22;border:1px solid {c}55;border-radius:7px;padding:7px 10px;margin-bottom:5px"><span style="font-family:JetBrains Mono;font-size:0.6rem;font-weight:600;color:{c}">{l}</span><br><span style="font-size:0.8rem;color:#c0d0f0">{t2}</span></div>', unsafe_allow_html=True)
+                st.caption("Source: UniProt + Protein Atlas experimental evidence")
+            else:
+                st.markdown('<div style="background:#070c1a;border:1px solid #1a2040;border-radius:6px;padding:12px;font-size:0.79rem;color:#334">Enable DB enrichment to load tissue expression data</div>', unsafe_allow_html=True)
 
-        st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("<br>", unsafe_allow_html=True)
 
-        # ── Genomic data ────────────────────────────────────────────────────
-        st.markdown('<div class="label">Genomic data</div>', unsafe_allow_html=True)
-        chrom = gt_entry[3] if gt_entry else "—"
-        for lbl,val in [
-            ("Gene",gene),("Protein",pname[:35] if pname else "—"),
-            ("UniProt",uni.get("uid","—") or "—"),("Chromosome",chrom),
-            ("Length",f"{plen} aa" if plen else "—"),
-            ("Domains",f"{len(uni.get('domains',[]))} annotated"),
-            ("TM helices",str(uni.get("n_tm",0))),
-            ("GPCR","✓ "+uni.get("g_protein","") if uni.get("is_gpcr") else "No"),
-            ("OMIM",uni.get("omim","—") or "—"),
-            ("Ensembl",uni.get("ensembl_id","—")[:18] or "—"),
-        ]:
-            st.markdown(f'<div class="row-item"><span class="rl">{lbl}</span><span class="rv">{val}</span></div>', unsafe_allow_html=True)
+            # ── Genomic data ────────────────────────────────────────────────────
+            st.markdown('<div class="label">Genomic data</div>', unsafe_allow_html=True)
+            chrom = gt_entry[3] if gt_entry else "—"
+            for lbl,val in [
+                ("Gene",gene),("Protein",pname[:35] if pname else "—"),
+                ("UniProt",uni.get("uid","—") or "—"),("Chromosome",chrom),
+                ("Length",f"{plen} aa" if plen else "—"),
+                ("Domains",f"{len(uni.get('domains',[]))} annotated"),
+                ("TM helices",str(uni.get("n_tm",0))),
+                ("GPCR","✓ "+uni.get("g_protein","") if uni.get("is_gpcr") else "No"),
+                ("OMIM",uni.get("omim","—") or "—"),
+                ("Ensembl",uni.get("ensembl_id","—")[:18] or "—"),
+            ]:
+                st.markdown(f'<div class="row-item"><span class="rl">{lbl}</span><span class="rv">{val}</span></div>', unsafe_allow_html=True)
 
-        st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("<br>", unsafe_allow_html=True)
 
-        # ── GPCR association ────────────────────────────────────────────────
-        st.markdown('<div class="label">GPCR association</div>', unsafe_allow_html=True)
-        gpcr_info = pdata.get("gpcr_interaction",{})
-        atype = gpcr_info.get("type","") if gpcr_info else ""
-        is_gpcr = uni.get("is_gpcr",False); gprot = uni.get("g_protein","")
-        if not atype and is_gpcr: atype = f"IS A GPCR — {gprot}"
-        if atype:
-            role_label = "IMPORTANT — direct GPCR" if "IS A GPCR" in atype else "SCAFFOLD / PIGGYBACK" if any(x in atype for x in ("SCAFFOLD","DESENSITISER","PIGGYBACK")) else "GPCR ASSOCIATED"
-            role_c = "#FFA500" if "IS A GPCR" in atype else "#9370DB" if "SCAFFOLD" in atype else "#60a5fa"
+            # ── GPCR association ────────────────────────────────────────────────
+            st.markdown('<div class="label">GPCR association</div>', unsafe_allow_html=True)
+            gpcr_info = pdata.get("gpcr_interaction",{})
+            atype = gpcr_info.get("type","") if gpcr_info else ""
+            is_gpcr = uni.get("is_gpcr",False); gprot = uni.get("g_protein","")
+            if not atype and is_gpcr: atype = f"IS A GPCR — {gprot}"
+            if atype:
+                role_label = "IMPORTANT — direct GPCR" if "IS A GPCR" in atype else "SCAFFOLD / PIGGYBACK" if any(x in atype for x in ("SCAFFOLD","DESENSITISER","PIGGYBACK")) else "GPCR ASSOCIATED"
+                role_c = "#FFA500" if "IS A GPCR" in atype else "#9370DB" if "SCAFFOLD" in atype else "#60a5fa"
+                st.markdown(f"""
+                <div style="background:#0a0518;border:1px solid {role_c}44;border-radius:8px;padding:12px 14px;margin-bottom:8px">
+                  <div style="font-family:JetBrains Mono;font-size:0.6rem;text-transform:uppercase;color:{role_c};margin-bottom:5px">{role_label}</div>
+                  <div style="font-size:0.62rem;color:{role_c};font-family:JetBrains Mono;margin-bottom:6px">{atype}</div>
+                  <div style="font-size:0.79rem;color:#b0c0e0;line-height:1.7">{gpcr_info.get("mechanism","")[:220] if gpcr_info else ""}</div>
+                  {"" if not gpcr_info else f'<div style="font-size:0.7rem;color:#334;margin-top:6px">Partners: {" · ".join(gpcr_info.get("which_gpcrs",[])[:4])}</div>'}
+                  {"" if not gpcr_info else f'<div style="font-size:0.68rem;color:#334;margin-top:4px">📄 {gpcr_info.get("paper","")[:60]}</div>'}
+                </div>""", unsafe_allow_html=True)
+                if "SCAFFOLD" in atype or "PIGGYBACK" in atype or "DESENSITISER" in atype:
+                    pig = pdata.get("piggyback_relationship",{})
+                    if pig:
+                        partners_s = " · ".join(pig.get("essential_partners",[])[:3])
+                        st.markdown(f'<div style="background:#100818;border:1px solid #FF4C4C22;border-radius:6px;padding:9px 11px;font-size:0.75rem;color:#c0a0c0"><strong style="color:#FF8888">Disease burden is in its partners:</strong> {partners_s}<br><span style="color:#556">{pig.get("analogy","")[:80]}</span></div>', unsafe_allow_html=True)
+            else:
+                st.markdown('<div style="background:#070c1a;border:1px solid #1a2040;border-radius:6px;padding:10px;font-size:0.78rem;color:#334">No curated GPCR association. Check UniProt interactions tab and IUPHAR for this protein.</div>', unsafe_allow_html=True)
+
+        with col_right:
+            # ── Diseases — somatic vs germline ─────────────────────────────────
+            st.markdown('<div class="label">Disease associations — Germline vs Somatic</div>', unsafe_allow_html=True)
             st.markdown(f"""
-            <div style="background:#0a0518;border:1px solid {role_c}44;border-radius:8px;padding:12px 14px;margin-bottom:8px">
-              <div style="font-family:JetBrains Mono;font-size:0.6rem;text-transform:uppercase;color:{role_c};margin-bottom:5px">{role_label}</div>
-              <div style="font-size:0.62rem;color:{role_c};font-family:JetBrains Mono;margin-bottom:6px">{atype}</div>
-              <div style="font-size:0.79rem;color:#b0c0e0;line-height:1.7">{gpcr_info.get("mechanism","")[:220] if gpcr_info else ""}</div>
-              {"" if not gpcr_info else f'<div style="font-size:0.7rem;color:#334;margin-top:6px">Partners: {" · ".join(gpcr_info.get("which_gpcrs",[])[:4])}</div>'}
-              {"" if not gpcr_info else f'<div style="font-size:0.68rem;color:#334;margin-top:4px">📄 {gpcr_info.get("paper","")[:60]}</div>'}
+            <div style="background:#070c1a;border:1px solid #1a2040;border-radius:8px;padding:12px;margin-bottom:10px;font-size:0.74rem;color:#445;line-height:1.7">
+              <strong style="color:#60a5fa">Germline</strong> = inherited variants proven to cause human disease — the drug target validation gold standard.<br>
+              <strong style="color:#FFA500">Somatic</strong> = mutations in cancer cells, NOT inherited. A protein in cancer databases is NOT automatically a valid drug target.
+              {paper_chip("minikel_2021")} {paper_chip("king_2024")}
             </div>""", unsafe_allow_html=True)
-            if "SCAFFOLD" in atype or "PIGGYBACK" in atype or "DESENSITISER" in atype:
-                pig = pdata.get("piggyback_relationship",{})
-                if pig:
-                    partners_s = " · ".join(pig.get("essential_partners",[])[:3])
-                    st.markdown(f'<div style="background:#100818;border:1px solid #FF4C4C22;border-radius:6px;padding:9px 11px;font-size:0.75rem;color:#c0a0c0"><strong style="color:#FF8888">Disease burden is in its partners:</strong> {partners_s}<br><span style="color:#556">{pig.get("analogy","")[:80]}</span></div>', unsafe_allow_html=True)
-        else:
-            st.markdown('<div style="background:#070c1a;border:1px solid #1a2040;border-radius:6px;padding:10px;font-size:0.78rem;color:#334">No curated GPCR association. Check UniProt interactions tab and IUPHAR for this protein.</div>', unsafe_allow_html=True)
 
-    with col_right:
-        # ── Diseases — somatic vs germline ─────────────────────────────────
-        st.markdown('<div class="label">Disease associations — Germline vs Somatic</div>', unsafe_allow_html=True)
-        st.markdown(f"""
-        <div style="background:#070c1a;border:1px solid #1a2040;border-radius:8px;padding:12px;margin-bottom:10px;font-size:0.74rem;color:#445;line-height:1.7">
-          <strong style="color:#60a5fa">Germline</strong> = inherited variants proven to cause human disease — the drug target validation gold standard.<br>
-          <strong style="color:#FFA500">Somatic</strong> = mutations in cancer cells, NOT inherited. A protein in cancer databases is NOT automatically a valid drug target.
-          {paper_chip("minikel_2021")} {paper_chip("king_2024")}
-        </div>""", unsafe_allow_html=True)
+            # Germline diseases
+            gpath_all = cv.get("germline_pathogenic",[]) + cv.get("germline_lp",[])
+            germline_diseases = set()
+            for v2 in gpath_all:
+                for c2 in v2.get("conditions",[]):
+                    if c2 and "not provided" not in c2.lower(): germline_diseases.add(c2)
+            # Also add from GT
+            if diseases_str:
+                for d in diseases_str.split("·"):
+                    if d.strip(): germline_diseases.add(d.strip())
+            if germline_diseases:
+                st.markdown(f'<div style="font-family:JetBrains Mono;font-size:0.6rem;text-transform:uppercase;color:#FF4C4C;margin-bottom:5px">Germline — confirmed inherited disease ({len(germline_diseases)})</div>', unsafe_allow_html=True)
+                for dis in list(germline_diseases)[:7]:
+                    st.markdown(f'<div style="padding:5px 9px;margin-bottom:3px;background:#0c0810;border:1px solid #FF4C4C22;border-radius:5px;font-size:0.78rem;color:#e0d0d0"><span class="tag" style="background:#FF4C4C22;color:#FF4C4C;border:1px solid #FF4C4C44;font-size:0.58rem">GERMLINE</span> {dis}</div>', unsafe_allow_html=True)
+            elif n_path == 0:
+                st.markdown('<div style="background:#100818;border:1px solid #FF4C4C22;border-radius:6px;padding:10px;font-size:0.79rem;color:#778">Zero confirmed germline pathogenic variants. This protein does not cause inherited disease.</div>', unsafe_allow_html=True)
 
-        # Germline diseases
-        gpath_all = cv.get("germline_pathogenic",[]) + cv.get("germline_lp",[])
-        germline_diseases = set()
-        for v2 in gpath_all:
-            for c2 in v2.get("conditions",[]):
-                if c2 and "not provided" not in c2.lower(): germline_diseases.add(c2)
-        # Also add from GT
-        if diseases_str:
-            for d in diseases_str.split("·"):
-                if d.strip(): germline_diseases.add(d.strip())
-        if germline_diseases:
-            st.markdown(f'<div style="font-family:JetBrains Mono;font-size:0.6rem;text-transform:uppercase;color:#FF4C4C;margin-bottom:5px">Germline — confirmed inherited disease ({len(germline_diseases)})</div>', unsafe_allow_html=True)
-            for dis in list(germline_diseases)[:7]:
-                st.markdown(f'<div style="padding:5px 9px;margin-bottom:3px;background:#0c0810;border:1px solid #FF4C4C22;border-radius:5px;font-size:0.78rem;color:#e0d0d0"><span class="tag" style="background:#FF4C4C22;color:#FF4C4C;border:1px solid #FF4C4C44;font-size:0.58rem">GERMLINE</span> {dis}</div>', unsafe_allow_html=True)
-        elif n_path == 0:
-            st.markdown('<div style="background:#100818;border:1px solid #FF4C4C22;border-radius:6px;padding:10px;font-size:0.79rem;color:#778">Zero confirmed germline pathogenic variants. This protein does not cause inherited disease.</div>', unsafe_allow_html=True)
+            # Somatic diseases
+            somatic_dis = set()
+            for v2 in cv.get("somatic",[]):
+                for c2 in v2.get("conditions",[]):
+                    if c2 and "not provided" not in c2.lower(): somatic_dis.add(c2)
+            if somatic_dis:
+                st.markdown(f'<div style="font-family:JetBrains Mono;font-size:0.6rem;text-transform:uppercase;color:#FFA500;margin-bottom:5px;margin-top:10px">Somatic — cancer mutations ONLY ({len(somatic_dis)})</div>', unsafe_allow_html=True)
+                for dis in list(somatic_dis)[:5]:
+                    st.markdown(f'<div style="padding:5px 9px;margin-bottom:3px;background:#0d0a06;border:1px solid #FFA50022;border-radius:5px;font-size:0.78rem;color:#d0c0a0"><span class="tag" style="background:#FFA50022;color:#FFA500;border:1px solid #FFA50044;font-size:0.58rem">SOMATIC</span> {dis}</div>', unsafe_allow_html=True)
 
-        # Somatic diseases
-        somatic_dis = set()
-        for v2 in cv.get("somatic",[]):
-            for c2 in v2.get("conditions",[]):
-                if c2 and "not provided" not in c2.lower(): somatic_dis.add(c2)
-        if somatic_dis:
-            st.markdown(f'<div style="font-family:JetBrains Mono;font-size:0.6rem;text-transform:uppercase;color:#FFA500;margin-bottom:5px;margin-top:10px">Somatic — cancer mutations ONLY ({len(somatic_dis)})</div>', unsafe_allow_html=True)
-            for dis in list(somatic_dis)[:5]:
-                st.markdown(f'<div style="padding:5px 9px;margin-bottom:3px;background:#0d0a06;border:1px solid #FFA50022;border-radius:5px;font-size:0.78rem;color:#d0c0a0"><span class="tag" style="background:#FFA50022;color:#FFA500;border:1px solid #FFA50044;font-size:0.58rem">SOMATIC</span> {dis}</div>', unsafe_allow_html=True)
+            # Real biology
+            real_bio = pdata.get("real_biology","")
+            if real_bio:
+                st.markdown('<div class="label" style="margin-top:12px">What this protein actually does</div>', unsafe_allow_html=True)
+                with st.expander("Show full biology"):
+                    st.markdown(f'<div style="font-size:0.79rem;color:#b0c0e0;line-height:1.9;white-space:pre-line">{real_bio[:1200]}</div>', unsafe_allow_html=True)
 
-        # Real biology
-        real_bio = pdata.get("real_biology","")
-        if real_bio:
-            st.markdown('<div class="label" style="margin-top:12px">What this protein actually does</div>', unsafe_allow_html=True)
-            with st.expander("Show full biology"):
-                st.markdown(f'<div style="font-size:0.79rem;color:#b0c0e0;line-height:1.9;white-space:pre-line">{real_bio[:1200]}</div>', unsafe_allow_html=True)
+            # Why mutations major/minor
+            why_text = pdata.get("why_mutations_major","") or pdata.get("why_mutations_minor","")
+            if why_text:
+                label2 = "Why mutations are critical" if n_path>50 else "Why mutations are tolerated (human)" if n_path==0 else "Why this is a rare Mendelian gene"
+                st.markdown(f'<div class="label" style="margin-top:10px">{label2}</div>', unsafe_allow_html=True)
+                with st.expander("Show explanation"):
+                    st.markdown(f'<div style="font-size:0.79rem;color:#b0c0e0;line-height:1.8;white-space:pre-line">{why_text[:800]}</div>', unsafe_allow_html=True)
 
-        # Why mutations major/minor
-        why_text = pdata.get("why_mutations_major","") or pdata.get("why_mutations_minor","")
-        if why_text:
-            label2 = "Why mutations are critical" if n_path>50 else "Why mutations are tolerated (human)" if n_path==0 else "Why this is a rare Mendelian gene"
-            st.markdown(f'<div class="label" style="margin-top:10px">{label2}</div>', unsafe_allow_html=True)
-            with st.expander("Show explanation"):
-                st.markdown(f'<div style="font-size:0.79rem;color:#b0c0e0;line-height:1.8;white-space:pre-line">{why_text[:800]}</div>', unsafe_allow_html=True)
-
-        # PubMed
-        pubmed = st.session_state.get("ss_pubmed",[])
-        if pubmed:
-            st.markdown('<div class="label" style="margin-top:12px">PubMed papers</div>', unsafe_allow_html=True)
-            for p2 in pubmed[:4]:
-                st.markdown(f'<div style="padding:6px 9px;margin-bottom:4px;background:#070c1a;border:1px solid #1a2040;border-radius:6px"><a href="{p2["url"]}" target="_blank" style="color:#60a5fa;text-decoration:none;font-size:0.75rem">{p2["title"]}</a><div style="font-size:0.65rem;color:#334;margin-top:2px">{p2["journal"]} · {p2["year"]}</div></div>', unsafe_allow_html=True)
+            # PubMed
+            pubmed = st.session_state.get("ss_pubmed",[])
+            if pubmed:
+                st.markdown('<div class="label" style="margin-top:12px">PubMed papers</div>', unsafe_allow_html=True)
+                for p2 in pubmed[:4]:
+                    st.markdown(f'<div style="padding:6px 9px;margin-bottom:4px;background:#070c1a;border:1px solid #1a2040;border-radius:6px"><a href="{p2["url"]}" target="_blank" style="color:#60a5fa;text-decoration:none;font-size:0.75rem">{p2["title"]}</a><div style="font-size:0.65rem;color:#334;margin-top:2px">{p2["journal"]} · {p2["year"]}</div></div>', unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -941,198 +940,198 @@ with tab3:
         st.info("👈 Enter a protein and click Analyse.")
     if _show_tab3:
         gene=st.session_state.ss_gene; pdb=st.session_state.ss_pdb; pdb_src=st.session_state.ss_pdb_src or ""
-    uni=st.session_state.ss_uni or {}; cv=st.session_state.ss_cv or {}
-    pdata=st.session_state.ss_pdata or {}; n_path=st.session_state.ss_n_path
-    tier=st.session_state.ss_tier; tc=TIER_COLORS.get(tier,"#666")
-    scored=st.session_state.ss_scored; pc_col="priority_final" if scored is not None and "priority_final" in scored.columns else "priority"
-    diseases_str=st.session_state.ss_diseases or ""; pname=st.session_state.ss_pname or gene
-    plen=st.session_state.ss_plen; gt_entry=GT.get(gene,())
+        uni=st.session_state.ss_uni or {}; cv=st.session_state.ss_cv or {}
+        pdata=st.session_state.ss_pdata or {}; n_path=st.session_state.ss_n_path
+        tier=st.session_state.ss_tier; tc=TIER_COLORS.get(tier,"#666")
+        scored=st.session_state.ss_scored; pc_col="priority_final" if scored is not None and "priority_final" in scored.columns else "priority"
+        diseases_str=st.session_state.ss_diseases or ""; pname=st.session_state.ss_pname or gene
+        plen=st.session_state.ss_plen; gt_entry=GT.get(gene,())
 
-    st.markdown(f'<h3 style="font-family:JetBrains Mono;color:#e0f0ff;margin-bottom:4px">{gene} — Protein Explorer</h3>', unsafe_allow_html=True)
+        st.markdown(f'<h3 style="font-family:JetBrains Mono;color:#e0f0ff;margin-bottom:4px">{gene} — Protein Explorer</h3>', unsafe_allow_html=True)
 
-    # ── Full-width clickable structure ──────────────────────────────────────
-    st.markdown('<div class="label">3D Structure — click any residue sphere for detailed mutation analysis</div>', unsafe_allow_html=True)
-    if pdb_src: st.caption(f"🏗️ {pdb_src}")
+        # ── Full-width clickable structure ──────────────────────────────────────
+        st.markdown('<div class="label">3D Structure — click any residue sphere for detailed mutation analysis</div>', unsafe_allow_html=True)
+        if pdb_src: st.caption(f"🏗️ {pdb_src}")
 
-    cmap2={"HIGH":"#FF4C4C","MEDIUM":"#FFA500","LOW":"#60a5fa"}
-    rmap2={"HIGH":1.3,"MEDIUM":0.9,"LOW":0.5}
-    rs2={}; annot2={}
-    cv_pos2={}
-    for v2 in cv.get("germline_pathogenic",[]) + cv.get("germline_lp",[]):
-        pos2=v2.get("pos",0)
-        if not pos2:
-            m2=re.search(r'[A-Z](\d+)[A-Z=*]',v2.get("title",""))
-            if m2: pos2=int(m2.group(1))
-        if pos2>0: cv_pos2[pos2]={"sig":v2.get("germline","") or v2.get("sig",""),"conds":v2.get("conditions",[])}
+        cmap2={"HIGH":"#FF4C4C","MEDIUM":"#FFA500","LOW":"#60a5fa"}
+        rmap2={"HIGH":1.3,"MEDIUM":0.9,"LOW":0.5}
+        rs2={}; annot2={}
+        cv_pos2={}
+        for v2 in cv.get("germline_pathogenic",[]) + cv.get("germline_lp",[]):
+            pos2=v2.get("pos",0)
+            if not pos2:
+                m2=re.search(r'[A-Z](\d+)[A-Z=*]',v2.get("title",""))
+                if m2: pos2=int(m2.group(1))
+            if pos2>0: cv_pos2[pos2]={"sig":v2.get("germline","") or v2.get("sig",""),"conds":v2.get("conditions",[])}
 
-    if scored is not None and pdb:
-        pdb_res3=set()
-        for line in pdb.split('\n'):
-            if line.startswith('ATOM'):
-                try: pdb_res3.add(int(line[22:26].strip()))
-                except: pass
-        for _,row in scored.iterrows():
-            pos3=int(row["residue_position"]); p3=str(row.get(pc_col,"LOW"))
-            rs2[pos3]={"c":cmap2.get(p3,"#60a5fa"),"r":rmap2.get(p3,0.5)}
-            annot2[pos3]={"p":p3,"s":round(float(row.get("normalized_score",0)),3),"h":str(row.get("hypothesis",""))[:200]}
-    elif pdb and cv_pos2:
-        pdb_res3=set()
-        for line in pdb.split('\n'):
-            if line.startswith('ATOM'):
-                try: pdb_res3.add(int(line[22:26].strip()))
-                except: pass
-        for cpos in list(cv_pos2.keys())[:80]:
-            if cpos in pdb_res3:
-                rs2[cpos]={"c":"#FF4C4C","r":1.0}
-                annot2[cpos]={"p":"HIGH","s":1.0,"h":f"ClinVar pathogenic at position {cpos}"}
+        if scored is not None and pdb:
+            pdb_res3=set()
+            for line in pdb.split('\n'):
+                if line.startswith('ATOM'):
+                    try: pdb_res3.add(int(line[22:26].strip()))
+                    except: pass
+            for _,row in scored.iterrows():
+                pos3=int(row["residue_position"]); p3=str(row.get(pc_col,"LOW"))
+                rs2[pos3]={"c":cmap2.get(p3,"#60a5fa"),"r":rmap2.get(p3,0.5)}
+                annot2[pos3]={"p":p3,"s":round(float(row.get("normalized_score",0)),3),"h":str(row.get("hypothesis",""))[:200]}
+        elif pdb and cv_pos2:
+            pdb_res3=set()
+            for line in pdb.split('\n'):
+                if line.startswith('ATOM'):
+                    try: pdb_res3.add(int(line[22:26].strip()))
+                    except: pass
+            for cpos in list(cv_pos2.keys())[:80]:
+                if cpos in pdb_res3:
+                    rs2[cpos]={"c":"#FF4C4C","r":1.0}
+                    annot2[cpos]={"p":"HIGH","s":1.0,"h":f"ClinVar pathogenic at position {cpos}"}
 
-    if pdb:
-        components.html(make_viewer(pdb, rs2, cv_pos2, annot2, gene, 860, 500), height=506)
-    else:
-        st.warning(f"AlphaFold structure for {gene} loading... Enable DB enrichment and click Analyse.")
+        if pdb:
+            components.html(make_viewer(pdb, rs2, cv_pos2, annot2, gene, 860, 500), height=506)
+        else:
+            st.warning(f"AlphaFold structure for {gene} loading... Enable DB enrichment and click Analyse.")
 
-    # ── Mutation animation ──────────────────────────────────────────────────
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown('<div class="label">Structural mutation progression — drag slider to see how the protein changes</div>', unsafe_allow_html=True)
+        # ── Mutation animation ──────────────────────────────────────────────────
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown('<div class="label">Structural mutation progression — drag slider to see how the protein changes</div>', unsafe_allow_html=True)
 
-    # Get protein-specific structural data
-    pse = pdata.get("gpcr_interaction",{})
-    struct_stages = pdata.get("timeline_stages",[]) if pdata.get("timeline_stages") else [
-        (0,"WT conformation","Wild-type protein in native state. All domains correctly folded."),
-        (1,"Variant introduced","Pathogenic amino acid substitution. Local environment changes."),
-        (2,"Local perturbation","Bond angles/distances altered. Neighbouring residues affected."),
-        (3,"Domain perturbation","Secondary structure element destabilised."),
-        (4,"Functional disruption","Binding partner recognition impaired."),
-        (5,"Disease manifestation","Cellular dysfunction leads to tissue pathology."),
-    ]
-    max_s = len(struct_stages)-1
-    if max_s > 0:
-        sel_s = st.slider("Stage", 0, max_s, 0, key="explorer_slider")
-        stg = struct_stages[sel_s]
-        stg_name, stg_desc = stg[1], stg[2]
-        pct = int(sel_s/max_s*100) if max_s > 0 else 0
-        bc = "#4CAF50" if pct==0 else "#FFA500" if pct<50 else "#FF8C00" if pct<80 else "#FF4C4C"
+        # Get protein-specific structural data
+        pse = pdata.get("gpcr_interaction",{})
+        struct_stages = pdata.get("timeline_stages",[]) if pdata.get("timeline_stages") else [
+            (0,"WT conformation","Wild-type protein in native state. All domains correctly folded."),
+            (1,"Variant introduced","Pathogenic amino acid substitution. Local environment changes."),
+            (2,"Local perturbation","Bond angles/distances altered. Neighbouring residues affected."),
+            (3,"Domain perturbation","Secondary structure element destabilised."),
+            (4,"Functional disruption","Binding partner recognition impaired."),
+            (5,"Disease manifestation","Cellular dysfunction leads to tissue pathology."),
+        ]
+        max_s = len(struct_stages)-1
+        if max_s > 0:
+            sel_s = st.slider("Stage", 0, max_s, 0, key="explorer_slider")
+            stg = struct_stages[sel_s]
+            stg_name, stg_desc = stg[1], stg[2]
+            pct = int(sel_s/max_s*100) if max_s > 0 else 0
+            bc = "#4CAF50" if pct==0 else "#FFA500" if pct<50 else "#FF8C00" if pct<80 else "#FF4C4C"
 
-        # Structural animation canvas
-        STRUCT_HTML = f"""
-        <div style="background:#050810;border:1px solid #1a2040;border-radius:10px;padding:0;overflow:hidden">
-          <canvas id="sc" width="860" height="200" style="display:block;width:100%;background:#050810"></canvas>
-          <div style="padding:12px 16px;border-top:1px solid #0a1020">
-            <div style="font-family:JetBrains Mono;font-weight:600;color:{bc};font-size:0.9rem;margin-bottom:4px">{stg_name}</div>
-            <div style="background:#0a1020;border-radius:3px;height:6px;overflow:hidden;margin-bottom:8px">
-              <div style="width:{pct}%;height:100%;background:{bc};border-radius:3px"></div>
+            # Structural animation canvas
+            STRUCT_HTML = f"""
+            <div style="background:#050810;border:1px solid #1a2040;border-radius:10px;padding:0;overflow:hidden">
+              <canvas id="sc" width="860" height="200" style="display:block;width:100%;background:#050810"></canvas>
+              <div style="padding:12px 16px;border-top:1px solid #0a1020">
+                <div style="font-family:JetBrains Mono;font-weight:600;color:{bc};font-size:0.9rem;margin-bottom:4px">{stg_name}</div>
+                <div style="background:#0a1020;border-radius:3px;height:6px;overflow:hidden;margin-bottom:8px">
+                  <div style="width:{pct}%;height:100%;background:{bc};border-radius:3px"></div>
+                </div>
+                <div style="font-size:0.82rem;color:#889;line-height:1.7">{stg_desc}</div>
+              </div>
             </div>
-            <div style="font-size:0.82rem;color:#889;line-height:1.7">{stg_desc}</div>
-          </div>
-        </div>
-        <script>
-        (function(){{
-          const canvas=document.getElementById('sc'); if(!canvas)return;
-          const ctx=canvas.getContext('2d'); const W=canvas.width,H=canvas.height;
-          const t={pct/100}; const c='{bc}';
-          function lerp(a,b,t){{return a+(b-a)*Math.max(0,Math.min(1,t));}}
-          function lerpC(c1,c2,t){{
-            const h=v=>parseInt(v,16);
-            const r=Math.round(lerp(h(c1.slice(1,3)),h(c2.slice(1,3)),t));
-            const g=Math.round(lerp(h(c1.slice(3,5)),h(c2.slice(3,5)),t));
-            const b=Math.round(lerp(h(c1.slice(5,7)),h(c2.slice(5,7)),t));
-            return '#'+[r,g,b].map(v=>v.toString(16).padStart(2,'0')).join('');
-          }}
-          ctx.clearRect(0,0,W,H);
-          // Draw protein chain
-          const chainColor=lerpC('#4CAF50',c,t);
-          ctx.strokeStyle=chainColor; ctx.lineWidth=4; ctx.beginPath();
-          const midY=H/2+10;
-          for(let x=40;x<W-40;x++){{
-            const wobble=t*Math.sin((x/45)*Math.PI)*18*Math.sin((x/(W/2.2))*Math.PI);
-            const y=midY+Math.sin((x/80)*Math.PI)*12+wobble;
-            x===40?ctx.moveTo(x,y):ctx.lineTo(x,y);
-          }}
-          ctx.stroke();
-          // Draw domains as rectangles
-          const domains=[{json.dumps([{"start":d.get("start",0),"end":d.get("end",0),"name":d.get("name","")[:10]} for d in uni.get("domains",[])[:8]])}];
-          const pl={plen or 500};
-          const dc=['#9370DB','#60a5fa','#FFA500','#4CAF50','#FF6B9D','#00BCD4'];
-          domains.forEach((d,i)=>{{
-            const x1=40+(d.start/pl)*(W-80); const x2=40+(d.end/pl)*(W-80);
-            const dw=Math.max(x2-x1,3);
-            ctx.fillStyle=dc[i%dc.length]+'44'; ctx.strokeStyle=dc[i%dc.length];
-            ctx.lineWidth=1.5;
-            ctx.beginPath(); ctx.roundRect(x1,midY-20,dw,40,4); ctx.fill(); ctx.stroke();
-            if(dw>40){{ctx.fillStyle=dc[i%dc.length]; ctx.font='8px JetBrains Mono'; ctx.textAlign='center'; ctx.fillText(d.name.slice(0,10),x1+dw/2,midY+5);}}
-          }});
-          // Draw pathogenic variant positions
-          const cvPos=[{",".join(str(int(p)) for p in list(cv_pos2.keys())[:50])}];
-          cvPos.forEach(pos=>{{
-            if(!pos)return;
-            const x=40+(pos/pl)*(W-80);
-            ctx.fillStyle=c; ctx.strokeStyle=c; ctx.lineWidth=2;
-            ctx.beginPath(); ctx.arc(x,midY-30+t*15,5+t*4,0,Math.PI*2); ctx.fill();
-            ctx.beginPath(); ctx.moveTo(x,midY-25); ctx.lineTo(x,midY-20); ctx.stroke();
-          }});
-          // WT vs mutant indicator
-          ctx.fillStyle='#4CAF50'; ctx.font='bold 10px JetBrains Mono'; ctx.textAlign='left';
-          ctx.fillText('WT',12,midY+4);
-          ctx.fillStyle=c; ctx.textAlign='right';
-          const mutLabel=t>0.05?'MUT':'WT';
-          ctx.fillText(mutLabel,W-12,midY+4);
-          // Progress label
-          ctx.fillStyle=c+'aa'; ctx.font='9px JetBrains Mono'; ctx.textAlign='center';
-          ctx.fillText(Math.round(t*100)+'% mutation effect',W/2,H-8);
-        }})();
-        </script>"""
-        components.html(STRUCT_HTML, height=260, scrolling=False)
+            <script>
+            (function(){{
+              const canvas=document.getElementById('sc'); if(!canvas)return;
+              const ctx=canvas.getContext('2d'); const W=canvas.width,H=canvas.height;
+              const t={pct/100}; const c='{bc}';
+              function lerp(a,b,t){{return a+(b-a)*Math.max(0,Math.min(1,t));}}
+              function lerpC(c1,c2,t){{
+                const h=v=>parseInt(v,16);
+                const r=Math.round(lerp(h(c1.slice(1,3)),h(c2.slice(1,3)),t));
+                const g=Math.round(lerp(h(c1.slice(3,5)),h(c2.slice(3,5)),t));
+                const b=Math.round(lerp(h(c1.slice(5,7)),h(c2.slice(5,7)),t));
+                return '#'+[r,g,b].map(v=>v.toString(16).padStart(2,'0')).join('');
+              }}
+              ctx.clearRect(0,0,W,H);
+              // Draw protein chain
+              const chainColor=lerpC('#4CAF50',c,t);
+              ctx.strokeStyle=chainColor; ctx.lineWidth=4; ctx.beginPath();
+              const midY=H/2+10;
+              for(let x=40;x<W-40;x++){{
+                const wobble=t*Math.sin((x/45)*Math.PI)*18*Math.sin((x/(W/2.2))*Math.PI);
+                const y=midY+Math.sin((x/80)*Math.PI)*12+wobble;
+                x===40?ctx.moveTo(x,y):ctx.lineTo(x,y);
+              }}
+              ctx.stroke();
+              // Draw domains as rectangles
+              const domains=[{json.dumps([{"start":d.get("start",0),"end":d.get("end",0),"name":d.get("name","")[:10]} for d in uni.get("domains",[])[:8]])}];
+              const pl={plen or 500};
+              const dc=['#9370DB','#60a5fa','#FFA500','#4CAF50','#FF6B9D','#00BCD4'];
+              domains.forEach((d,i)=>{{
+                const x1=40+(d.start/pl)*(W-80); const x2=40+(d.end/pl)*(W-80);
+                const dw=Math.max(x2-x1,3);
+                ctx.fillStyle=dc[i%dc.length]+'44'; ctx.strokeStyle=dc[i%dc.length];
+                ctx.lineWidth=1.5;
+                ctx.beginPath(); ctx.roundRect(x1,midY-20,dw,40,4); ctx.fill(); ctx.stroke();
+                if(dw>40){{ctx.fillStyle=dc[i%dc.length]; ctx.font='8px JetBrains Mono'; ctx.textAlign='center'; ctx.fillText(d.name.slice(0,10),x1+dw/2,midY+5);}}
+              }});
+              // Draw pathogenic variant positions
+              const cvPos=[{",".join(str(int(p)) for p in list(cv_pos2.keys())[:50])}];
+              cvPos.forEach(pos=>{{
+                if(!pos)return;
+                const x=40+(pos/pl)*(W-80);
+                ctx.fillStyle=c; ctx.strokeStyle=c; ctx.lineWidth=2;
+                ctx.beginPath(); ctx.arc(x,midY-30+t*15,5+t*4,0,Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.moveTo(x,midY-25); ctx.lineTo(x,midY-20); ctx.stroke();
+              }});
+              // WT vs mutant indicator
+              ctx.fillStyle='#4CAF50'; ctx.font='bold 10px JetBrains Mono'; ctx.textAlign='left';
+              ctx.fillText('WT',12,midY+4);
+              ctx.fillStyle=c; ctx.textAlign='right';
+              const mutLabel=t>0.05?'MUT':'WT';
+              ctx.fillText(mutLabel,W-12,midY+4);
+              // Progress label
+              ctx.fillStyle=c+'aa'; ctx.font='9px JetBrains Mono'; ctx.textAlign='center';
+              ctx.fillText(Math.round(t*100)+'% mutation effect',W/2,H-8);
+            }})();
+            </script>"""
+            components.html(STRUCT_HTML, height=260, scrolling=False)
 
-        # Stage roadmap
-        pills=" ".join(f'<span style="background:{""+bc+"22" if i==sel_s else "#0a1020"};border:1px solid {""+bc if i==sel_s else "#1a2040"};border-radius:6px;padding:4px 10px;font-family:JetBrains Mono;font-size:0.6rem;color:{""+bc if i==sel_s else "#334"};display:inline-block;margin:2px">{i+1}. {s[1][:14]}</span>' for i,s in enumerate(struct_stages))
-        st.markdown(pills, unsafe_allow_html=True)
+            # Stage roadmap
+            pills=" ".join(f'<span style="background:{""+bc+"22" if i==sel_s else "#0a1020"};border:1px solid {""+bc if i==sel_s else "#1a2040"};border-radius:6px;padding:4px 10px;font-family:JetBrains Mono;font-size:0.6rem;color:{""+bc if i==sel_s else "#334"};display:inline-block;margin:2px">{i+1}. {s[1][:14]}</span>' for i,s in enumerate(struct_stages))
+            st.markdown(pills, unsafe_allow_html=True)
 
-    # ── Disease-mutation table ──────────────────────────────────────────────
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown('<div class="label">Every disease caused by this protein — with causal mutation and genomic implication</div>', unsafe_allow_html=True)
+        # ── Disease-mutation table ──────────────────────────────────────────────
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown('<div class="label">Every disease caused by this protein — with causal mutation and genomic implication</div>', unsafe_allow_html=True)
 
-    gpath_all = cv.get("germline_pathogenic",[]) + cv.get("germline_lp",[])
-    if gpath_all:
-        dis_mut_map = {}
-        for v2 in gpath_all[:100]:
-            title2=v2.get("title",""); sig2=v2.get("germline","") or v2.get("sig","")
-            conds2=v2.get("conditions",[]); pos2=v2.get("pos",0)
-            for c2 in conds2:
-                if c2 and "not provided" not in c2.lower():
-                    if c2 not in dis_mut_map: dis_mut_map[c2]=[]
-                    dis_mut_map[c2].append({"title":title2,"sig":sig2,"pos":pos2})
+        gpath_all = cv.get("germline_pathogenic",[]) + cv.get("germline_lp",[])
+        if gpath_all:
+            dis_mut_map = {}
+            for v2 in gpath_all[:100]:
+                title2=v2.get("title",""); sig2=v2.get("germline","") or v2.get("sig","")
+                conds2=v2.get("conditions",[]); pos2=v2.get("pos",0)
+                for c2 in conds2:
+                    if c2 and "not provided" not in c2.lower():
+                        if c2 not in dis_mut_map: dis_mut_map[c2]=[]
+                        dis_mut_map[c2].append({"title":title2,"sig":sig2,"pos":pos2})
 
-        # Also add GT diseases
-        if diseases_str and not dis_mut_map:
-            for d in diseases_str.split("·")[:6]:
-                d=d.strip()
-                if d and d not in dis_mut_map: dis_mut_map[d]=[{"title":"See ClinVar","sig":"Pathogenic","pos":0}]
+            # Also add GT diseases
+            if diseases_str and not dis_mut_map:
+                for d in diseases_str.split("·")[:6]:
+                    d=d.strip()
+                    if d and d not in dis_mut_map: dis_mut_map[d]=[{"title":"See ClinVar","sig":"Pathogenic","pos":0}]
 
-        for disease_name, mutations in list(dis_mut_map.items())[:8]:
-            with st.expander(f"🔴 {disease_name} — {len(mutations)} variant(s)"):
-                for mut2 in mutations[:5]:
-                    pos_d=mut2.get("pos",0)
-                    # Find domain for this position
-                    dom_d=""
-                    for d in uni.get("domains",[]):
-                        if d.get("start",0)<=pos_d<=d.get("end",0): dom_d=d.get("name",""); break
-                    # Infer genomic implication
-                    if "CRITICAL" in tier or n_path>500:
-                        impl = f"Dominant pathogenic. Expected: Tm ↓4-12°C on DSF. Disrupts {'domain: '+dom_d if dom_d else 'protein stability'}. Loss of interaction with key partner."
-                    elif n_path>0:
-                        impl = f"Pathogenic variant. Check ClinVar review stars for confidence. {'Domain: '+dom_d+' affected.' if dom_d else ''} Validate with DSF → ITC."
-                    else:
-                        impl = "No confirmed genomic implication — zero germline pathogenic variants."
-                    st.markdown(f"""
-                    <div style="background:#080c18;border:1px solid #1a2040;border-radius:6px;padding:10px 12px;margin-bottom:6px">
-                      <div style="font-family:JetBrains Mono;font-size:0.72rem;color:#FF4C4C;margin-bottom:3px">{mut2.get("title","")[:65]}</div>
-                      <div style="font-size:0.75rem;color:#556;margin-bottom:4px">{mut2.get("sig","")} {"· Pos "+str(pos_d) if pos_d else ""} {"· Domain: "+dom_d if dom_d else ""}</div>
-                      <div style="font-size:0.74rem;color:#889;line-height:1.6"><strong style="color:#b0c0e0">Genomic implication:</strong> {impl}</div>
-                    </div>""", unsafe_allow_html=True)
-    elif n_path == 0:
-        st.markdown(f'<div style="background:#100818;border:1px solid #FF4C4C22;border-radius:8px;padding:14px;font-size:0.82rem;color:#778;line-height:1.7">Zero confirmed germline pathogenic variants for <strong style="color:#e0d0e0">{gene}</strong>. This protein does not cause any confirmed inherited human disease. {"Study its interaction partners: "+", ".join(pdata.get("piggyback_relationship",{}).get("essential_partners",[])[:3]) if pdata.get("piggyback_relationship") else ""}</div>', unsafe_allow_html=True)
-    else:
-        st.info(f"{n_path} pathogenic variants exist — enable DB enrichment for detailed position mapping.")
+            for disease_name, mutations in list(dis_mut_map.items())[:8]:
+                with st.expander(f"🔴 {disease_name} — {len(mutations)} variant(s)"):
+                    for mut2 in mutations[:5]:
+                        pos_d=mut2.get("pos",0)
+                        # Find domain for this position
+                        dom_d=""
+                        for d in uni.get("domains",[]):
+                            if d.get("start",0)<=pos_d<=d.get("end",0): dom_d=d.get("name",""); break
+                        # Infer genomic implication
+                        if "CRITICAL" in tier or n_path>500:
+                            impl = f"Dominant pathogenic. Expected: Tm ↓4-12°C on DSF. Disrupts {'domain: '+dom_d if dom_d else 'protein stability'}. Loss of interaction with key partner."
+                        elif n_path>0:
+                            impl = f"Pathogenic variant. Check ClinVar review stars for confidence. {'Domain: '+dom_d+' affected.' if dom_d else ''} Validate with DSF → ITC."
+                        else:
+                            impl = "No confirmed genomic implication — zero germline pathogenic variants."
+                        st.markdown(f"""
+                        <div style="background:#080c18;border:1px solid #1a2040;border-radius:6px;padding:10px 12px;margin-bottom:6px">
+                          <div style="font-family:JetBrains Mono;font-size:0.72rem;color:#FF4C4C;margin-bottom:3px">{mut2.get("title","")[:65]}</div>
+                          <div style="font-size:0.75rem;color:#556;margin-bottom:4px">{mut2.get("sig","")} {"· Pos "+str(pos_d) if pos_d else ""} {"· Domain: "+dom_d if dom_d else ""}</div>
+                          <div style="font-size:0.74rem;color:#889;line-height:1.6"><strong style="color:#b0c0e0">Genomic implication:</strong> {impl}</div>
+                        </div>""", unsafe_allow_html=True)
+        elif n_path == 0:
+            st.markdown(f'<div style="background:#100818;border:1px solid #FF4C4C22;border-radius:8px;padding:14px;font-size:0.82rem;color:#778;line-height:1.7">Zero confirmed germline pathogenic variants for <strong style="color:#e0d0e0">{gene}</strong>. This protein does not cause any confirmed inherited human disease. {"Study its interaction partners: "+", ".join(pdata.get("piggyback_relationship",{}).get("essential_partners",[])[:3]) if pdata.get("piggyback_relationship") else ""}</div>', unsafe_allow_html=True)
+        else:
+            st.info(f"{n_path} pathogenic variants exist — enable DB enrichment for detailed position mapping.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1144,164 +1143,164 @@ with tab4:
         st.info("👈 Enter a protein and click Analyse.")
     if _show_tab4:
         gene=st.session_state.ss_gene; n_path=st.session_state.ss_n_path; tier=st.session_state.ss_tier
-    tc=TIER_COLORS.get(tier,"#666"); pdata=st.session_state.ss_pdata or {}
-    scored=st.session_state.ss_scored; pc_col="priority_final" if scored is not None and "priority_final" in scored.columns else "priority"
-    uni=st.session_state.ss_uni or {}; cv=st.session_state.ss_cv or {}
-    goal_ctx=goal_in or "general research"; diseases_str=st.session_state.ss_diseases or ""
-    pname=st.session_state.ss_pname or gene
+        tc=TIER_COLORS.get(tier,"#666"); pdata=st.session_state.ss_pdata or {}
+        scored=st.session_state.ss_scored; pc_col="priority_final" if scored is not None and "priority_final" in scored.columns else "priority"
+        uni=st.session_state.ss_uni or {}; cv=st.session_state.ss_cv or {}
+        goal_ctx=goal_in or "general research"; diseases_str=st.session_state.ss_diseases or ""
+        pname=st.session_state.ss_pname or gene
 
-    # Warning for scaffold proteins
-    if tier == "NEUTRAL":
-        st.markdown(f"""
-        <div style="background:#0c0818;border:2px solid #FF4C4C;border-radius:12px;padding:18px 22px;margin-bottom:16px">
-          <div style="font-family:JetBrains Mono;font-weight:700;color:#FF4C4C;margin-bottom:8px">⚠ DO NOT PURSUE {gene} AS A PRIMARY DRUG TARGET</div>
-          <p style="font-size:0.84rem;color:#c0a0b0;line-height:1.7;margin-bottom:10px">Zero germline pathogenic variants in ClinVar. Humans who carry broken versions of this protein are apparently healthy. Any drug program targeting {gene} faces a ~90% failure rate from wrong target selection.</p>
-          <div>{paper_chip("cook_2014")} {paper_chip("plenge_2016")} {paper_chip("minikel_2021")}</div>
-        </div>""", unsafe_allow_html=True)
-
-    st.markdown(f'<h3 style="font-family:JetBrains Mono;color:#e0f0ff;margin-bottom:4px">{gene} — Therapy & Experiments</h3>', unsafe_allow_html=True)
-    st.markdown(f'<p style="color:#334;font-size:0.8rem;margin-bottom:16px">Goal: {goal_ctx} · Tier: {tier} · {n_path} germline pathogenic variants</p>', unsafe_allow_html=True)
-
-    # Get protein-specific experiments
-    specific_exps = pdata.get("experiments_specific",[])
-
-    t4a, t4b, t4c = st.tabs(["🧪 Experiments","💊 Drug & Therapy","🎯 Focus: which mutations to target"])
-
-    with t4a:
-        st.markdown(f'<div style="background:#070c1a;border:1px solid #1a2040;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:0.79rem;color:#445">Experiments below are <strong style="color:#e0f0ff">specific to {gene}</strong> — not a generic protocol. Different proteins require fundamentally different validation strategies.</div>', unsafe_allow_html=True)
-
-        # Protein-specific experiments from protein_data
-        if specific_exps:
-            st.markdown('<div class="label">Protein-specific experiments (prioritised for your protein)</div>', unsafe_allow_html=True)
-            lc_map={1:"#4CAF50",2:"#FFA500",3:"#FF8C00",4:"#FF4C4C",5:"#FF0000"}
-            for exp in specific_exps:
-                lc=lc_map.get(exp.get("level",2),"#60a5fa")
-                level_n=exp.get("level",2)
-                cost_map={1:"Free","2":"$200-500","3":"$1,000-3,000","4":"$5,000-15,000","5":"$20,000+"}
-                time_map={1:"<1 day","2":"2-5 days","3":"1-3 weeks","4":"1-3 months","5":"3-6 months"}
-                with st.expander(f"Level {level_n} — {exp['name']} · {time_map.get(level_n,'—')} · {cost_map.get(level_n,'—')}"):
-                    st.markdown(f'<div style="background:{lc}11;border-left:3px solid {lc};border-radius:0 6px 6px 0;padding:10px 14px;margin-bottom:8px"><div style="font-family:JetBrains Mono;font-size:0.6rem;text-transform:uppercase;color:{lc};margin-bottom:4px">Why this experiment for {gene} specifically</div><p style="font-size:0.82rem;color:#c0d0f0;line-height:1.7">{exp.get("rationale","")}</p></div>', unsafe_allow_html=True)
-                    if exp.get("protocol"):
-                        st.markdown("**Protocol:**")
-                        st.code(exp["protocol"], language="text")
-                    why_not=exp.get("why_this_not_dsf","")
-                    if why_not:
-                        st.markdown(f'<div style="font-size:0.74rem;color:#556;font-style:italic;margin-top:4px">Why not generic thermal shift: {why_not}</div>', unsafe_allow_html=True)
-
-        # Universal experiments
-        st.markdown('<div class="label" style="margin-top:14px">Universal validation hierarchy (always applicable)</div>', unsafe_allow_html=True)
-        UNIVERSAL_EXPS = [
-            (1,"ClinVar + gnomAD database screen","Free","<1 hour","#4CAF50",
-             f"Confirm {gene} DBR and germline pathogenic variant count. gnomAD pLI >0.9 = highly constrained. This is ALWAYS step 1 before any wet lab investment.",
-             "Establishes genomic context — eliminates wrong targets at zero cost.",
-             ""),
-            (1,"OpenTargets genetic association score","Free","30 min","#4CAF50",
-             f"Search {gene} at platform.opentargets.org. Check ClinVar column weight. Compare to β-adrenergic receptors and arrestins — the contrast is instructive.",
-             "Multi-disease genetic association score across all evidence types.",
-             ""),
-            (2,"AlphaFold + FPocket druggability","Free","1-2 hours","#60a5fa",
-             f"Run FPocket on {gene} AlphaFold structure. Identify druggable cavities near pathogenic variant hotspots. Only meaningful for proteins WITH ClinVar variants.",
-             "Identifies druggable pockets without any wet lab. Filters structural-mutant from surface-mutant.",
-             ""),
-            (3,"Thermal shift (DSF)","$200-500","2-3 days","#FFA500",
-             f"Express WT and top pathogenic {gene} variants. DSF with SYPRO Orange (25→95°C, 1°C/min). Expect ΔTm 3-15°C for pathogenic variants vs WT.",
-             "Confirms structural destabilisation. Required before ITC. Cannot give Kd.",
-             "Note: For signalling proteins like β-arrestin, DSF is NOT the right first assay — use BRET/functional assays instead."),
-            (4,"ITC (Isothermal Titration Calorimetry)","$1,500-3,000","1-2 weeks","#FF8C00",
-             f"Gold standard binding thermodynamics. Measures Kd, ΔH, ΔS, stoichiometry simultaneously. No fluorescent artefacts. Recommended by Sujay Ithychanda (Cleveland Clinic) as the most robust assay for {gene} binding validation.",
-             "Definitive binding characterisation. No false positives. Quantitative.",
-             ""),
-            (5,"Patient-derived cell validation","$5,000-20,000","1-3 months","#FF4C4C",
-             f"Obtain fibroblasts or iPSCs from confirmed {gene} pathogenic variant carriers. Differentiate to relevant cell type ({', '.join((pdata.get('tissue_expression',{}) or {}).keys())[:2] if pdata.get('tissue_expression') else 'affected tissue'}). Measure native protein function.",
-             "Human evidence — more relevant than mouse models. Required before clinical claims.",
-             ""),
-        ]
-        for (level,name,cost,time_v,lc,desc,validates,caveat) in UNIVERSAL_EXPS:
-            with st.expander(f"Level {level} — {name} · {time_v} · {cost}"):
-                st.markdown(f'<p style="font-size:0.82rem;color:#c0d0f0;line-height:1.7">{desc}</p>', unsafe_allow_html=True)
-                if validates: st.markdown(f'<div style="font-size:0.75rem;color:#4CAF50;margin-bottom:4px"><strong>Validates:</strong> {validates}</div>', unsafe_allow_html=True)
-                if caveat:    st.markdown(f'<div style="font-size:0.73rem;color:#FFA500;font-style:italic">{caveat}</div>', unsafe_allow_html=True)
-                st.markdown(f'{paper_chip("king_2024")} {paper_chip("minikel_2021")}', unsafe_allow_html=True)
-
-    with t4b:
-        st.markdown('<div class="label">Drug strategy based on ClinVar evidence</div>', unsafe_allow_html=True)
+        # Warning for scaffold proteins
         if tier == "NEUTRAL":
             st.markdown(f"""
-            <div class="card-red">
-              <div style="font-family:JetBrains Mono;font-size:0.65rem;color:#FF4C4C;margin-bottom:6px">NO DRUG DEVELOPMENT RECOMMENDED</div>
-              <p style="font-size:0.82rem;color:#c0a0b0;line-height:1.7">Zero germline pathogenic variants = the protein is dispensable in humans. Any drug that acts on {gene} as a primary target will likely fail for lack of disease relevance.</p>
-              <p style="font-size:0.8rem;color:#778;margin-top:6px">Study the interaction partners with confirmed ClinVar burden instead: {", ".join(pdata.get("piggyback_relationship",{}).get("essential_partners",[])[:3]) if pdata.get("piggyback_relationship") else "check UniProt interactions"}</p>
-            </div>""", unsafe_allow_html=True)
-        else:
-            dbr_val = calculate_dbr(n_path, st.session_state.ss_plen)
-            if dbr_val and dbr_val > 0.5: strategy = "Gene therapy / mRNA replacement justified by critical disease burden. DBR >0.5 confirms this is among the most pathogenically constrained proteins."
-            elif n_path > 50: strategy = "Small molecule or antibody development justified. Confirmed target-disease linkage via ClinVar germline variants."
-            elif n_path > 0: strategy = "Rare disease strategy. Orphan drug regulatory pathway. Gene therapy appropriate given confirmed Mendelian genetics."
-            else: strategy = "Insufficient evidence — establish genomic context before any therapeutic investment."
-            st.markdown(f"""
-            <div class="card-green">
-              <div style="font-family:JetBrains Mono;font-size:0.65rem;color:#4CAF50;margin-bottom:6px">DRUG DEVELOPMENT STRATEGY — {tier}</div>
-              <p style="font-size:0.82rem;color:#c0e0c0;line-height:1.7">{strategy}</p>
-              <div style="margin-top:8px">{paper_chip("king_2024")} {paper_chip("cook_2014")}</div>
+            <div style="background:#0c0818;border:2px solid #FF4C4C;border-radius:12px;padding:18px 22px;margin-bottom:16px">
+              <div style="font-family:JetBrains Mono;font-weight:700;color:#FF4C4C;margin-bottom:8px">⚠ DO NOT PURSUE {gene} AS A PRIMARY DRUG TARGET</div>
+              <p style="font-size:0.84rem;color:#c0a0b0;line-height:1.7;margin-bottom:10px">Zero germline pathogenic variants in ClinVar. Humans who carry broken versions of this protein are apparently healthy. Any drug program targeting {gene} faces a ~90% failure rate from wrong target selection.</p>
+              <div>{paper_chip("cook_2014")} {paper_chip("plenge_2016")} {paper_chip("minikel_2021")}</div>
             </div>""", unsafe_allow_html=True)
 
-        # Known drugs
-        KNOWN_DRUGS = {
-            "TP53": [("APR-246/Eprenetapopt","Structural mutants (R175H, R248)","Phase III — refolds mutant p53"),("PC14586/Rezatapopt","Y220C surface cavity","Phase II — fills druggable pocket"),],
-            "BRCA1":[("Olaparib (PARP inhibitor)","BRCA1/2 LOF","FDA approved — synthetic lethality"),],
-            "EGFR": [("Erlotinib","L858R, exon19del","FDA approved"),("Osimertinib","T790M resistance","FDA approved"),],
-            "KRAS": [("Sotorasib","G12C specific","FDA approved"),("Adagrasib","G12C specific","FDA approved"),],
-        }
-        drugs = KNOWN_DRUGS.get(gene.upper(),[])
-        if drugs:
-            st.markdown('<div class="label" style="margin-top:12px">Known therapies</div>', unsafe_allow_html=True)
-            for (name,target,status) in drugs:
+        st.markdown(f'<h3 style="font-family:JetBrains Mono;color:#e0f0ff;margin-bottom:4px">{gene} — Therapy & Experiments</h3>', unsafe_allow_html=True)
+        st.markdown(f'<p style="color:#334;font-size:0.8rem;margin-bottom:16px">Goal: {goal_ctx} · Tier: {tier} · {n_path} germline pathogenic variants</p>', unsafe_allow_html=True)
+
+        # Get protein-specific experiments
+        specific_exps = pdata.get("experiments_specific",[])
+
+        t4a, t4b, t4c = st.tabs(["🧪 Experiments","💊 Drug & Therapy","🎯 Focus: which mutations to target"])
+
+        with t4a:
+            st.markdown(f'<div style="background:#070c1a;border:1px solid #1a2040;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:0.79rem;color:#445">Experiments below are <strong style="color:#e0f0ff">specific to {gene}</strong> — not a generic protocol. Different proteins require fundamentally different validation strategies.</div>', unsafe_allow_html=True)
+
+            # Protein-specific experiments from protein_data
+            if specific_exps:
+                st.markdown('<div class="label">Protein-specific experiments (prioritised for your protein)</div>', unsafe_allow_html=True)
+                lc_map={1:"#4CAF50",2:"#FFA500",3:"#FF8C00",4:"#FF4C4C",5:"#FF0000"}
+                for exp in specific_exps:
+                    lc=lc_map.get(exp.get("level",2),"#60a5fa")
+                    level_n=exp.get("level",2)
+                    cost_map={1:"Free","2":"$200-500","3":"$1,000-3,000","4":"$5,000-15,000","5":"$20,000+"}
+                    time_map={1:"<1 day","2":"2-5 days","3":"1-3 weeks","4":"1-3 months","5":"3-6 months"}
+                    with st.expander(f"Level {level_n} — {exp['name']} · {time_map.get(level_n,'—')} · {cost_map.get(level_n,'—')}"):
+                        st.markdown(f'<div style="background:{lc}11;border-left:3px solid {lc};border-radius:0 6px 6px 0;padding:10px 14px;margin-bottom:8px"><div style="font-family:JetBrains Mono;font-size:0.6rem;text-transform:uppercase;color:{lc};margin-bottom:4px">Why this experiment for {gene} specifically</div><p style="font-size:0.82rem;color:#c0d0f0;line-height:1.7">{exp.get("rationale","")}</p></div>', unsafe_allow_html=True)
+                        if exp.get("protocol"):
+                            st.markdown("**Protocol:**")
+                            st.code(exp["protocol"], language="text")
+                        why_not=exp.get("why_this_not_dsf","")
+                        if why_not:
+                            st.markdown(f'<div style="font-size:0.74rem;color:#556;font-style:italic;margin-top:4px">Why not generic thermal shift: {why_not}</div>', unsafe_allow_html=True)
+
+            # Universal experiments
+            st.markdown('<div class="label" style="margin-top:14px">Universal validation hierarchy (always applicable)</div>', unsafe_allow_html=True)
+            UNIVERSAL_EXPS = [
+                (1,"ClinVar + gnomAD database screen","Free","<1 hour","#4CAF50",
+                 f"Confirm {gene} DBR and germline pathogenic variant count. gnomAD pLI >0.9 = highly constrained. This is ALWAYS step 1 before any wet lab investment.",
+                 "Establishes genomic context — eliminates wrong targets at zero cost.",
+                 ""),
+                (1,"OpenTargets genetic association score","Free","30 min","#4CAF50",
+                 f"Search {gene} at platform.opentargets.org. Check ClinVar column weight. Compare to β-adrenergic receptors and arrestins — the contrast is instructive.",
+                 "Multi-disease genetic association score across all evidence types.",
+                 ""),
+                (2,"AlphaFold + FPocket druggability","Free","1-2 hours","#60a5fa",
+                 f"Run FPocket on {gene} AlphaFold structure. Identify druggable cavities near pathogenic variant hotspots. Only meaningful for proteins WITH ClinVar variants.",
+                 "Identifies druggable pockets without any wet lab. Filters structural-mutant from surface-mutant.",
+                 ""),
+                (3,"Thermal shift (DSF)","$200-500","2-3 days","#FFA500",
+                 f"Express WT and top pathogenic {gene} variants. DSF with SYPRO Orange (25→95°C, 1°C/min). Expect ΔTm 3-15°C for pathogenic variants vs WT.",
+                 "Confirms structural destabilisation. Required before ITC. Cannot give Kd.",
+                 "Note: For signalling proteins like β-arrestin, DSF is NOT the right first assay — use BRET/functional assays instead."),
+                (4,"ITC (Isothermal Titration Calorimetry)","$1,500-3,000","1-2 weeks","#FF8C00",
+                 f"Gold standard binding thermodynamics. Measures Kd, ΔH, ΔS, stoichiometry simultaneously. No fluorescent artefacts. Recommended by Sujay Ithychanda (Cleveland Clinic) as the most robust assay for {gene} binding validation.",
+                 "Definitive binding characterisation. No false positives. Quantitative.",
+                 ""),
+                (5,"Patient-derived cell validation","$5,000-20,000","1-3 months","#FF4C4C",
+                 f"Obtain fibroblasts or iPSCs from confirmed {gene} pathogenic variant carriers. Differentiate to relevant cell type ({', '.join((pdata.get('tissue_expression',{}) or {}).keys())[:2] if pdata.get('tissue_expression') else 'affected tissue'}). Measure native protein function.",
+                 "Human evidence — more relevant than mouse models. Required before clinical claims.",
+                 ""),
+            ]
+            for (level,name,cost,time_v,lc,desc,validates,caveat) in UNIVERSAL_EXPS:
+                with st.expander(f"Level {level} — {name} · {time_v} · {cost}"):
+                    st.markdown(f'<p style="font-size:0.82rem;color:#c0d0f0;line-height:1.7">{desc}</p>', unsafe_allow_html=True)
+                    if validates: st.markdown(f'<div style="font-size:0.75rem;color:#4CAF50;margin-bottom:4px"><strong>Validates:</strong> {validates}</div>', unsafe_allow_html=True)
+                    if caveat:    st.markdown(f'<div style="font-size:0.73rem;color:#FFA500;font-style:italic">{caveat}</div>', unsafe_allow_html=True)
+                    st.markdown(f'{paper_chip("king_2024")} {paper_chip("minikel_2021")}', unsafe_allow_html=True)
+
+        with t4b:
+            st.markdown('<div class="label">Drug strategy based on ClinVar evidence</div>', unsafe_allow_html=True)
+            if tier == "NEUTRAL":
                 st.markdown(f"""
-                <div class="card">
-                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-                    <span style="font-weight:600;color:#e0f0ff;font-size:0.84rem">{name}</span>
-                    <span class="tag" style="background:#4CAF5022;color:#4CAF50;border:1px solid #4CAF5044">{status}</span>
-                  </div>
-                  <div style="font-size:0.75rem;color:#445">Target: {target}</div>
+                <div class="card-red">
+                  <div style="font-family:JetBrains Mono;font-size:0.65rem;color:#FF4C4C;margin-bottom:6px">NO DRUG DEVELOPMENT RECOMMENDED</div>
+                  <p style="font-size:0.82rem;color:#c0a0b0;line-height:1.7">Zero germline pathogenic variants = the protein is dispensable in humans. Any drug that acts on {gene} as a primary target will likely fail for lack of disease relevance.</p>
+                  <p style="font-size:0.8rem;color:#778;margin-top:6px">Study the interaction partners with confirmed ClinVar burden instead: {", ".join(pdata.get("piggyback_relationship",{}).get("essential_partners",[])[:3]) if pdata.get("piggyback_relationship") else "check UniProt interactions"}</p>
+                </div>""", unsafe_allow_html=True)
+            else:
+                dbr_val = calculate_dbr(n_path, st.session_state.ss_plen)
+                if dbr_val and dbr_val > 0.5: strategy = "Gene therapy / mRNA replacement justified by critical disease burden. DBR >0.5 confirms this is among the most pathogenically constrained proteins."
+                elif n_path > 50: strategy = "Small molecule or antibody development justified. Confirmed target-disease linkage via ClinVar germline variants."
+                elif n_path > 0: strategy = "Rare disease strategy. Orphan drug regulatory pathway. Gene therapy appropriate given confirmed Mendelian genetics."
+                else: strategy = "Insufficient evidence — establish genomic context before any therapeutic investment."
+                st.markdown(f"""
+                <div class="card-green">
+                  <div style="font-family:JetBrains Mono;font-size:0.65rem;color:#4CAF50;margin-bottom:6px">DRUG DEVELOPMENT STRATEGY — {tier}</div>
+                  <p style="font-size:0.82rem;color:#c0e0c0;line-height:1.7">{strategy}</p>
+                  <div style="margin-top:8px">{paper_chip("king_2024")} {paper_chip("cook_2014")}</div>
                 </div>""", unsafe_allow_html=True)
 
-    with t4c:
-        st.markdown('<div class="label">Which mutations to focus on — which to neglect</div>', unsafe_allow_html=True)
+            # Known drugs
+            KNOWN_DRUGS = {
+                "TP53": [("APR-246/Eprenetapopt","Structural mutants (R175H, R248)","Phase III — refolds mutant p53"),("PC14586/Rezatapopt","Y220C surface cavity","Phase II — fills druggable pocket"),],
+                "BRCA1":[("Olaparib (PARP inhibitor)","BRCA1/2 LOF","FDA approved — synthetic lethality"),],
+                "EGFR": [("Erlotinib","L858R, exon19del","FDA approved"),("Osimertinib","T790M resistance","FDA approved"),],
+                "KRAS": [("Sotorasib","G12C specific","FDA approved"),("Adagrasib","G12C specific","FDA approved"),],
+            }
+            drugs = KNOWN_DRUGS.get(gene.upper(),[])
+            if drugs:
+                st.markdown('<div class="label" style="margin-top:12px">Known therapies</div>', unsafe_allow_html=True)
+                for (name,target,status) in drugs:
+                    st.markdown(f"""
+                    <div class="card">
+                      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                        <span style="font-weight:600;color:#e0f0ff;font-size:0.84rem">{name}</span>
+                        <span class="tag" style="background:#4CAF5022;color:#4CAF50;border:1px solid #4CAF5044">{status}</span>
+                      </div>
+                      <div style="font-size:0.75rem;color:#445">Target: {target}</div>
+                    </div>""", unsafe_allow_html=True)
 
-        if scored is not None:
-            high_hits = scored[scored[pc_col]=="HIGH"].head(10)
-            low_hits  = scored[scored[pc_col]=="LOW"].tail(5)
+        with t4c:
+            st.markdown('<div class="label">Which mutations to focus on — which to neglect</div>', unsafe_allow_html=True)
 
-            st.markdown('<div style="font-family:JetBrains Mono;font-size:0.62rem;text-transform:uppercase;color:#FF4C4C;margin-bottom:6px">FOCUS ON — HIGH PRIORITY</div>', unsafe_allow_html=True)
-            for _,row in high_hits.iterrows():
-                pos=int(row["residue_position"]); sc=round(float(row["normalized_score"]),3)
-                mut=str(row.get("mutation",f"Pos{pos}")); mut=f"Pos{pos}" if mut in ("nan","") else mut
-                in_cv=pos in cv_pos2 if cv_pos2 else False
-                st.markdown(f'<div style="padding:6px 10px;margin-bottom:4px;background:#0c0810;border:1px solid #FF4C4C44;border-radius:6px;font-size:0.78rem;display:flex;justify-content:space-between"><span style="font-family:JetBrains Mono;color:#FF4C4C">{mut}</span><span style="color:#556">score {sc} {"· ClinVar P" if in_cv else ""}</span></div>', unsafe_allow_html=True)
+            if scored is not None:
+                high_hits = scored[scored[pc_col]=="HIGH"].head(10)
+                low_hits  = scored[scored[pc_col]=="LOW"].tail(5)
 
-            st.markdown('<div style="font-family:JetBrains Mono;font-size:0.62rem;text-transform:uppercase;color:#334;margin-bottom:6px;margin-top:10px">NEGLECT — LOW PRIORITY</div>', unsafe_allow_html=True)
-            for _,row in low_hits.iterrows():
-                pos=int(row["residue_position"]); sc=round(float(row["normalized_score"]),3)
-                mut=str(row.get("mutation",f"Pos{pos}")); mut=f"Pos{pos}" if mut in ("nan","") else mut
-                st.markdown(f'<div style="padding:5px 10px;margin-bottom:3px;background:#0a0d18;border:1px solid #1a2040;border-radius:6px;font-size:0.75rem;display:flex;justify-content:space-between"><span style="color:#334;font-family:JetBrains Mono">{mut}</span><span style="color:#223">score {sc} — tolerated substitution</span></div>', unsafe_allow_html=True)
-        else:
-            st.markdown(f"""
-            <div class="card">
-              <p style="font-size:0.82rem;color:#c0d0f0;line-height:1.7">Upload wet lab data to get a ranked list of which mutations to focus on vs neglect. Without data, use ClinVar pathogenic positions as the focus list — these are the human-validated mutations.</p>
-              <p style="font-size:0.79rem;color:#445;margin-top:8px">ClinVar pathogenic positions for {gene}: {", ".join(["Pos "+str(v2.get("pos",0)) for v2 in (cv.get("germline_pathogenic",[]) or [])[:8] if v2.get("pos",0)>0]) or "Loading..."}</p>
+                st.markdown('<div style="font-family:JetBrains Mono;font-size:0.62rem;text-transform:uppercase;color:#FF4C4C;margin-bottom:6px">FOCUS ON — HIGH PRIORITY</div>', unsafe_allow_html=True)
+                for _,row in high_hits.iterrows():
+                    pos=int(row["residue_position"]); sc=round(float(row["normalized_score"]),3)
+                    mut=str(row.get("mutation",f"Pos{pos}")); mut=f"Pos{pos}" if mut in ("nan","") else mut
+                    in_cv=pos in cv_pos2 if cv_pos2 else False
+                    st.markdown(f'<div style="padding:6px 10px;margin-bottom:4px;background:#0c0810;border:1px solid #FF4C4C44;border-radius:6px;font-size:0.78rem;display:flex;justify-content:space-between"><span style="font-family:JetBrains Mono;color:#FF4C4C">{mut}</span><span style="color:#556">score {sc} {"· ClinVar P" if in_cv else ""}</span></div>', unsafe_allow_html=True)
+
+                st.markdown('<div style="font-family:JetBrains Mono;font-size:0.62rem;text-transform:uppercase;color:#334;margin-bottom:6px;margin-top:10px">NEGLECT — LOW PRIORITY</div>', unsafe_allow_html=True)
+                for _,row in low_hits.iterrows():
+                    pos=int(row["residue_position"]); sc=round(float(row["normalized_score"]),3)
+                    mut=str(row.get("mutation",f"Pos{pos}")); mut=f"Pos{pos}" if mut in ("nan","") else mut
+                    st.markdown(f'<div style="padding:5px 10px;margin-bottom:3px;background:#0a0d18;border:1px solid #1a2040;border-radius:6px;font-size:0.75rem;display:flex;justify-content:space-between"><span style="color:#334;font-family:JetBrains Mono">{mut}</span><span style="color:#223">score {sc} — tolerated substitution</span></div>', unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div class="card">
+                  <p style="font-size:0.82rem;color:#c0d0f0;line-height:1.7">Upload wet lab data to get a ranked list of which mutations to focus on vs neglect. Without data, use ClinVar pathogenic positions as the focus list — these are the human-validated mutations.</p>
+                  <p style="font-size:0.79rem;color:#445;margin-top:8px">ClinVar pathogenic positions for {gene}: {", ".join(["Pos "+str(v2.get("pos",0)) for v2 in (cv.get("germline_pathogenic",[]) or [])[:8] if v2.get("pos",0)>0]) or "Loading..."}</p>
+                </div>""", unsafe_allow_html=True)
+
+            # Evidence hierarchy
+            st.markdown("""
+            <div style="background:#070c1a;border:1px solid #1a2040;border-radius:8px;padding:14px 16px;margin-top:12px">
+              <div style="font-family:JetBrains Mono;font-size:0.6rem;text-transform:uppercase;color:#334;margin-bottom:8px">Evidence hierarchy — what counts as truth</div>
+              <div style="font-size:0.79rem;color:#667;line-height:2">
+                🏆 <strong style="color:#e0f0ff">Gold:</strong> Germline pathogenic in ClinVar — proven to cause human disease<br>
+                🥈 <strong style="color:#e0f0ff">Silver:</strong> ITC binding thermodynamics — quantitative, no artefacts<br>
+                🥉 <strong style="color:#e0f0ff">Bronze:</strong> Thermal shift (DSF) — structural destabilisation confirmed<br>
+                ⚠️ <strong style="color:#c0c0c0">Caution:</strong> Cell culture, mouse knockouts — informative but not sufficient alone<br>
+                ❌ <strong style="color:#445">Reject:</strong> Text mining, pathway inference, LLM predictions without experimental validation
+              </div>
             </div>""", unsafe_allow_html=True)
-
-        # Evidence hierarchy
-        st.markdown("""
-        <div style="background:#070c1a;border:1px solid #1a2040;border-radius:8px;padding:14px 16px;margin-top:12px">
-          <div style="font-family:JetBrains Mono;font-size:0.6rem;text-transform:uppercase;color:#334;margin-bottom:8px">Evidence hierarchy — what counts as truth</div>
-          <div style="font-size:0.79rem;color:#667;line-height:2">
-            🏆 <strong style="color:#e0f0ff">Gold:</strong> Germline pathogenic in ClinVar — proven to cause human disease<br>
-            🥈 <strong style="color:#e0f0ff">Silver:</strong> ITC binding thermodynamics — quantitative, no artefacts<br>
-            🥉 <strong style="color:#e0f0ff">Bronze:</strong> Thermal shift (DSF) — structural destabilisation confirmed<br>
-            ⚠️ <strong style="color:#c0c0c0">Caution:</strong> Cell culture, mouse knockouts — informative but not sufficient alone<br>
-            ❌ <strong style="color:#445">Reject:</strong> Text mining, pathway inference, LLM predictions without experimental validation
-          </div>
-        </div>""", unsafe_allow_html=True)
-        st.markdown(f'<div style="margin-top:8px">{paper_chip("king_2024")} {paper_chip("minikel_2021")} {paper_chip("plenge_2016")} {paper_chip("cook_2014")}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="margin-top:8px">{paper_chip("king_2024")} {paper_chip("minikel_2021")} {paper_chip("plenge_2016")} {paper_chip("cook_2014")}</div>', unsafe_allow_html=True)
 
