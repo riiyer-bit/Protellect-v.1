@@ -592,63 +592,112 @@ def assess_gpcr_piggybacking(p, cv, gi_data):
         "arrb","grk","rgs","ric8","gnas","gnai","gnaq","gnb","gng"
     ])
     
-    if is_gpcr and has_tm and n_path > 0:
+    # Count GERMLINE-ONLY pathogenic variants with named Mendelian conditions
+    variants_cv = cv.get("variants", [])
+    germline_path = [
+        v for v in variants_cv
+        if v.get("score", 0) >= 4
+        and not v.get("somatic", False)
+        and "germline" in v.get("origin", "").lower()
+        and v.get("condition", "Not specified") not in ("Not specified", "not provided", "")
+        and not any(s in v.get("condition", "").lower() for s in ["not specified", "not provided", "somatic"])
+    ]
+    # Named Mendelian conditions (not generic cancer/not specified)
+    named_conditions = set()
+    for v in germline_path:
+        for c in v.get("condition", "").split(";"):
+            c = c.strip()
+            if c and len(c) > 5 and c.lower() not in ("not specified", "not provided"):
+                # Exclude generic cancer terms unless specific syndrome
+                if not (c.lower().startswith("cancer") or c.lower() == "neoplasm"):
+                    named_conditions.add(c)
+    n_germline_path = len(germline_path)
+    n_named_conditions = len(named_conditions)
+
+    # Known GPCR-accessory protein families — these are piggybacks by definition
+    # unless they have MULTIPLE named Mendelian syndromes with germline evidence
+    known_piggyback_families = any(x in gene_name_lower for x in [
+        "arrb", "grk", "rgs", "ric8", "gng", "gnb",
+        "gnas", "gnai", "gnaq", "gnaz",
+    ]) or any(x in fn for x in [
+        "beta-arrestin", "g protein-coupled receptor kinase",
+        "regulator of g-protein signaling",
+    ])
+
+    # Decision logic — with germline evidence check
+    if is_gpcr and has_tm and n_germline_path >= 3 and n_named_conditions >= 2:
         return {
             "type": "DIRECT_GPCR",
-            "label": "Direct GPCR — mutations independently cause disease",
+            "label": "Direct GPCR — mutations independently cause named Mendelian diseases",
             "colour": "#ff2d55",
             "confidence": "HIGH",
             "reasoning": (
-                f"{p.get('primaryAccession','')} is a bona fide GPCR with transmembrane domains and "
-                f"{n_path} confirmed pathogenic variants causing Mendelian disease. "
-                f"Mutations in this protein are independently sufficient to cause disease — "
-                f"this is NOT a piggyback effect."
+                f"{g_gene(p)} is a bona fide GPCR with transmembrane domains and "
+                f"{n_germline_path} confirmed germline pathogenic variants linked to "
+                f"{n_named_conditions} named Mendelian conditions ({', '.join(list(named_conditions)[:3])}). "
+                f"Mutations are independently sufficient to cause disease — this is NOT a piggyback effect."
             ),
-            "investment": "PURSUE — genuine disease driver. Mutations are causally linked.",
+            "investment": "PURSUE — genuine disease driver with strong human genetic evidence.",
+        }
+    elif is_gpcr and has_tm and n_path > 0 and not known_piggyback_families:
+        return {
+            "type": "DIRECT_GPCR",
+            "label": "GPCR with pathogenic variants — likely direct disease driver",
+            "colour": "#ff6b42",
+            "confidence": "MEDIUM",
+            "reasoning": (
+                f"{g_gene(p)} has GPCR transmembrane architecture and {n_path} pathogenic ClinVar entries. "
+                f"However, only {n_germline_path} are confirmed germline variants with named conditions. "
+                f"Verify germline vs somatic origin before major investment."
+            ),
+            "investment": "PROCEED with caution — confirm germline vs somatic status of pathogenic variants.",
         }
     elif is_gpcr and has_tm and n_path == 0:
         return {
             "type": "GPCR_NO_DISEASE",
-            "label": "GPCR structure — but no confirmed disease-causing variants",
+            "label": "GPCR-like structure — no confirmed disease-causing germline variants",
             "colour": "#ffd60a",
             "confidence": "MEDIUM",
             "reasoning": (
-                f"Despite having a GPCR-like transmembrane architecture, {p.get('primaryAccession','')} "
-                f"shows zero confirmed pathogenic germline variants across {n_total} ClinVar entries. "
-                f"This pattern (β-adrenergic receptors, many GRKs) suggests functional redundancy — "
-                f"other receptors or pathways compensate for its loss."
+                f"Despite GPCR transmembrane architecture, {g_gene(p)} shows zero confirmed pathogenic "
+                f"germline variants across {n_total} ClinVar entries. "
+                f"This mirrors β-adrenergic receptors and many GRKs — functional redundancy is likely."
             ),
             "investment": "CAUTION — GPCR structure alone does not validate drug target potential.",
         }
-    elif gpcr_associated and n_path == 0:
+    elif gpcr_associated and (n_path == 0 or known_piggyback_families) and n_named_conditions < 2:
         return {
             "type": "PIGGYBACK",
-            "label": "⚠️ PIGGYBACK PROTEIN — GPCR-associated but mutations don't independently cause disease",
+            "label": "⚠️ PIGGYBACK PROTEIN — GPCR-associated but NOT an independent disease driver",
             "colour": "#ff8c42",
             "confidence": "HIGH",
             "reasoning": (
-                f"This protein is functionally associated with GPCR signalling (arrestins, GRKs, RGS proteins, etc.) "
-                f"but carries ZERO confirmed disease-causing germline variants across {n_total} ClinVar entries. "
-                f"This is the hallmark of a piggyback protein: its apparent involvement in disease reflects "
-                f"its proximity to true disease drivers (the GPCRs themselves), not independent pathogenicity. "
-                f"β2-Arrestin (ARRB2) and most GRK family members follow this exact pattern. "
-                f"Cell-culture data showing 'signalling changes' upon perturbation of these proteins may be real "
-                f"but biologically irrelevant if no human carries a disease-causing variant."
+                f"{g_gene(p)} is functionally associated with GPCR signalling "
+                f"({'arrestin/GRK/RGS family' if known_piggyback_families else 'GPCR pathway'}) "
+                f"but has only {n_germline_path} confirmed germline pathogenic variants "
+                f"with {n_named_conditions} named Mendelian condition(s) across {n_total} total ClinVar entries. "
+                f"The {n_path} 'pathogenic' entries are predominantly somatic cancer annotations or lack "
+                f"named Mendelian syndromes — NOT independent evidence of germline disease causation. "
+                f"This is the textbook definition of a piggyback: its GPCR co-association makes mutations "
+                f"appear disease-relevant when the true drivers are the GPCRs themselves. "
+                f"β-Arrestins (ARRB1, ARRB2) and most GRK family members are canonical examples: "
+                f"extensively studied, thousands of publications, yet no human 'beta-arrestin deficiency syndrome' exists."
             ),
-            "investment": "DEPRIORITISE for disease target. Genuine GPCR partners are the real drivers.",
+            "investment": "DEPRIORITISE as primary target. Study GPCR partners instead. (Gurevich & Gurevich, Pharmacol. Ther. 2019; PMID 30742848)",
         }
-    elif gpcr_associated and n_path > 0:
+    elif gpcr_associated and n_named_conditions >= 2:
         return {
             "type": "GPCR_EFFECTOR",
             "label": "GPCR signalling effector — confirmed independent disease role",
             "colour": "#ff6b42",
             "confidence": "HIGH",
             "reasoning": (
-                f"Associated with GPCR signalling AND carries {n_path} confirmed pathogenic variants. "
-                f"This is consistent with a genuine effector role — not merely piggybacking. "
-                f"Both GPCR and this effector may need to be considered in therapeutic strategy."
+                f"Associated with GPCR signalling AND carries {n_germline_path} germline pathogenic variants "
+                f"linked to {n_named_conditions} named conditions ({', '.join(list(named_conditions)[:3])}). "
+                f"This is consistent with a genuine effector role, not merely piggybacking. "
+                f"Both GPCR and this effector should be considered in therapeutic strategy."
             ),
-            "investment": "PURSUE alongside the GPCR partner.",
+            "investment": "PURSUE alongside GPCR partner — evidence supports genuine disease contribution.",
         }
     else:
         return {
@@ -1339,8 +1388,8 @@ partner_info=st.session_state.get("partner_gi")
 is_gpcr=g_gpcr(pdata)
 gpcr_assessment = assess_gpcr_piggybacking(pdata, cv, gi)
 
-# Override GI verdict if protein is identified as a piggyback
-if gpcr_assessment["type"] == "PIGGYBACK" and gi.get("pursue") not in ("deprioritise","neutral"):
+# Override GI verdict if protein is a piggyback or GPCR with no germline disease
+if gpcr_assessment["type"] in ("PIGGYBACK", "GPCR_NO_DISEASE") and gi.get("pursue") not in ("deprioritise","neutral"):
     gi = dict(gi)
     gi["pursue"]      = "caution"
     gi["verdict"]     = "PIGGYBACK — Disease signal is indirect"
