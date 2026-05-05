@@ -1,5 +1,4 @@
 import streamlit as st
-[theme]
 base = "dark"
 primaryColor = "#00e5ff"
 backgroundColor = "#04080f"
