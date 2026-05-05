@@ -204,7 +204,7 @@ def fetch_clinvar(gene: str) -> dict:
     return r
 
 @st.cache_data(show_spinner=False, ttl=3600)
-def fetch_alphafold(uid: str) -> tuple:
+def fetch_alphafold(uid: str, gene: str="") -> tuple:
     if not uid: return None,""
     try:
         r=SESSION.get(f"https://alphafold.ebi.ac.uk/api/prediction/{uid}",timeout=12)
@@ -225,6 +225,23 @@ def fetch_alphafold(uid: str) -> tuple:
                     pr=SESSION.get(f"https://files.rcsb.org/download/{pid}.pdb",timeout=15)
                     if pr.status_code==200: return pr.text[:400000], f"PDB {pid} (experimental)"
     except: pass
+    # Try by gene name directly (AlphaFold has gene-based search)
+    if gene:
+        try:
+            # Try common UniProt accessions for known proteins
+            _KNOWN_UID = {"FLNA":"P21333","FLNB":"O75369","FLNC":"Q14315","CHRM2":"P08172",
+                          "CHRM3":"P20309","ARRB1":"P49407","ARRB2":"P32121","TP53":"P04637",
+                          "BRCA1":"P38398","BRCA2":"P51587","EGFR":"P00533","KRAS":"P01116",
+                          "MYH7":"P12883","LMNA":"P02545","TALN1":"Q9Y490","ITB3":"P05106"}
+            fallback_uid = _KNOWN_UID.get(gene.upper(),"")
+            if fallback_uid and fallback_uid != uid:
+                r3=SESSION.get(f"https://alphafold.ebi.ac.uk/api/prediction/{fallback_uid}",timeout=12)
+                if r3.status_code==200 and r3.json():
+                    url3=r3.json()[0].get("pdbUrl","")
+                    if url3:
+                        pr3=SESSION.get(url3,timeout=25)
+                        if pr3.status_code==200: return pr3.text[:400000], f"AlphaFold DB · {fallback_uid} ({gene})"
+        except: pass
     return None,""
 
 @st.cache_data(show_spinner=False, ttl=3600)
@@ -394,7 +411,16 @@ with st.sidebar:
     run_btn = st.button("▶ Analyse", type="primary", use_container_width=True)
 
     ctx = {"study_goal":goal_in,"disease_context":dis_in,"hypothesis_direction":dir_in,"protein_of_interest":protein_in}
-    gene = protein_in.strip().upper() if protein_in.strip() else ""
+    # Normalize gene name — handle spaces, dashes, common aliases
+    _raw = protein_in.strip().upper()
+    gene = re.sub(r'\s+', '', _raw)   # remove all whitespace: "CHRM 2" → "CHRM2"
+    gene = gene.replace('-','')          # "MYH-7" → "MYH7"
+    # Common aliases
+    _aliases = {"BETAARRESTIN1":"ARRB1","BETAARRESTIN2":"ARRB2","FILAMIN":"FLNA",
+                "FILAMINC":"FLNC","FILAMINB":"FLNB","TALIN":"TALN1",
+                "MUSC2":"CHRM2","MUSC3":"CHRM3","ACM2":"CHRM2","ACM3":"CHRM3",
+                "P53":"TP53","BCRA1":"BRCA1","BCRA2":"BRCA2"}
+    gene = _aliases.get(gene, gene)
 
     # ── SIDEBAR RESULTS ────────────────────────────────────────────────────
     if "ss_gene" in st.session_state and st.session_state.ss_gene:
@@ -498,7 +524,7 @@ if run_btn or (gene and "ss_gene" not in st.session_state):
 
             # AlphaFold
             uid = ss.ss_uni.get("uid","") if ss.ss_uni else ""
-            ss.ss_pdb, ss.ss_pdb_src = fetch_alphafold(uid) if use_db and uid else (None,"")
+            ss.ss_pdb, ss.ss_pdb_src = fetch_alphafold(uid, gene) if use_db else (None,"")
 
             # Wet lab scoring
             ss.ss_scored = None; ss.ss_stats = None; ss.ss_info = None; ss.ss_pathways = None
@@ -560,9 +586,10 @@ with tab1:
             </div>
           </div>
         </div>""", unsafe_allow_html=True)
-        st.stop()
-
-    gene      = st.session_state.ss_gene
+    if 'ss_gene' not in st.session_state:
+        pass
+    else:
+      gene      = st.session_state.ss_gene
     n_path    = st.session_state.ss_n_path
     tier      = st.session_state.ss_tier
     tc        = TIER_COLORS.get(tier,"#666"); ti=TIER_ICONS.get(tier,"⚪")
@@ -765,8 +792,9 @@ with tab1:
 # ══════════════════════════════════════════════════════════════════════════════
 with tab2:
     if "ss_gene" not in st.session_state:
-        st.info("👈 Enter a protein and click Analyse."); st.stop()
-    gene=st.session_state.ss_gene; uni=st.session_state.ss_uni or {}
+        st.info("👈 Enter a protein and click Analyse.")
+    else:
+        gene=st.session_state.ss_gene; uni=st.session_state.ss_uni or {}
     cv=st.session_state.ss_cv or {}; pdata=st.session_state.ss_pdata or {}
     n_path=st.session_state.ss_n_path; tier=st.session_state.ss_tier
     tc=TIER_COLORS.get(tier,"#666"); pname=st.session_state.ss_pname or gene
@@ -908,9 +936,11 @@ with tab2:
 # TAB 3 — PROTEIN EXPLORER (clickable structure + mutation animation + disease list)
 # ══════════════════════════════════════════════════════════════════════════════
 with tab3:
-    if "ss_gene" not in st.session_state:
-        st.info("👈 Enter a protein and click Analyse."); st.stop()
-    gene=st.session_state.ss_gene; pdb=st.session_state.ss_pdb; pdb_src=st.session_state.ss_pdb_src or ""
+    _show_tab3 = "ss_gene" in st.session_state
+    if not _show_tab3:
+        st.info("👈 Enter a protein and click Analyse.")
+    if _show_tab3:
+        gene=st.session_state.ss_gene; pdb=st.session_state.ss_pdb; pdb_src=st.session_state.ss_pdb_src or ""
     uni=st.session_state.ss_uni or {}; cv=st.session_state.ss_cv or {}
     pdata=st.session_state.ss_pdata or {}; n_path=st.session_state.ss_n_path
     tier=st.session_state.ss_tier; tc=TIER_COLORS.get(tier,"#666")
@@ -1109,9 +1139,11 @@ with tab3:
 # TAB 4 — THERAPY & EXPERIMENTS
 # ══════════════════════════════════════════════════════════════════════════════
 with tab4:
-    if "ss_gene" not in st.session_state:
-        st.info("👈 Enter a protein and click Analyse."); st.stop()
-    gene=st.session_state.ss_gene; n_path=st.session_state.ss_n_path; tier=st.session_state.ss_tier
+    _show_tab4 = "ss_gene" in st.session_state
+    if not _show_tab4:
+        st.info("👈 Enter a protein and click Analyse.")
+    if _show_tab4:
+        gene=st.session_state.ss_gene; n_path=st.session_state.ss_n_path; tier=st.session_state.ss_tier
     tc=TIER_COLORS.get(tier,"#666"); pdata=st.session_state.ss_pdata or {}
     scored=st.session_state.ss_scored; pc_col="priority_final" if scored is not None and "priority_final" in scored.columns else "priority"
     uni=st.session_state.ss_uni or {}; cv=st.session_state.ss_cv or {}
