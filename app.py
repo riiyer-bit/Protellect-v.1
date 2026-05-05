@@ -732,58 +732,179 @@ with tab1:
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# TAB 2 — CASE STUDY
-# ══════════════════════════════════════════════════════════════════════════
+# TAB 2 — PROTEIN PROFILE (dynamic — uses detected protein, not TP53)
+# ══════════════════════════════════════════════════════════════════════════════
 with tab2:
     if LOGO_B64:
-        st.markdown(f'<div style="display:flex;align-items:center;gap:14px;margin-bottom:6px"><img src="{LOGO_B64}" style="height:44px;object-fit:contain;border-radius:8px"><div><h2 style="margin:0;font-size:1.4rem">Case Study — TP53 R175H</h2><p style="color:#555;font-size:0.84rem;margin:0">How Protellect processes a known mutation end-to-end</p></div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="display:flex;align-items:center;gap:14px;margin-bottom:6px"><img src="{LOGO_B64}" style="height:44px;object-fit:contain;border-radius:8px"><div><h2 style="margin:0;font-size:1.4rem">Protein Profile</h2><p style="color:#555;font-size:0.84rem;margin:0">Full breakdown of the detected protein — biology, ClinVar evidence, experiments, therapy</p></div></div>', unsafe_allow_html=True)
     st.divider()
-    left, right = st.columns([1,1.3], gap="large")
-    with left:
-        st.markdown('<div class="sec-label">Background</div>', unsafe_allow_html=True)
-        st.markdown("""<div style="background:#0f1117;border:1px solid #2a2d3a;border-radius:10px;padding:18px;margin-bottom:14px">
-          <p style="font-size:0.84rem;color:#bbb;line-height:1.7">Arginine 175 → Histidine. Disrupts zinc-coordination site (C176/H179/C238/C242) causing global misfolding. Found in <strong style="color:#FF4C4C">~6% of all human cancers</strong>. Both loss-of-function and dominant negative.</p>
-        </div>
-        <div style="background:#0f1117;border:1px solid #2a2d3a;border-radius:10px;padding:18px;margin-bottom:14px">
-          <p style="font-family:'IBM Plex Mono',monospace;font-size:0.75rem;color:#FF4C4C;margin-bottom:8px;text-transform:uppercase">Protellect output</p>
-          <p style="font-size:0.84rem;color:#bbb;line-height:1.7">Score: <strong style="color:#FF4C4C">0.99/1.00</strong> · Priority: <strong style="color:#FF4C4C">HIGH</strong> · ML confidence: ~97%<br>UniProt P04637 · ClinVar: 847 pathogenic submissions</p>
+
+    # Get detected protein from session state
+    _proto2 = st.session_state.get("t_protein", {}) or {}
+    _enrich2 = st.session_state.get("t_enrichment", {}) or {}
+    _verdict2 = st.session_state.get("t_verdict", {}) or {}
+    _gene2 = _proto2.get("gene_name","") or (_enrich2.get("uniprot",{}) or {}).get("gene_name","")
+
+    if not _gene2:
+        st.info("👈 Enter a protein name in the Q&A sidebar and click **Run Triage** to load protein data.")
+        st.markdown("Try: **FLNA** (Filamin A) · **FLNC** (Filamin C) · **CHRM2** · **CHRM3** · **ARRB1** (β-arrestin) · **TP53** · **BRCA1**")
+    else:
+        _uni2  = (_enrich2.get("uniprot",{}) or {})
+        _cv2   = (_enrich2.get("clinvar",{}) or {})
+        _n2    = _verdict2.get("n_pathogenic", 0) or 0
+        _tier2 = _verdict2.get("tier","UNKNOWN")
+        _dbr2  = _verdict2.get("dbr", None)
+        _tc2   = {"CRITICAL":"#FF4C4C","HIGH":"#FFA500","LOW":"#FFD700","NONE":"#888","UNKNOWN":"#4CA8FF"}.get(_tier2,"#888")
+        _pname2= _uni2.get("protein_name","") or _gene2
+        _len2  = _uni2.get("length", 0)
+        _uid2  = _uni2.get("uniprot_id","") or _proto2.get("uniprot_id","")
+        _subcel2 = _uni2.get("subcellular",[])
+        _is_gpcr2 = _uni2.get("is_gpcr",False)
+        _gprot2 = _uni2.get("g_protein_coupling","")
+        _domains2 = _uni2.get("domains",[])
+
+        # Ground truth override
+        if _gene2.upper() in GROUND_TRUTH:
+            _gt = GROUND_TRUTH[_gene2.upper()]
+            if _gt[0] > _n2:
+                _n2 = _gt[0]; _len2 = _gt[1] or _len2
+                from evidence_layer import calculate_dbr as _cdbr, assign_genomic_tier as _agt
+                _dbr2 = _cdbr(_n2, _len2 or 1); _tier2 = _agt(_dbr2, _n2)
+                _tc2 = {"CRITICAL":"#FF4C4C","HIGH":"#FFA500","LOW":"#FFD700","NONE":"#888"}.get(_tier2,"#888")
+
+        # Load protein_data
+        _pd2 = get_protein_info(_gene2)
+        _real_bio2   = _pd2.get("real_biology","")
+        _gpcr_info2  = _pd2.get("gpcr_interaction",{})
+        _pig_rel2    = _pd2.get("piggyback_relationship",{})
+        _why_minor2  = _pd2.get("why_mutations_minor","")
+        _why_major2  = _pd2.get("why_mutations_major","")
+        _exps2       = _pd2.get("experiments_specific",[])
+        _tissue2     = _pd2.get("tissue_expression",{})
+        _papers2     = _pd2.get("papers",[])
+
+        # ── HEADER ──────────────────────────────────────────────────────────
+        st.markdown(f"""
+        <div style="background:#0a0a14;border:2px solid {_tc2};border-radius:12px;padding:18px 22px;margin-bottom:16px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
+            <div>
+              <div style="font-family:IBM Plex Mono,monospace;font-size:1.2rem;font-weight:700;color:#eee">{_gene2} — {_pname2}</div>
+              <div style="font-size:0.78rem;color:#555;margin-top:4px">{f"UniProt {_uid2} · " if _uid2 else ""}{_len2} aa · {f"GPCR · {_gprot2}" if _is_gpcr2 else "Non-GPCR"}</div>
+            </div>
+            <div style="text-align:right">
+              <div style="font-size:1.6rem;font-weight:700;font-family:IBM Plex Mono,monospace;color:{_tc2}">{_n2}</div>
+              <div style="font-size:0.65rem;color:#555;text-transform:uppercase">Germline pathogenic (ClinVar)</div>
+              <div style="font-size:0.75rem;color:{_tc2};font-family:IBM Plex Mono,monospace;margin-top:2px">DBR {f"{_dbr2:.3f}" if _dbr2 else "N/A"} · {_tier2}</div>
+            </div>
+          </div>
         </div>""", unsafe_allow_html=True)
-        st.markdown('<div class="sec-label">Experimental pathway (context: oncology drug target)</div>', unsafe_allow_html=True)
-        for i,(t,d) in enumerate([
-            ("Target druggability check","FPocket on PDB 2OCJ — 3 druggable cavities identified near R175."),
-            ("Structural validation","Thermal shift: Tm −8°C vs WT. EMSA: complete loss of DNA binding."),
-            ("Database cross-reference","ClinVar: 847 pathogenic. COSMIC: breast, lung, colorectal. ChEMBL: APR-246 listed."),
-            ("Therapeutic rescue screen","APR-246 dose-response: partial Tm rescue at 10μM. Validated refolding activity."),
-            ("In vivo follow-up","Xenograft model with APR-246 treatment — tumour growth inhibition confirmed."),
-        ],1):
-            st.markdown(f'<div style="display:flex;gap:12px;margin-bottom:12px"><div style="width:26px;height:26px;border-radius:50%;background:#FF4C4C22;color:#FF4C4C;border:1px solid #FF4C4C55;display:flex;align-items:center;justify-content:center;font-family:IBM Plex Mono,monospace;font-size:0.72rem;font-weight:600;flex-shrink:0;margin-top:2px">{i}</div><div><strong style="color:#eee;font-size:0.88rem;display:block;margin-bottom:3px">{t}</strong><span style="color:#666;font-size:0.8rem;line-height:1.5">{d}</span></div></div>', unsafe_allow_html=True)
-    with right:
-        st.markdown('<div class="sec-label">3D Structure — TP53 (PDB 2OCJ)</div>', unsafe_allow_html=True)
-        with st.spinner("Loading..."):
-            pdb_cs = fetch_pdb_fallback()
-        if pdb_cs:
-            esc2 = pdb_cs.replace("\\","\\\\").replace("`","\\`").replace("${","\\${")[:260000]
-            cs_html = f"""<!DOCTYPE html><html><head>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/3Dmol/2.0.3/3Dmol-min.js"></script>
-<style>body{{margin:0;background:#080b14}}#v{{width:580px;height:490px}}</style>
-</head><body><div id="v"></div><script>
-const p=`{esc2}`;
-let v=$3Dmol.createViewer('v',{{backgroundColor:'#080b14',antialias:true}});
-v.addModel(p,'pdb');v.setStyle({{}},{{cartoon:{{color:'#1e2030',opacity:0.45}}}});
-v.addStyle({{resi:'94-292'}},{{cartoon:{{color:'#4CA8FF',opacity:0.8}}}});
-v.addStyle({{resi:175}},{{sphere:{{color:'#FF4C4C',radius:1.05}}}});
-v.addSurface($3Dmol.VDW,{{opacity:0.3,color:'#FF4C4C'}},{{resi:175}});
-[248,273,249,245,282].forEach(r=>v.addStyle({{resi:r}},{{sphere:{{color:'#FF8C00',radius:0.65}}}}));
-v.zoomTo({{resi:'94-292'}});v.spin(false);v.render();
-</script></body></html>"""
-            components.html(cs_html, height=495)
-        st.divider()
-        st.markdown('<div class="sec-label">Key Facts</div>', unsafe_allow_html=True)
-        facts = [("Mutation","Missense · Arg→His at codon 175"),("Domain","DNA-binding domain · L2 loop · zinc coordination"),("Mechanism","Zinc-site disruption → global misfolding → DNA binding lost"),("Frequency","~6% of all cancers · most common TP53 hotspot"),("Functional class","Loss-of-function + dominant negative GOF"),("ClinVar","847 pathogenic submissions"),("Therapeutic","APR-246 (eprenetapopt) · Phase III; PC14586 (rezatapopt) · Phase II for Y220C")]
-        st.markdown('<table class="facts-table">'+"".join(f"<tr><td>{l}</td><td>{v}</td></tr>" for l,v in facts)+"</table>", unsafe_allow_html=True)
+
+        # ── Real biology ────────────────────────────────────────────────────
+        col_a, col_b = st.columns([1,1], gap="large")
+        with col_a:
+            st.markdown('<div style="font-family:IBM Plex Mono,monospace;font-size:0.65rem;text-transform:uppercase;letter-spacing:0.15em;color:#4CA8FF;margin-bottom:8px">What this protein actually does</div>', unsafe_allow_html=True)
+            if _real_bio2:
+                st.markdown(f'<div style="background:#0a0c14;border:1px solid #1e2030;border-radius:8px;padding:14px;font-size:0.8rem;color:#cccccc;line-height:1.9;white-space:pre-line">{_real_bio2[:900]}</div>', unsafe_allow_html=True)
+            elif _uni2.get("function"):
+                st.markdown(f'<div style="background:#0a0c14;border:1px solid #1e2030;border-radius:8px;padding:14px;font-size:0.8rem;color:#aaa;line-height:1.8">{_uni2["function"][:600]}</div>', unsafe_allow_html=True)
+            else:
+                st.markdown(f'<div style="background:#0a0c14;border:1px solid #1e2030;border-radius:8px;padding:12px;font-size:0.8rem;color:#555">Enable DB enrichment to load UniProt function for {_gene2}</div>', unsafe_allow_html=True)
+
+            if _gpcr_info2:
+                atype_2 = _gpcr_info2.get("type",""); color_2 = "#9370DB" if "SCAFFOLD" in atype_2 else "#FFA500" if "IS A GPCR" in atype_2 else "#888"
+                st.markdown(f"""
+                <div style="background:#100a18;border:1px solid {color_2}44;border-radius:8px;padding:12px 14px;margin-top:10px">
+                  <div style="font-family:IBM Plex Mono,monospace;font-size:0.63rem;text-transform:uppercase;color:{color_2};margin-bottom:6px">GPCR Association: {atype_2}</div>
+                  <div style="font-size:0.8rem;color:#bbb;line-height:1.7">{_gpcr_info2.get("mechanism","")[:250]}</div>
+                  <div style="margin-top:6px;font-size:0.72rem;color:#555">Partners: {" · ".join(_gpcr_info2.get("which_gpcrs",[])[:4])}</div>
+                </div>""", unsafe_allow_html=True)
+
+            if _pig_rel2:
+                partners_str = " · ".join(_pig_rel2.get("essential_partners",[])[:3])
+                st.markdown(f"""
+                <div style="background:#100808;border:1px solid #FF4C4C33;border-radius:8px;padding:12px 14px;margin-top:10px">
+                  <div style="font-family:IBM Plex Mono,monospace;font-size:0.63rem;color:#FF4C4C;margin-bottom:6px">Piggyback relationship</div>
+                  <div style="font-size:0.79rem;color:#bbb;line-height:1.7">{_pig_rel2.get("mechanism","")[:200]}</div>
+                  <div style="font-size:0.72rem;color:#888;margin-top:4px">Essential partners: {partners_str}</div>
+                </div>""", unsafe_allow_html=True)
+
+            why_text = _why_major2 or _why_minor2
+            if why_text:
+                label2 = "Why mutations are critical" if _n2 > 50 else "Why mutations are minor — the real biology" if _n2 == 0 else "Why this is a rare Mendelian gene"
+                st.markdown(f'<div style="background:#0d1020;border-left:3px solid {_tc2};border-radius:0 8px 8px 0;padding:12px 14px;margin-top:10px"><div style="font-family:IBM Plex Mono,monospace;font-size:0.62rem;color:{_tc2};text-transform:uppercase;margin-bottom:5px">{label2}</div><div style="font-size:0.79rem;color:#bbb;line-height:1.8;white-space:pre-line">{why_text[:600]}</div></div>', unsafe_allow_html=True)
+
+        with col_b:
+            # ── ClinVar germline vs somatic ─────────────────────────────────
+            st.markdown('<div style="font-family:IBM Plex Mono,monospace;font-size:0.65rem;text-transform:uppercase;letter-spacing:0.15em;color:#FF4C4C;margin-bottom:8px">ClinVar — Germline vs Somatic (separated)</div>', unsafe_allow_html=True)
+            _path2  = _cv2.get("pathogenic",[]) + _cv2.get("likely_pathogenic",[]) if _cv2 else []
+            _beni2  = _cv2.get("benign",[]) + _cv2.get("likely_benign",[]) if _cv2 else []
+            _vus2   = _cv2.get("vus",[]) if _cv2 else []
+            _somat2 = _cv2.get("somatic",[]) if _cv2 else []
+            st.markdown(f"""
+            <div style="background:#0a0a14;border:1px solid {_tc2}44;border-radius:8px;padding:12px;margin-bottom:8px">
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:10px">
+                <div style="text-align:center;background:#080b14;border:1px solid #1e2030;border-radius:6px;padding:8px">
+                  <div style="font-size:1.3rem;font-weight:700;font-family:IBM Plex Mono,monospace;color:{_tc2}">{_n2}</div>
+                  <div style="font-size:0.6rem;color:#555;text-transform:uppercase">Germline P/LP</div>
+                </div>
+                <div style="text-align:center;background:#080b14;border:1px solid #1e2030;border-radius:6px;padding:8px">
+                  <div style="font-size:1.3rem;font-weight:700;font-family:IBM Plex Mono,monospace;color:#555">{len(_vus2)}</div>
+                  <div style="font-size:0.6rem;color:#555;text-transform:uppercase">VUS</div>
+                </div>
+                <div style="text-align:center;background:#080b14;border:1px solid #1e2030;border-radius:6px;padding:8px">
+                  <div style="font-size:1.3rem;font-weight:700;font-family:IBM Plex Mono,monospace;color:#FFA500">{len(_somat2)}</div>
+                  <div style="font-size:0.6rem;color:#555;text-transform:uppercase">Somatic only ⚠</div>
+                </div>
+                <div style="text-align:center;background:#080b14;border:1px solid #1e2030;border-radius:6px;padding:8px">
+                  <div style="font-size:1.3rem;font-weight:700;font-family:IBM Plex Mono,monospace;color:#4CA8FF">{len(_beni2)}</div>
+                  <div style="font-size:0.6rem;color:#555;text-transform:uppercase">Benign/LB</div>
+                </div>
+              </div>
+              <div style="font-size:0.72rem;color:#555;padding:6px 8px;background:#070a0a;border-radius:4px;line-height:1.6">
+                <strong style="color:#888">Germline</strong> = inherited variants proving essentiality.
+                <strong style="color:#888">Somatic</strong> = cancer cell mutations only — NOT inherited disease evidence.
+                Somatic variants do NOT validate a drug target.
+              </div>
+            </div>""", unsafe_allow_html=True)
+
+            # Diseases from ClinVar and ground truth
+            diseases_to_show = []
+            if _gene2.upper() in GROUND_TRUTH:
+                diseases_to_show = [d.strip() for d in GROUND_TRUTH[_gene2.upper()][4].split("·") if d.strip()]
+            elif _cv2:
+                _dis_set2 = set()
+                for v in _path2[:30]:
+                    for c in v.get("conditions",[]):
+                        if c and "not provided" not in c.lower(): _dis_set2.add(c)
+                diseases_to_show = sorted(list(_dis_set2))[:8]
+
+            if diseases_to_show:
+                st.markdown('<div style="font-family:IBM Plex Mono,monospace;font-size:0.63rem;text-transform:uppercase;letter-spacing:0.12em;color:#5a5d7a;margin-bottom:6px">Confirmed diseases (ClinVar)</div>', unsafe_allow_html=True)
+                for dis in diseases_to_show[:6]:
+                    st.markdown(f'<div style="padding:5px 10px;margin-bottom:3px;background:#0a0607;border:1px solid #FF4C4C22;border-radius:5px;font-size:0.79rem;color:#dddddd">● {dis}</div>', unsafe_allow_html=True)
+
+            # Subcellular
+            if _subcel2:
+                st.markdown('<div style="font-family:IBM Plex Mono,monospace;font-size:0.63rem;text-transform:uppercase;letter-spacing:0.12em;color:#5a5d7a;margin-bottom:6px;margin-top:10px">Subcellular location</div>', unsafe_allow_html=True)
+                for loc in _subcel2[:4]:
+                    ico = "🔬" if "nucle" in loc.lower() else "🧬" if "membran" in loc.lower() else "⚙️" if any(x in loc.lower() for x in ("cytopl","mitoch")) else "📍"
+                    st.markdown(f'<div style="padding:4px 8px;margin-bottom:3px;background:#0a0c14;border:1px solid #1e2030;border-radius:5px;font-size:0.78rem;color:#bbb">{ico} {loc}</div>', unsafe_allow_html=True)
+
+            # Specific experiments
+            if _exps2:
+                st.markdown('<div style="font-family:IBM Plex Mono,monospace;font-size:0.63rem;text-transform:uppercase;letter-spacing:0.12em;color:#4CAF50;margin-bottom:6px;margin-top:10px">Protein-specific experiments</div>', unsafe_allow_html=True)
+                for exp in _exps2[:3]:
+                    with st.expander(f"Level {exp.get('level','?')} — {exp['name'][:45]}"):
+                        st.markdown(f'<p style="font-size:0.8rem;color:#bbb;line-height:1.7">{exp.get("rationale","")}</p>', unsafe_allow_html=True)
+                        if exp.get("protocol"): st.code(exp["protocol"], language="text")
+
+            # Papers
+            if _papers2:
+                st.markdown('<div style="font-family:IBM Plex Mono,monospace;font-size:0.63rem;text-transform:uppercase;letter-spacing:0.12em;color:#4CA8FF;margin-bottom:6px;margin-top:10px">Key papers</div>', unsafe_allow_html=True)
+                for p2 in _papers2[:3]:
+                    st.markdown(f'<div style="padding:5px 8px;margin-bottom:4px;background:#0a0c14;border:1px solid #1a1d2e;border-radius:5px;font-size:0.74rem"><a href="{p2.get("url","#")}" target="_blank" style="color:#4CA8FF;text-decoration:none">{p2.get("title","")[:70]}</a><div style="font-size:0.68rem;color:#555;margin-top:2px">{p2.get("key","")[:60]}</div></div>', unsafe_allow_html=True)
 
 
-# ══════════════════════════════════════════════════════════════════════════
 # TAB 3 — PROTEIN EXPLORER
 # ══════════════════════════════════════════════════════════════════════════
 with tab3:

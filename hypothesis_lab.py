@@ -686,7 +686,7 @@ def render():
         hypothesis = str(row.get("hypothesis", ""))
         status    = {"HIGH": "critical", "MEDIUM": "affected", "LOW": "normal"}.get(priority, "normal")
         # Protein-aware hotspot lookup — works for any protein, not just TP53
-        _gene_hl = ""
+        # enrichment_state already set above
         if info and info.get("genes"): _gene_hl = info["genes"][0]
         if not _gene_hl and enrichment_state:
             _gene_hl = (enrichment_state.get("uniprot",{}) or {}).get("gene_name","")
