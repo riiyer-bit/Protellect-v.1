@@ -1,373 +1,501 @@
+from __future__ import annotations
 """
-Tab 2 — Case Study
-• Tissue associations
-• Genomic data (NCBI Gene)
-• GPCR association (piggybacked or important)
-• Disease classification — somatic vs germline (UniProt + ClinVar)
+Tab 4 — Further Experimentation & Therapy
+• Detailed drop-down for each experiment type
+• Cost tiers, protocols, mutation focus / neglect guidance
+• Therapeutic modality recommendations
+• Tutorial steps
 """
 
 import streamlit as st
 import plotly.graph_objects as go
-import plotly.express as px
 from utils.uniprot import UniProtClient
-from utils.ncbi import NCBIClient
 from utils.pubmed import render_citations
 
+# ─── Experiment catalogue ─────────────────────────────────────────────────────
+EXPERIMENT_CATALOGUE = {
+    "🧬 Functional / Biochemical": {
+        "In vitro Kinase / Enzyme Activity Assay": {
+            "purpose": "Directly measure gain or loss of enzymatic activity for variant proteins.",
+            "protocol": [
+                "Express WT and variant proteins in E. coli or insect cells (baculovirus).",
+                "Purify via His-tag affinity + size-exclusion chromatography.",
+                "Run kinase reaction with [γ-³²P]-ATP or ADP-Glo™ luminescent system.",
+                "Compare Km and Vmax between WT and each variant.",
+                "Run in triplicate; SEM ≤ 10%.",
+            ],
+            "focus":  "Variants at catalytic residues (D-loop, activation loop, P-loop).",
+            "neglect":"Variants in disordered linkers or low-confidence pLDDT (<50) regions.",
+            "cost":   "$$",
+            "timeline": "3–6 weeks",
+            "outcome": "Quantitative activity ratio WT vs mutant → direct functional evidence.",
+        },
+        "Co-Immunoprecipitation (Co-IP) / AP-MS": {
+            "purpose": "Map protein–protein interaction network changes per variant.",
+            "protocol": [
+                "Tag protein of interest (3×FLAG or GFP) in HEK293T.",
+                "Lyse cells under native conditions (NP-40 buffer).",
+                "Immunoprecipitate with anti-tag antibody + protein A/G beads.",
+                "Run on SDS-PAGE or submit to mass spectrometry (TMT labelling recommended).",
+                "Validate top hits by reverse Co-IP.",
+            ],
+            "focus":  "Interface residues predicted by AlphaFold-Multimer.",
+            "neglect":"Splice variants with identical binding domains.",
+            "cost":   "$$$",
+            "timeline": "4–8 weeks",
+            "outcome": "Interaction network rewiring per mutation.",
+        },
+        "Thermal Shift Assay (TSA / DSF)": {
+            "purpose": "Screen small-molecule binders and assess variant folding stability.",
+            "protocol": [
+                "Purify WT and variant proteins (0.5 mg/mL).",
+                "Prepare 96-well plate with SYPRO Orange dye (5×) in buffer.",
+                "Ramp temperature 25→95°C at 1°C/min in RT-PCR machine.",
+                "Record fluorescence; compute Tm via Boltzmann sigmoidal fit.",
+                "Test 1000s of fragments / small molecules for Tm shifts ≥ 1°C.",
+            ],
+            "focus":  "Pathogenic missense variants that destabilise the core fold.",
+            "neglect":"Intrinsically disordered regions — no Tm signal expected.",
+            "cost":   "$",
+            "timeline": "1–2 weeks",
+            "outcome": "ΔTm per variant; prioritise stabilising compounds for therapeutic lead.",
+        },
+    },
 
-def render_case_study_tab(
+    "🔬 Cell-Based": {
+        "CRISPR-Cas9 Knockout / Knock-in": {
+            "purpose": "Introduce exact patient-like variants into endogenous locus.",
+            "protocol": [
+                "Design guide RNAs (e.g. via CRISPOR) flanking variant site.",
+                "Co-transfect sgRNA + SpCas9 RNP with ssODN HDR donor in relevant cell line.",
+                "Screen colonies by Sanger sequencing or NGS (≥50 clones).",
+                "Validate protein expression by Western blot and IF.",
+                "Run functional phenotyping assays (proliferation, apoptosis, etc.).",
+            ],
+            "focus":  "Variants with ClinVar P/LP classification and high ML score (≥0.75).",
+            "neglect":"VUS with <2 stars review status — too uncertain for resource-intensive knock-in.",
+            "cost":   "$$$",
+            "timeline": "6–12 weeks",
+            "outcome": "Isogenic cell lines for mechanistic studies; gold-standard functional evidence.",
+        },
+        "Reporter / Luciferase Assay": {
+            "purpose": "Quantify transcriptional activity of transcription factor variants.",
+            "protocol": [
+                "Clone target promoter (1 kb upstream) into pGL4 luciferase vector.",
+                "Transfect with WT or mutant TF expression plasmid + Renilla control.",
+                "Measure firefly : Renilla ratio 48 h post-transfection.",
+                "Run in ≥3 independent experiments in triplicates.",
+            ],
+            "focus":  "Variants in DNA-binding domain or transactivation domain.",
+            "neglect":"Variants in N-terminal disordered segments not involved in DNA contact.",
+            "cost":   "$",
+            "timeline": "1–3 weeks",
+            "outcome": "Fold-change in target gene activation / repression per variant.",
+        },
+        "Cell Viability / Proliferation (MTT / CellTiter-Glo)": {
+            "purpose": "Assess oncogenic or tumour-suppressive phenotype of variants.",
+            "protocol": [
+                "Seed cells in 96-well plates (5,000 cells/well).",
+                "Treat with agonist / inhibitor or express variant for 72 h.",
+                "Add CellTiter-Glo reagent; measure luminescence.",
+                "Normalise to vehicle control; IC₅₀ calculation where applicable.",
+            ],
+            "focus":  "Gain-of-function oncogenic variants; hotspot residues in CRITICAL tier.",
+            "neglect":"Benign / likely benign variants — not worth cell-based validation.",
+            "cost":   "$",
+            "timeline": "1–2 weeks",
+            "outcome": "Viability % vs WT; GO/NO-GO for animal studies.",
+        },
+        "Flow Cytometry (Apoptosis / Cell Cycle)": {
+            "purpose": "Characterise apoptotic signalling downstream of variant.",
+            "protocol": [
+                "Express WT vs mutant protein in relevant cell line.",
+                "At 72 h, harvest cells and stain with Annexin V-FITC / PI.",
+                "Acquire 10,000 events on flow cytometer.",
+                "Gate on live / early apoptotic / late apoptotic / necrotic populations.",
+            ],
+            "focus":  "Tumour-suppressor variants where loss of apoptotic induction is expected.",
+            "neglect":"Kinase variants unless downstream apoptosis is a known pathway.",
+            "cost":   "$",
+            "timeline": "1 week",
+            "outcome": "Apoptosis induction % per variant.",
+        },
+    },
+
+    "🧫 Structural": {
+        "AlphaFold2 + Rosetta Stability Prediction": {
+            "purpose": "Compute in silico ΔΔG for all missense variants before committing to wet lab.",
+            "protocol": [
+                "Download AF2 structure from AlphaFold DB.",
+                "Run Rosetta FastRelax on WT structure.",
+                "Introduce each variant with Rosetta MutateResidue mover.",
+                "Compute ΔΔG = G(mutant) − G(WT); threshold ≥ 2 REU as destabilising.",
+                "Cross-reference with ML pathogenicity scores for orthogonal prioritisation.",
+            ],
+            "focus":  "All missense variants in structured domains (pLDDT ≥ 70).",
+            "neglect":"Variants in disordered regions (pLDDT < 50) — Rosetta unreliable here.",
+            "cost":   "Free (compute cost only)",
+            "timeline": "1–3 days (automated pipeline)",
+            "outcome": "Ranked variant list by predicted stability — eliminates ~50% of candidates.",
+        },
+        "Surface Plasmon Resonance (SPR / Biacore)": {
+            "purpose": "Measure binding kinetics of WT vs mutant to ligand / drug / partner.",
+            "protocol": [
+                "Immobilise ligand on CM5 chip via amine coupling.",
+                "Flow analyte (WT or mutant protein) at 5 concentrations.",
+                "Fit association / dissociation curves to 1:1 Langmuir model.",
+                "Report KD, kon, koff.",
+            ],
+            "focus":  "Variants predicted to alter binding interfaces (charge, hydrophobicity).",
+            "neglect":"Variants far from binding site (>15 Å in AF2 structure).",
+            "cost":   "$$$",
+            "timeline": "2–4 weeks",
+            "outcome": "KD shift per variant; guide structural drug design.",
+        },
+    },
+
+    "🐭 In Vivo / Translational": {
+        "Xenograft Mouse Model": {
+            "purpose": "Test tumorigenic potential of gain-of-function variants in vivo.",
+            "protocol": [
+                "Inject 1×10⁶ cells (CRISPR knock-in or overexpression) subcutaneously into NSG mice.",
+                "Monitor tumour volume twice weekly (caliper).",
+                "At endpoint, harvest tumour and perform histology (H&E, IHC).",
+                "Compare WT vs mutant growth curves (Student's t-test or log-rank).",
+            ],
+            "focus":  "Variants with in vitro proliferation data already supporting oncogenicity.",
+            "neglect":"VUS without functional pre-validation — resource too costly to use without prior evidence.",
+            "cost":   "$$$$",
+            "timeline": "8–16 weeks",
+            "outcome": "Tumour growth curves; histological characterisation.",
+        },
+        "Patient-derived Organoids (PDOs)": {
+            "purpose": "Recapitulate patient-specific mutational context in 3D tissue models.",
+            "protocol": [
+                "Obtain consent and tissue from patients carrying variant of interest.",
+                "Establish organoid culture in Matrigel with appropriate growth factors.",
+                "Introduce or correct variant via CRISPR.",
+                "Test drug sensitivity panel (IC₅₀ curves).",
+                "Correlate with clinical outcomes.",
+            ],
+            "focus":  "Variants in cancer genes where matched patient data is available.",
+            "neglect":"Germline rare variants without patient-matched material.",
+            "cost":   "$$$$",
+            "timeline": "12–24 weeks",
+            "outcome": "Personalised drug sensitivity profile.",
+        },
+    },
+
+    "💊 Therapeutic": {
+        "Small Molecule Drug Screening (HTS)": {
+            "purpose": "Identify compounds that rescue or inhibit mutant protein function.",
+            "protocol": [
+                "Establish biochemical or cell-based assay suitable for automation.",
+                "Screen compound library (10,000–1,000,000 compounds) at 10 µM.",
+                "Counter-screen hits for cytotoxicity.",
+                "Confirm dose-response (IC₅₀) for top 50 hits.",
+                "Advance top 5 for structure-activity relationship (SAR).",
+            ],
+            "focus":  "CRITICAL/HIGH tier variants with druggable pockets (FPocket > 0.5).",
+            "neglect":"Proteins without well-defined binding pockets (IDPs, nuclear lamins).",
+            "cost":   "$$$$ (library access)",
+            "timeline": "6–12 months",
+            "outcome": "Lead compound series for medicinal chemistry optimisation.",
+        },
+        "Antibody / Biologic Development": {
+            "purpose": "Target extracellular domains or cell-surface protein forms.",
+            "protocol": [
+                "Map antigenic epitopes on AF2 structure (surface-exposed loops).",
+                "Immunise rabbits / mice or run phage display.",
+                "ELISA-screen hybridoma supernatants.",
+                "Humanise lead antibody (CDR grafting).",
+                "Characterise binding (SPR, ELISA, Octet) and cellular activity.",
+            ],
+            "focus":  "Receptor / GPCR variants with extracellular gain-of-function.",
+            "neglect":"Intracellular proteins without secreted forms.",
+            "cost":   "$$$$$",
+            "timeline": "12–24 months",
+            "outcome": "Lead therapeutic antibody candidate.",
+        },
+        "PROTAC / Targeted Protein Degradation": {
+            "purpose": "Degrade undruggable gain-of-function mutant proteins.",
+            "protocol": [
+                "Design PROTAC bifunctional molecule: warhead (ligand for target) + E3-ligase recruiter (CRBN/VHL).",
+                "Synthesise 10–20 PROTAC candidates.",
+                "Assess DC₅₀ (degradation concentration) in cell line.",
+                "Quantify by Western blot / mass spec.",
+                "Check selectivity by proteome-wide TMT-MS.",
+            ],
+            "focus":  "Gain-of-function mutations that cannot be catalytically inhibited.",
+            "neglect":"Tumour suppressors — degradation worsens the loss-of-function phenotype.",
+            "cost":   "$$$$",
+            "timeline": "6–12 months",
+            "outcome": "Selective degrader with DC₅₀ < 100 nM.",
+        },
+    },
+}
+
+COST_LEGEND = {
+    "$":     ("< $1,000",    "#00c896"),
+    "$$":    ("$1K–$10K",   "#ffd60a"),
+    "$$$":   ("$10K–$50K",  "#ff6b00"),
+    "$$$$":  ("$50K–$200K", "#ff2d55"),
+    "$$$$$": ("> $200K",    "#a855f7"),
+}
+
+
+def render_experiments_tab(
     protein_data: dict,
     clinvar_data: dict | None,
-    ncbi_client:  NCBIClient,
+    ml_scores:    dict | None,
+    assay_text:   str,
     papers:       list | None,
     gene_name:    str,
 ):
-    st.markdown("#### 📋 Case Study — Molecular Profile")
-
-    # Fetch NCBI gene data (cached per session)
-    @st.cache_data(show_spinner=False)
-    def _get_ncbi(gene):
-        return ncbi_client.fetch_gene(gene)
-
-    gene_data = _get_ncbi(gene_name)
-
-    # ── Row 1: Tissue + Subcellular location ──────────────────────────────────
-    col_tissue, col_sub = st.columns([1, 1], gap="large")
-
-    with col_tissue:
-        _render_tissue_section(protein_data)
-
-    with col_sub:
-        _render_subcellular_section(protein_data)
-
-    st.markdown("<hr class='divider'>", unsafe_allow_html=True)
-
-    # ── Row 2: Genomic data ───────────────────────────────────────────────────
-    _render_genomic_section(protein_data, gene_data, gene_name)
-
-    st.markdown("<hr class='divider'>", unsafe_allow_html=True)
-
-    # ── Row 3: GPCR association ───────────────────────────────────────────────
-    _render_gpcr_section(protein_data)
-
-    st.markdown("<hr class='divider'>", unsafe_allow_html=True)
-
-    # ── Row 4: Disease classification (somatic / germline) ────────────────────
-    _render_disease_classification(protein_data, clinvar_data)
-
-    st.markdown("<hr class='divider'>", unsafe_allow_html=True)
-
-    # ── Citations ─────────────────────────────────────────────────────────────
-    render_citations(papers or [], max_show=4)
-
-
-# ─── Tissue section ───────────────────────────────────────────────────────────
-def _render_tissue_section(pdata: dict):
-    st.markdown("##### 🫀 Tissue Associations")
-
-    tissue_text = UniProtClient.extract_tissue_specificity(pdata)
-    if tissue_text:
-        st.markdown(
-            f"<div class='card'><p style='color:#c9d8e8;font-size:0.88rem;line-height:1.6;'>"
-            f"{tissue_text}</p></div>",
-            unsafe_allow_html=True,
-        )
-    else:
-        st.caption("No specific tissue annotation in UniProt.")
-
-    # HPA-style tissue bar (from keywords / comments)
-    tissues_kw = _infer_tissue_keywords(pdata)
-    if tissues_kw:
-        fig = go.Figure(go.Bar(
-            y=list(tissues_kw.keys()),
-            x=list(tissues_kw.values()),
-            orientation="h",
-            marker=dict(
-                color=list(tissues_kw.values()),
-                colorscale=[[0,"#1e3a5f"],[0.5,"#0090ff"],[1,"#00d4ff"]],
-                cmin=0, cmax=5,
-            ),
-        ))
-        fig.update_layout(
-            paper_bgcolor="#060e18", plot_bgcolor="#060e18",
-            font_color="#8ab4d4", margin=dict(l=0,r=0,t=20,b=0),
-            xaxis=dict(showgrid=False, zeroline=False),
-            yaxis=dict(tickfont=dict(size=11)),
-            height=200 + len(tissues_kw) * 22,
-            title=dict(text="Inferred expression pattern", font_size=12, font_color="#00d4ff"),
-        )
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-
-
-def _infer_tissue_keywords(pdata: dict) -> dict:
-    """Rough tissue evidence from keywords / function text."""
-    mapping = {
-        "Brain": ["brain","neuron","cerebral","cortex","hippocampus","nervous"],
-        "Liver": ["liver","hepatic","hepatocyte"],
-        "Heart": ["heart","cardiac","myocardium","myocyte"],
-        "Kidney": ["kidney","renal","nephron"],
-        "Lung": ["lung","pulmonary","alveolar"],
-        "Blood": ["blood","erythrocyte","leukocyte","platelet","haematop"],
-        "Breast": ["breast","mammary"],
-        "Colon": ["colon","colorectal","intestine"],
-        "Prostate": ["prostate"],
-        "Skin": ["skin","keratinocyte","melanocyte"],
-        "Muscle": ["muscle","skeletal","myoblast"],
-        "Pancreas": ["pancreas","islet","beta cell"],
-        "Thyroid": ["thyroid"],
-        "Bone": ["bone","osteoblast","osteoclast"],
-        "Testis": ["testis","sperm","spermatogen"],
-        "Ovary": ["ovary","oocyte"],
-        "Placenta": ["placenta","trophoblast"],
-    }
-    text = " ".join([
-        UniProtClient.extract_tissue_specificity(pdata),
-        UniProtClient.extract_function(pdata),
-        " ".join(kw.get("value","") for kw in pdata.get("keywords",[])),
-    ]).lower()
-    scores = {}
-    for tissue, kws in mapping.items():
-        sc = sum(1 for k in kws if k in text)
-        if sc:
-            scores[tissue] = sc
-    return dict(sorted(scores.items(), key=lambda x: -x[1])[:10])
-
-
-# ─── Subcellular location ─────────────────────────────────────────────────────
-def _render_subcellular_section(pdata: dict):
-    st.markdown("##### 📍 Subcellular Localisation")
-    locs = UniProtClient.extract_subcellular_locations(pdata)
-    if locs:
-        for loc in locs:
-            st.markdown(
-                f"<div style='display:flex;align-items:center;gap:8px;margin:6px 0;'>"
-                f"<span style='color:#00d4ff;font-size:1.1rem;'>◆</span>"
-                f"<span style='color:#c9d8e8;font-size:0.88rem;'>{loc}</span>"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
-    else:
-        st.caption("No subcellular localisation data.")
-
-    # PTMs
-    st.markdown("##### ⚗️ Post-Translational Modifications")
-    ptm_text = next(
-        (c.get("texts",[{}])[0].get("value","")
-         for c in pdata.get("comments",[])
-         if c.get("commentType") == "PTM"),
-        ""
+    st.markdown("#### 🧪 Further Experimentation & Therapy")
+    st.markdown(
+        "Detailed protocols, cost considerations, and mutation-level guidance for "
+        "maximising experimental ROI.",
     )
-    if ptm_text:
-        st.markdown(
-            f"<div class='card'><p style='color:#c9d8e8;font-size:0.85rem;line-height:1.6;'>"
-            f"{ptm_text[:600]}</p></div>",
-            unsafe_allow_html=True,
-        )
+
+    # ── Summary scorecard ────────────────────────────────────────────────────
+    _render_strategy_scorecard(protein_data, clinvar_data, ml_scores)
+
+    st.markdown("<hr class='divider'>", unsafe_allow_html=True)
+
+    # ── Assay text interpretation ─────────────────────────────────────────────
+    if assay_text and assay_text.strip():
+        _render_assay_guidance(assay_text, clinvar_data, ml_scores)
+        st.markdown("<hr class='divider'>", unsafe_allow_html=True)
+
+    # ── Experiment catalogue ──────────────────────────────────────────────────
+    st.markdown("#### 📋 Experiment Catalogue with Detailed Protocols")
+    _render_cost_legend()
+
+    for category, experiments in EXPERIMENT_CATALOGUE.items():
+        st.markdown(f"### {category}")
+        for exp_name, exp in experiments.items():
+            _render_experiment_card(exp_name, exp, ml_scores, clinvar_data)
+
+    st.markdown("<hr class='divider'>", unsafe_allow_html=True)
+
+    # ── Decision flowchart ────────────────────────────────────────────────────
+    _render_decision_flowchart(protein_data, ml_scores, clinvar_data)
+
+    st.markdown("<hr class='divider'>", unsafe_allow_html=True)
+    render_citations(papers or [], max_show=6)
+
+
+# ─── Strategy scorecard ───────────────────────────────────────────────────────
+def _render_strategy_scorecard(pdata, clinvar_data, ml_scores):
+    st.markdown("##### 🎯 Experimental Strategy Scorecard")
+
+    diseases      = UniProtClient.extract_diseases(pdata)
+    summary       = (clinvar_data or {}).get("summary", {})
+    top_vars      = (ml_scores or {}).get("top_variants", [])
+    path_count    = summary.get("pathogenic_count", 0)
+    protein_type  = _infer_protein_type(pdata)
+
+    # Score components
+    n_diseases = len(diseases)
+    n_critical = sum(1 for v in top_vars if v.get("ml_rank") == "CRITICAL")
+    n_high     = sum(1 for v in top_vars if v.get("ml_rank") == "HIGH")
+
+    druggability = _estimate_druggability(pdata, protein_type)
+    priority     = min(100, (n_critical * 15 + n_high * 8 + path_count * 3 +
+                              n_diseases * 5 + druggability * 20))
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.markdown(
+        f"<div class='metric-box'><div class='val' style='color:#ff2d55;'>{n_critical}</div>"
+        f"<div class='lbl'>CRITICAL Variants</div></div>", unsafe_allow_html=True)
+    c2.markdown(
+        f"<div class='metric-box'><div class='val' style='color:#ff6b00;'>{n_high}</div>"
+        f"<div class='lbl'>HIGH Variants</div></div>", unsafe_allow_html=True)
+    c3.markdown(
+        f"<div class='metric-box'><div class='val' style='color:#00c896;'>{druggability:.0%}</div>"
+        f"<div class='lbl'>Druggability Est.</div></div>", unsafe_allow_html=True)
+    c4.markdown(
+        f"<div class='metric-box'><div class='val' style='color:#00d4ff;'>{priority}</div>"
+        f"<div class='lbl'>Priority Score / 100</div></div>", unsafe_allow_html=True)
+
+    # Recommendation
+    if priority >= 70:
+        rec = "⚡ **High experimental priority.** Multiple pathogenic variants with disease evidence. Recommend immediate functional validation (CRISPR knock-in, biochemical assays)."
+        colour = "#ff2d55"
+    elif priority >= 40:
+        rec = "🟡 **Moderate priority.** Some evidence warrants further investigation. In silico stability prediction + reporter assay recommended before animal studies."
+        colour = "#ffd60a"
     else:
-        st.caption("No PTM annotation.")
+        rec = "🟢 **Low priority.** Insufficient pathogenic evidence. ClinVar triage suggests this protein/variant set may not justify large-scale investment currently."
+        colour = "#00c896"
+
+    st.markdown(
+        f"<div style='background:#0a1929;border-left:4px solid {colour};border-radius:0 8px 8px 0;"
+        f"padding:1rem 1.5rem;margin-top:0.8rem;'>"
+        f"<p style='color:#c9d8e8;margin:0;'>{rec}</p></div>",
+        unsafe_allow_html=True,
+    )
 
 
-# ─── Genomic data section ─────────────────────────────────────────────────────
-def _render_genomic_section(pdata: dict, gene_data: dict, gene_name: str):
-    st.markdown("##### 🧬 Genomic Data")
+def _infer_protein_type(pdata: dict) -> str:
+    kws = [kw.get("value","").lower() for kw in pdata.get("keywords",[])]
+    if any("kinase" in k for k in kws):        return "kinase"
+    if any("transcription" in k for k in kws): return "transcription_factor"
+    if any("gpcr" in k or "g-protein" in k for k in kws): return "gpcr"
+    if any("receptor" in k for k in kws):      return "receptor"
+    if any("protease" in k for k in kws):      return "protease"
+    return "general"
 
-    uid  = pdata.get("primaryAccession", "—")
-    seq  = UniProtClient.extract_sequence(pdata)
-    length = pdata.get("sequence", {}).get("length", len(seq))
 
-    # Cross-references
-    xrefs = pdata.get("uniProtKBCrossReferences", [])
-    omim  = next((x.get("id","—") for x in xrefs if x.get("database") == "MIM"), "—")
-    hgnc  = next((x.get("id","—") for x in xrefs if x.get("database") == "HGNC"), "—")
-    ensembl = next((x.get("id","—") for x in xrefs if x.get("database") == "Ensembl"), "—")
-    refseq  = next((x.get("id","—") for x in xrefs if x.get("database") == "RefSeq"), "—")
+def _estimate_druggability(pdata: dict, ptype: str) -> float:
+    """Rough druggability score 0–1."""
+    scores = {
+        "kinase": 0.90,
+        "gpcr":   0.95,
+        "receptor": 0.80,
+        "protease": 0.75,
+        "transcription_factor": 0.35,
+        "general": 0.50,
+    }
+    return scores.get(ptype, 0.50)
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
+
+# ─── Assay guidance ───────────────────────────────────────────────────────────
+def _render_assay_guidance(assay_text: str, clinvar_data, ml_scores):
+    st.markdown("##### 🧫 Assay-Specific Next Steps")
+    text_lower = assay_text.lower()
+    top_vars   = (ml_scores or {}).get("top_variants", [])
+
+    recs = []
+    if "western blot" in text_lower or "wb" in text_lower:
+        recs.append(("Western Blot → Follow Up With",
+                     "Quantify expression differences across multiple cell lines. "
+                     "If expression change observed, proceed with ubiquitination assay and half-life measurement (CHX chase). "
+                     "Validate with orthogonal proteomics (SILAC or TMT-MS)."))
+    if "crispr" in text_lower or "knockout" in text_lower:
+        recs.append(("CRISPR Knockout → Follow Up With",
+                     "Rescue experiment: re-introduce WT and each variant to confirm specificity. "
+                     "RNA-seq on KO vs WT to identify transcriptome perturbation. "
+                     "If oncogene: assess if KO reduces tumour burden in xenograft."))
+    if "flow cytometry" in text_lower or "facs" in text_lower:
+        recs.append(("Flow Cytometry → Follow Up With",
+                     "If apoptosis detected: western blot for caspase 3/7 cleavage, Bcl-2 family members. "
+                     "If cell cycle arrest: add CDK inhibitor comparison. "
+                     "Consider single-cell RNA-seq to resolve heterogeneous populations."))
+    if "binding" in text_lower or "co-ip" in text_lower:
+        recs.append(("Interaction Data → Follow Up With",
+                     "Map binding interface using hydrogen-deuterium exchange MS (HDX-MS). "
+                     "Structural determination (cryo-EM or X-ray) to visualise complex. "
+                     "Design peptide / small-molecule disruptors of the interface."))
+    if not recs:
+        recs.append(("General Assay → Next Steps",
+                     "Characterise dose–response relationships. Validate findings in ≥2 independent cell lines. "
+                     "Integrate with ClinVar variant prioritisation for mechanistic hypotheses."))
+
+    for title, body in recs:
         st.markdown(
-            f"<div class='card'>"
-            f"<h4>Protein</h4>"
-            f"<p>UniProt: <b style='color:#00d4ff;'>{uid}</b><br>"
-            f"Length: <b>{length} aa</b><br>"
-            f"HGNC: {hgnc}</p>"
-            f"</div>", unsafe_allow_html=True)
-    with col2:
-        chrom = gene_data.get("chromosome", "—")
-        loc   = gene_data.get("map_location", "—")
-        start = gene_data.get("start", "—")
-        stop  = gene_data.get("stop", "—")
-        st.markdown(
-            f"<div class='card'>"
-            f"<h4>Genomic Location</h4>"
-            f"<p>Chr: <b style='color:#00d4ff;'>{chrom}</b><br>"
-            f"Cytoband: <b>{loc}</b><br>"
-            f"Start–Stop: {start}–{stop}</p>"
-            f"</div>", unsafe_allow_html=True)
-    with col3:
-        exons = gene_data.get("exon_count", "—")
-        ncbi_id = gene_data.get("gene_id", "—")
-        st.markdown(
-            f"<div class='card'>"
-            f"<h4>Gene</h4>"
-            f"<p>NCBI Gene ID: <b style='color:#00d4ff;'>{ncbi_id}</b><br>"
-            f"Exons: <b>{exons}</b><br>"
-            f"Ensembl: {ensembl[:20] if ensembl != '—' else '—'}</p>"
-            f"</div>", unsafe_allow_html=True)
-
-    # NCBI Gene summary
-    if gene_data.get("summary"):
-        with st.expander("📖 NCBI Gene Summary"):
-            st.write(gene_data["summary"])
-
-    # External links
-    links = []
-    if uid != "—":
-        links.append(f"[UniProt ↗](https://www.uniprot.org/uniprotkb/{uid})")
-    if omim != "—":
-        links.append(f"[OMIM ↗](https://www.omim.org/entry/{omim})")
-    if gene_data.get("gene_id"):
-        links.append(f"[NCBI Gene ↗](https://www.ncbi.nlm.nih.gov/gene/{gene_data['gene_id']})")
-    if ensembl and ensembl != "—":
-        links.append(f"[Ensembl ↗](https://www.ensembl.org/id/{ensembl})")
-
-    if links:
-        st.markdown("**External links:** " + " · ".join(links))
-
-
-# ─── GPCR section ─────────────────────────────────────────────────────────────
-def _render_gpcr_section(pdata: dict):
-    st.markdown("##### 📡 GPCR Association")
-    gpcr = UniProtClient.extract_gpcr_info(pdata)
-
-    if gpcr["is_gpcr"]:
-        coupling_str = ", ".join(gpcr["coupling"]) if gpcr["coupling"] else "Unknown"
-        st.markdown(
-            f"<div style='background:#0a2a4a;border:2px solid #00d4ff;border-radius:10px;"
-            f"padding:1rem 1.5rem;'>"
-            f"<div style='display:flex;align-items:center;gap:12px;'>"
-            f"<span style='font-size:2rem;'>📡</span>"
-            f"<div>"
-            f"<p style='color:#00d4ff;font-weight:700;font-size:1rem;margin:0;'>GPCR — Important / Piggybacked</p>"
-            f"<p style='color:#c9d8e8;margin:4px 0 0;font-size:0.88rem;'>"
-            f"Class: <b>{gpcr.get('class','—')}</b> · G-protein coupling: <b>{coupling_str}</b></p>"
-            f"</div></div></div>",
-            unsafe_allow_html=True,
-        )
-        # Therapeutic implications
-        st.markdown("""
-        <div class='card' style='margin-top:0.8rem;'>
-          <h4>Therapeutic Relevance</h4>
-          <p>GPCRs are the most druggable protein class (~34% of FDA-approved drugs target GPCRs).
-          This protein's GPCR nature makes it a prime therapeutic target.
-          Consider: biased agonism, allosteric modulation, and antibody-based approaches.</p>
-        </div>
-        """, unsafe_allow_html=True)
-    else:
-        st.markdown(
-            "<div style='background:#0a1929;border:1px solid #1e3a5f;border-radius:8px;"
-            "padding:0.8rem 1.2rem;color:#5a7a9a;font-size:0.88rem;'>"
-            "Not classified as a GPCR in UniProt.</div>",
+            f"<div class='card'><h4>{title}</h4><p>{body}</p></div>",
             unsafe_allow_html=True,
         )
 
-    # Interaction partners
-    _render_interactions(pdata)
 
-
-def _render_interactions(pdata: dict):
-    interactions = []
-    for c in pdata.get("comments", []):
-        if c.get("commentType") == "INTERACTION":
-            for inter in c.get("interactions", []):
-                p2 = inter.get("interactantTwo", {})
-                gene2 = p2.get("geneName", p2.get("uniProtKBAccession","?"))
-                interactions.append(gene2)
-    if interactions:
-        st.markdown(f"**Known interactors:** " + " · ".join(f"`{i}`" for i in interactions[:12]))
-
-
-# ─── Disease classification: somatic vs germline ───────────────────────────────
-def _render_disease_classification(pdata: dict, clinvar_data: dict | None):
-    st.markdown("##### 🧬 Disease Classification — Somatic vs Germline")
-
-    diseases = UniProtClient.extract_diseases(pdata)
-    variants = (clinvar_data or {}).get("variants", [])
-
-    # From ClinVar origin field
-    somatic_conditions  = set()
-    germline_conditions = set()
-    for v in variants:
-        origin = v.get("origin", "").lower()
-        cond   = v.get("condition", "")
-        if not cond or cond == "Not specified":
-            continue
-        if "somatic" in origin:
-            somatic_conditions.add(cond)
-        elif "germline" in origin or "inherited" in origin or "de novo" in origin:
-            germline_conditions.add(cond)
-        else:
-            # Infer from ClinVar sig
-            sig = v.get("clinical_significance","").lower()
-            if "somatic" in sig:
-                somatic_conditions.add(cond)
-            elif v.get("path_score",0) >= 4:
-                germline_conditions.add(cond)
-
-    col_g, col_s = st.columns(2)
-
-    with col_g:
-        st.markdown(
-            f"<div style='background:#0a2a1a;border:1px solid #00c896;border-radius:10px;"
-            f"padding:1rem;margin-bottom:0.5rem;'>"
-            f"<p style='color:#00c896;font-weight:700;font-size:1rem;margin:0 0 0.5rem;'>"
-            f"🧬 Germline ({len(germline_conditions)})</p>"
-            f"<p style='color:#8ab4d4;font-size:0.78rem;margin:0 0 0.5rem;'>"
-            f"Heritable — present in all cells from birth</p>",
+# ─── Cost legend ─────────────────────────────────────────────────────────────
+def _render_cost_legend():
+    cols = st.columns(len(COST_LEGEND))
+    for (sym, (label, colour)), col in zip(COST_LEGEND.items(), cols):
+        col.markdown(
+            f"<div style='text-align:center;background:#0a1929;border:1px solid {colour};"
+            f"border-radius:8px;padding:6px;'>"
+            f"<div style='color:{colour};font-size:1.1rem;font-weight:700;'>{sym}</div>"
+            f"<div style='color:#8ab4d4;font-size:0.75rem;'>{label}</div></div>",
             unsafe_allow_html=True,
         )
-        if germline_conditions:
-            for c in sorted(germline_conditions)[:10]:
-                st.markdown(
-                    f"<div style='color:#b2e4d0;font-size:0.82rem;margin:3px 0;'>◆ {c[:70]}</div>",
-                    unsafe_allow_html=True,
-                )
-        else:
-            st.markdown("<p style='color:#5a7a9a;font-size:0.82rem;'>No germline classifications found.</p>",
-                        unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
 
-    with col_s:
-        st.markdown(
-            f"<div style='background:#2a0a1a;border:1px solid #ff2d55;border-radius:10px;"
-            f"padding:1rem;margin-bottom:0.5rem;'>"
-            f"<p style='color:#ff2d55;font-weight:700;font-size:1rem;margin:0 0 0.5rem;'>"
-            f"🔴 Somatic ({len(somatic_conditions)})</p>"
-            f"<p style='color:#8ab4d4;font-size:0.78rem;margin:0 0 0.5rem;'>"
-            f"Acquired — arises in specific cell populations</p>",
-            unsafe_allow_html=True,
-        )
-        if somatic_conditions:
-            for c in sorted(somatic_conditions)[:10]:
-                st.markdown(
-                    f"<div style='color:#ffb3c6;font-size:0.82rem;margin:3px 0;'>◆ {c[:70]}</div>",
-                    unsafe_allow_html=True,
-                )
-        else:
-            st.markdown("<p style='color:#5a7a9a;font-size:0.82rem;'>No somatic classifications found.</p>",
-                        unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
 
-    # UniProt disease cards
-    if diseases:
-        st.markdown("**UniProt Disease Annotations**")
-        for d in diseases[:8]:
-            note = d.get("note","")
-            omim = d.get("omim","")
-            omim_link = f" · [OMIM {omim}](https://www.omim.org/entry/{omim})" if omim else ""
+# ─── Experiment card ──────────────────────────────────────────────────────────
+def _render_experiment_card(name: str, exp: dict, ml_scores, clinvar_data):
+    cost_sym  = exp.get("cost", "$")
+    cost_label, cost_colour = COST_LEGEND.get(cost_sym, ("—", "#636e72"))
+    timeline  = exp.get("timeline","—")
+
+    with st.expander(
+        f"{name}  ·  Cost: {cost_sym} ({cost_label})  ·  ⏱ {timeline}",
+        expanded=False,
+    ):
+        col_l, col_r = st.columns([2, 1])
+
+        with col_l:
+            st.markdown(f"**Purpose:** {exp.get('purpose','')}")
+            st.markdown("**Protocol:**")
+            for i, step in enumerate(exp.get("protocol", []), 1):
+                st.markdown(f"{i}. {step}")
+            st.markdown(f"**Expected Outcome:** {exp.get('outcome','—')}")
+
+        with col_r:
             st.markdown(
-                f"<div class='card'>"
-                f"<h4>{d['name']}{omim_link}</h4>"
-                f"<p>{d.get('desc','')[:300]}</p>"
-                f"{'<p style=\"color:#ffd60a;font-size:0.8rem;\">' + note[:200] + '</p>' if note else ''}"
+                f"<div style='background:#0a1929;border:1px solid {cost_colour};"
+                f"border-radius:10px;padding:1rem;'>"
+                f"<p style='color:{cost_colour};font-weight:700;font-size:1.1rem;margin:0 0 4px;'>{cost_sym} {cost_label}</p>"
+                f"<p style='color:#8ab4d4;font-size:0.82rem;margin:0 0 8px;'>⏱ {timeline}</p>"
+                f"<hr style='border-color:#1e3a5f;margin:6px 0;'>"
+                f"<p style='color:#00c896;font-size:0.82rem;margin:0 0 4px;'><b>✅ Focus on:</b></p>"
+                f"<p style='color:#b2e4d0;font-size:0.8rem;margin:0 0 8px;'>{exp.get('focus','—')}</p>"
+                f"<p style='color:#ff6b00;font-size:0.82rem;margin:0 0 4px;'><b>❌ Deprioritise:</b></p>"
+                f"<p style='color:#ffd0b0;font-size:0.8rem;margin:0;'>{exp.get('neglect','—')}</p>"
                 f"</div>",
                 unsafe_allow_html=True,
             )
+
+
+# ─── Decision flowchart ────────────────────────────────────────────────────────
+def _render_decision_flowchart(pdata, ml_scores, clinvar_data):
+    st.markdown("#### 🗺️ Experimental Decision Framework")
+    st.caption("Follow this triage logic to minimise wasted resources.")
+
+    top_vars   = (ml_scores or {}).get("top_variants", [])
+    n_critical = sum(1 for v in top_vars if v.get("ml_rank") == "CRITICAL")
+    n_high     = sum(1 for v in top_vars if v.get("ml_rank") == "HIGH")
+    n_medium   = sum(1 for v in top_vars if v.get("ml_rank") == "MEDIUM")
+    n_neutral  = sum(1 for v in top_vars if v.get("ml_rank") == "NEUTRAL")
+    total      = len(top_vars) or 1
+
+    labels  = ["CRITICAL", "HIGH", "MEDIUM", "NEUTRAL"]
+    values  = [n_critical, n_high, n_medium, n_neutral]
+    colours = ["#ff2d55", "#ff6b00", "#ffd60a", "#636e72"]
+
+    fig = go.Figure(go.Funnel(
+        y=labels, x=values,
+        textinfo="value+percent initial",
+        marker=dict(color=colours),
+        textfont=dict(color="white", size=14),
+    ))
+    fig.update_layout(
+        paper_bgcolor="#060e18", plot_bgcolor="#060e18",
+        font_color="#8ab4d4",
+        height=320,
+        margin=dict(t=10, b=10, l=60, r=10),
+        title=dict(text="Variant Triage Funnel", font_color="#00d4ff"),
+    )
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
+    # Decision table
+    decisions = [
+        ("CRITICAL", "#ff2d55", "Immediate functional validation (CRISPR knock-in, biochemical assay). Pursue in vivo if in vitro confirms pathogenicity."),
+        ("HIGH",     "#ff6b00", "Functional assay + in silico stability. Advance to in vivo only if in vitro shows phenotype."),
+        ("MEDIUM",   "#ffd60a", "In silico modelling + low-cost cell assay (reporter, viability). Hold before animal experiments."),
+        ("NEUTRAL",  "#636e72", "Deprioritise. Monitor future ClinVar reclassifications. No wet-lab resources recommended currently."),
+    ]
+    for rank, col, rec in decisions:
+        st.markdown(
+            f"<div style='display:flex;align-items:flex-start;gap:12px;"
+            f"background:#0a1929;border-left:4px solid {col};border-radius:0 8px 8px 0;"
+            f"padding:10px 14px;margin:6px 0;'>"
+            f"<span style='background:{col};color:{'#111' if rank=='MEDIUM' else '#fff'};"
+            f"padding:2px 10px;border-radius:12px;font-size:0.75rem;font-weight:700;"
+            f"white-space:nowrap;margin-top:1px;'>{rank}</span>"
+            f"<span style='color:#c9d8e8;font-size:0.87rem;'>{rec}</span>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )

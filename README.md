@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Sidebar — protein search, assay input, disease ranking, experiment list.
 """
