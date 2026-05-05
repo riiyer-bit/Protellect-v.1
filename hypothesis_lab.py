@@ -2,6 +2,7 @@
 import streamlit as st
 import re
 from diagrams import GPCR_ASSOC
+from protein_data import get_protein_info
 
 DRUG_DB = {
     "FLNA": {"strategy":"Gene/mRNA therapy justified by 847 ClinVar pathogenic variants (DBR 0.320, CRITICAL).","approved":[],"investigational":[{"name":"AAV-FLNA gene therapy","stage":"Preclinical","mechanism":"Replace loss-of-function allele in neurons/smooth muscle","evidence":"X-linked disease models"},{"name":"mRNA replacement therapy","stage":"Preclinical","mechanism":"Restore FLNA in deficient tissues","evidence":"Proof of concept in other X-linked conditions"}],"warning":False},
@@ -158,7 +159,23 @@ def render():
             </div>""", unsafe_allow_html=True)
 
     with t3:
-        st.markdown('<div style="font-family:IBM Plex Mono,monospace;font-size:0.65rem;text-transform:uppercase;letter-spacing:0.15em;color:#3a3d5a;margin-bottom:12px">What happens as the mutation proceeds — and how to stop it</div>', unsafe_allow_html=True)
+        pdata_t3 = get_protein_info(gene)
+        timeline_stages = pdata_t3.get("timeline_stages", [])
+        if timeline_stages:
+            st.markdown('<div style="font-family:IBM Plex Mono,monospace;font-size:0.65rem;text-transform:uppercase;letter-spacing:0.15em;color:#5a5d7a;margin-bottom:10px">Mutation progression timeline — move slider to see each stage</div>', unsafe_allow_html=True)
+            max_s = max(1, len(timeline_stages)-1)
+            sel_s = st.slider("Stage", 0, max_s, 0, key="tl_s")
+            stg = timeline_stages[sel_s]
+            stg_name, stg_desc = stg[1], stg[2]
+            pct = int(sel_s/max_s*100) if max_s > 0 else 0
+            bc = "#4CAF50" if pct==0 else "#FFA500" if pct<50 else "#FF8C00" if pct<80 else "#FF4C4C"
+            # Stage display
+            st.markdown(f'<div style="background:#0d1020;border:1px solid {bc}55;border-radius:10px;padding:14px 18px;margin-bottom:12px"><div style="background:#12141e;border-radius:3px;height:6px;overflow:hidden;margin-bottom:10px"><div style="width:{pct}%;height:100%;background:{bc};border-radius:3px"></div></div><div style="font-weight:700;color:{bc};font-family:IBM Plex Mono,monospace;font-size:0.88rem;margin-bottom:6px">{stg_name}</div><p style="font-size:0.82rem;color:#cccccc;line-height:1.8;margin:0">{stg_desc}</p></div>', unsafe_allow_html=True)
+            # Roadmap pills
+            pills = " ".join(f'<span style="background:{""+bc+"22" if i==sel_s else "#0d1020"};border:1px solid {""+bc if i==sel_s else "#252840"};border-radius:6px;padding:4px 10px;font-family:IBM Plex Mono,monospace;font-size:0.62rem;color:{""+bc if i==sel_s else "#666"};display:inline-block;margin:2px">{i+1}. {s[1][:16]}</span>' for i,s in enumerate(timeline_stages))
+            st.markdown(pills, unsafe_allow_html=True)
+            st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown('<div style="font-family:IBM Plex Mono,monospace;font-size:0.65rem;text-transform:uppercase;letter-spacing:0.15em;color:#5a5d7a;margin-bottom:12px">Mechanistic progression — how to stop it</div>', unsafe_allow_html=True)
         goal_lower=(goal+" "+dis_ctx).lower()
 
         PROGRESSION = {
@@ -191,7 +208,25 @@ def render():
             </div>""", unsafe_allow_html=True)
 
     with t4:
-        st.markdown('<div style="font-family:IBM Plex Mono,monospace;font-size:0.65rem;text-transform:uppercase;letter-spacing:0.15em;color:#3a3d5a;margin-bottom:12px">Validated experiments — simple to rigorous, with citations</div>', unsafe_allow_html=True)
+        pdata_exp = get_protein_info(gene)
+        specific_exps = pdata_exp.get("experiments_specific", [])
+        note_txt = f"Experiments below are specific to {gene} — different proteins need different validation strategies."
+        st.markdown(f'<div style="background:#0d1020;border:1px solid #252840;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:0.79rem;color:#aaaaaa">{note_txt}</div>', unsafe_allow_html=True)
+        if specific_exps:
+            st.markdown(f'<div style="font-family:IBM Plex Mono,monospace;font-size:0.65rem;text-transform:uppercase;letter-spacing:0.15em;color:#5a5d7a;margin-bottom:10px">Protein-specific experiments for {gene}</div>', unsafe_allow_html=True)
+            lc_map = {1:"#4CAF50",2:"#FFA500",3:"#FF8C00",4:"#FF4C4C",5:"#FF0000"}
+            for exp in specific_exps:
+                lc = lc_map.get(exp.get("level",2),"#888")
+                with st.expander(f"Level {exp.get('level','?')} — {exp['name']}"):
+                    st.markdown(f'<div style="font-family:IBM Plex Mono,monospace;font-size:0.63rem;text-transform:uppercase;color:{lc};margin-bottom:6px">Why this experiment for {gene} specifically</div>', unsafe_allow_html=True)
+                    st.markdown(f'<p style="font-size:0.82rem;color:#cccccc;line-height:1.7;margin-bottom:8px">{exp.get("rationale","")}</p>', unsafe_allow_html=True)
+                    if exp.get("protocol"):
+                        st.code(exp["protocol"], language="text")
+                    why_not = exp.get("why_this_not_dsf","")
+                    if why_not:
+                        st.markdown(f'<div style="font-size:0.73rem;color:#777;font-style:italic">Note: {why_not}</div>', unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown(f'<div style="font-family:IBM Plex Mono,monospace;font-size:0.63rem;text-transform:uppercase;letter-spacing:0.12em;color:#5a5d7a;margin-bottom:8px">Universal validation hierarchy</div>', unsafe_allow_html=True)
         exps = [
             {"level":1,"name":"ClinVar + gnomAD database check","time":"<1 hour","cost":"Free","color":"#4CAF50","desc":f"Query ClinVar for all pathogenic variants in {gene}. Check gnomAD pLI score (>0.9 = highly constrained). Confirm DBR. This is the first step before any wet lab work.","validates":"Whether {gene} is worth pursuing at all","paper":chip("king")},
             {"level":2,"name":"OpenTargets target-disease association","time":"30 min","cost":"Free","color":"#4CAF50","desc":f"Search {gene} at platform.opentargets.org. Note genetic association score and ClinVar column weight. Compare to β-adrenergic receptors and arrestins to see the contrast.","validates":"Multi-disease relevance and comparison to known dispensable proteins","paper":""},
