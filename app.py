@@ -69,7 +69,7 @@ html,body,[class*="css"]{font-family:'Inter',sans-serif!important;font-size:15px
 .cite{border-left:2px solid #00e5ff22;padding:6px 10px;margin:3px 0;background:#040e1c;border-radius:0 8px 8px 0;}
 .cite a{color:#2a80a4;text-decoration:none;font-size:.96rem;}
 .cite a:hover{color:#00e5ff;}
-.cm{color:#0e2840;font-size:.96rem;margin-top:1px;}
+.cm{color:#4a7090;font-size:.96rem;margin-top:1px;}
 .src-badge{display:inline-block;background:#04080f;border:1px solid #1e4060;color:#2a6080;
   padding:1px 8px;border-radius:6px;font-size:1.02rem;margin-left:5px;text-decoration:none;}
 .src-badge:hover{border-color:#00e5ff44;color:#4a90c0;}
@@ -77,9 +77,9 @@ html,body,[class*="css"]{font-family:'Inter',sans-serif!important;font-size:15px
 .pt2 thead tr{background:#020810;}
 .pt2 th{color:#00e5ff;padding:8px 12px;text-align:left;font-size:.78rem;font-weight:700;
   text-transform:uppercase;letter-spacing:.7px;border-bottom:1px solid #0c2040;}
-.pt2 td{padding:8px 12px;border-bottom:1px solid #040c18;color:#4a7090;vertical-align:middle;}
+.pt2 td{padding:8px 12px;border-bottom:1px solid #040c18;color:#7ab0cc;vertical-align:middle;}
 .pt2 tr:hover td{background:#05101e;}
-.sb-t{font-size:.73rem;font-weight:700;color:#0e2840;text-transform:uppercase;
+.sb-t{font-size:.73rem;font-weight:700;color:#5a9ab0;text-transform:uppercase;
   letter-spacing:1px;margin:.8rem 0 .3rem;padding-bottom:3px;border-bottom:1px solid #0c2040;}
 .stButton>button{background:linear-gradient(135deg,#003d55,#002868)!important;
   color:#00e5ff!important;border:1px solid #00e5ff22!important;border-radius:8px!important;font-weight:700!important;}
@@ -91,20 +91,20 @@ details{border:1px solid #0c2040!important;border-radius:10px!important;backgrou
 .gi-redundant{background:#04080f;border:2px dashed #3a6080;border-radius:12px;padding:1.1rem 1.4rem;margin-bottom:.7rem;}
 .gi-unknown{background:#04080f;border:1px solid #1e4060;border-radius:12px;padding:1.1rem 1.4rem;margin-bottom:.7rem;}
 .gi-stat{display:inline-block;background:#04080f;border-radius:7px;padding:4px 10px;margin:3px 3px 0 0;font-size:1.02rem;}
-.plain{color:#2a5070;font-size:.94rem;font-style:italic;}
+.plain{color:#5a8090;font-size:.94rem;font-style:italic;}
 .dis-row{display:flex;align-items:flex-start;gap:10px;background:#050e1c;border:1px solid #0c2040;
   border-radius:9px;padding:10px 12px;margin:4px 0;}
-.dis-name{color:#9ac0d8;font-size:.83rem;font-weight:600;}
-.dis-desc{color:#0e2840;font-size:1.02rem;margin-top:2px;line-height:1.5;}
-.gpcr-box{background:linear-gradient(135deg,#030f1e,#04101c);border:1px solid #00e5ff22;border-radius:12px;padding:1.1rem 1.4rem;}
+.dis-name{color:#c0dff0;font-size:.83rem;font-weight:600;}
+.dis-desc{color:#5a8090;font-size:1.02rem;margin-top:2px;line-height:1.5;}
+.gpcr-box{background:linear-gradient(135deg,#030f1e,#04101c);border:1px solid #00e5ff33;border-radius:12px;padding:1.1rem 1.4rem;color:#7ab8d0;}
 .cascade-stage{background:#050d1a;border:1px solid #0c2040;border-radius:10px;padding:.8rem 1rem;margin:.4rem 0;}
 .cascade-stage h5{color:#00e5ff;font-size:.83rem;font-weight:700;margin:0 0 4px;}
 .cascade-stage p{color:#2a5070;font-size:.96rem;margin:0;line-height:1.5;}
 .bias-warn{background:#04080f;border:1px solid #ff2d5525;border-radius:10px;padding:.9rem 1.2rem;margin:.7rem 0;}
-.bias-warn p{color:#2a1520;font-size:.81rem;margin:0;line-height:1.6;}
+.bias-warn p{color:#c08090;font-size:.81rem;margin:0;line-height:1.6;}
 .dis-protein-row{display:flex;align-items:center;gap:10px;background:#050d18;border:1px solid #0c2040;
   border-radius:8px;padding:8px 12px;margin:4px 0;transition:border-color .2s;}
-.dis-protein-row:hover{border-color:#1e4060;}
+.dis-protein-row:hover{border-color:#2e5070;}
 
 /* Logo */
 .proto-logo{display:block;margin:0 auto 4px;width:54px;height:54px;object-fit:contain;filter:drop-shadow(0 0 12px #1a5a3088);}
@@ -113,16 +113,45 @@ details{border:1px solid #0c2040!important;border-radius:10px!important;backgrou
 .tutorial-overlay{background:#01030a;border:1px solid #0d2545;border-radius:16px;padding:1.5rem 2rem;}
 .tut-step{background:#020810;border:1px solid #0d2545;border-radius:10px;padding:.9rem 1.1rem;margin:.5rem 0;}
 .tut-step h4{color:#00e5ff;font-size:1rem;margin:0 0 .3rem;}
-.tut-step p{color:#3a6080;font-size:.9rem;margin:0;line-height:1.5;}
+.tut-step p{color:#7ab8d0;font-size:.9rem;margin:0;line-height:1.5;}
 .tut-num{display:inline-block;background:#00e5ff;color:#000;border-radius:50%;width:22px;height:22px;text-align:center;line-height:22px;font-weight:800;font-size:.82rem;margin-right:8px;flex-shrink:0;}
 
 </style>
 """, unsafe_allow_html=True)
 
 # ─── Constants ─────────────────────────────────────────────────────
-SIG_SCORE = {"pathogenic":5,"likely pathogenic":4,"pathogenic/likely pathogenic":4,
-             "risk factor":3,"uncertain significance":2,"conflicting interpretations":2,
-             "likely benign":1,"benign":0,"benign/likely benign":0,"not provided":-1}
+SIG_SCORE = {
+    "pathogenic":5,"likely pathogenic":4,"pathogenic/likely pathogenic":4,
+    "risk factor":3,"uncertain significance":2,"conflicting interpretations":2,
+    "conflicting interpretations of pathogenicity":2,"likely benign":1,
+    "benign":0,"benign/likely benign":0,"not provided":-1,"not classified":-1,
+    # ClinVar numeric codes (internal API values)
+    "4":5,"3":4,"3/4":4,"5":3,"2":2,"1":1,"0":0,
+}
+
+# Human-readable labels for chart display
+SIG_LABEL = {
+    "pathogenic":                              "Disease-causing (Pathogenic)",
+    "likely pathogenic":                       "Likely Disease-causing",
+    "pathogenic/likely pathogenic":            "Pathogenic / Likely Path.",
+    "risk factor":                             "Risk Factor",
+    "uncertain significance":                  "Unknown Significance (VUS)",
+    "conflicting interpretations":             "Conflicting Evidence",
+    "conflicting interpretations of pathogenicity": "Conflicting Evidence",
+    "likely benign":                           "Likely Harmless (Likely Benign)",
+    "benign":                                  "Harmless (Benign)",
+    "benign/likely benign":                    "Benign / Likely Benign",
+    "not provided":                            "Not Classified",
+    "not classified":                          "Not Classified",
+    # Numeric code fallbacks
+    "4":"Likely Disease-causing","3/4":"Pathogenic/LP","5":"Risk Factor",
+    "2":"Unknown Significance","1":"Likely Harmless","0":"Harmless",
+}
+
+def clean_sig(raw):
+    """Normalise raw ClinVar significance string."""
+    s = str(raw).strip()
+    return SIG_LABEL.get(s.lower(), s.title() if len(s) > 2 else "Not Classified")
 AA_HYDRO  = {"A":1.8,"R":-4.5,"N":-3.5,"D":-3.5,"C":2.5,"Q":-3.5,"E":-3.5,"G":-0.4,
              "H":-3.2,"I":4.5,"L":3.8,"K":-3.9,"M":1.9,"F":2.8,"P":-1.6,"S":-0.8,
              "T":-0.7,"W":-0.9,"Y":-1.3,"V":4.2,"*":-10}
@@ -164,19 +193,38 @@ def sh(icon, title): st.markdown(f"<div class='sh2'><span style='font-size:1.1re
 def mc(val, label, clr="#00e5ff", acc=None):
     a = acc or f"linear-gradient(90deg,{clr},{clr}88)"
     return f"<div class='mc' style='--clr:{clr};--acc:{a};'><div class='mv'>{val}</div><div class='ml2'>{label}</div></div>"
-def src_link(label, url): return f"<a class='src-badge' href='{url}' target='_blank'>↗ {label}</a>"
+def src_link(label, url): return f"<a class='src-badge' style='color:#6ab8d0;' href='{url}' target='_blank'>↗ {label}</a>"
 def score_rank(s, sens=50):
     shift=(sens-50)/100
     if s>=5: return "CRITICAL"
     if s>=4-shift: return "HIGH"
     if s>=2-shift: return "MEDIUM"
     return "NEUTRAL"
-def ml_rank_fn(ml, sens=50):
-    shift=(sens-50)/200
-    if ml>=.85-shift: return "CRITICAL"
-    if ml>=.65-shift: return "HIGH"
-    if ml>=.40-shift: return "MEDIUM"
-    return "NEUTRAL"
+def ml_rank_fn(ml, sens=50, clinvar_score=None):
+    """
+    Rank variant by ML score, BUT cap rank based on ClinVar evidence.
+    A VUS can never be CRITICAL. A benign variant is always NEUTRAL.
+    ML scores alone cannot override clinical genetic classification.
+    """
+    shift = (sens - 50) / 200
+    raw_rank = ("CRITICAL" if ml >= .85 - shift else
+                "HIGH"     if ml >= .65 - shift else
+                "MEDIUM"   if ml >= .40 - shift else "NEUTRAL")
+
+    if clinvar_score is None:
+        return raw_rank
+
+    # Cap based on ClinVar clinical evidence
+    if clinvar_score >= 4:   # Pathogenic / Likely pathogenic → allow full rank
+        return raw_rank
+    elif clinvar_score == 3:  # Risk factor → max HIGH
+        return "HIGH" if raw_rank == "CRITICAL" else raw_rank
+    elif clinvar_score == 2:  # VUS / Conflicting → max MEDIUM
+        return "MEDIUM" if raw_rank in ("CRITICAL", "HIGH") else raw_rank
+    elif clinvar_score == 1:  # Likely benign → max NEUTRAL
+        return "NEUTRAL"
+    else:                    # Benign / not provided → always NEUTRAL
+        return "NEUTRAL"
 def parse_aa(name):
     aa3={"Ala":"A","Arg":"R","Asn":"N","Asp":"D","Cys":"C","Gln":"Q","Glu":"E","Gly":"G",
          "His":"H","Ile":"I","Leu":"L","Lys":"K","Met":"M","Phe":"F","Pro":"P","Ser":"S",
@@ -250,7 +298,9 @@ def fetch_clinvar(gene, max_v=150):
             r2.raise_for_status(); data=r2.json().get("result",{})
             for uid in data.get("uids",[]):
                 e=data.get(uid,{}); gc=e.get("germline_classification",{})
-                sig=gc.get("description","Not provided"); sc=SIG_SCORE.get(sig.lower().strip(),0)
+                sig_raw = str(gc.get("description","Not provided") or "Not provided")
+                sig = clean_sig(sig_raw)
+                sc  = SIG_SCORE.get(sig_raw.lower().strip(), SIG_SCORE.get(sig.lower().strip(), 0))
                 traits=[t.get("trait_name","") for t in e.get("trait_set",{}).get("trait",[]) if t.get("trait_name")]
                 locs=e.get("location_list",[{}]); vset=e.get("variation_set",[{}])
                 variants.append({
@@ -265,7 +315,7 @@ def fetch_clinvar(gene, max_v=150):
         except: pass
         time.sleep(0.1)
     variants.sort(key=lambda x:-x["score"])
-    sigs=Counter(v["sig"] for v in variants)
+    sigs=Counter(clean_sig(v["sig"]) if str(v["sig"]).strip().isdigit() else v["sig"] for v in variants)
     conds=Counter()
     for v in variants:
         for c in v["condition"].split(";"):
@@ -377,7 +427,7 @@ def ml_score_variants(variants, sens=50):
                "criteria provided, multiple submitters":.7,"criteria provided, single submitter":.5}.get(v.get("review","").lower(),.2)
         base=v.get("score",0)/5.0
         ml=min(1.0,base*.5+stop*.25+frame*.15+(hd/10)*.05+cd*.03+stars*.02)
-        vc=dict(v); vc["ml"]=round(float(ml),3); vc["ml_rank"]=ml_rank_fn(ml,sens)
+        vc=dict(v); vc["ml"]=round(float(ml),3); vc["ml_rank"]=ml_rank_fn(ml, sens, v.get("score", None))
         vc["rank"]=score_rank(v.get("score",0),sens)
         out.append(vc)
     return sorted(out,key=lambda x:-x["ml"])
@@ -752,10 +802,10 @@ document.getElementById('stg-slider').addEventListener('input',function(){{updat
 
 def render_citations(papers, n=4):
     if not papers: return
-    st.markdown("<div style='color:#0e2840;font-size:.65rem;text-transform:uppercase;letter-spacing:.8px;margin:.7rem 0 .3rem;'>📚 Supporting Literature <span style=\"color:#0a1828;font-size:.6rem;\">(click to open on PubMed)</span></div>", unsafe_allow_html=True)
+    st.markdown("<div style='color:#5a8090;font-size:.65rem;text-transform:uppercase;letter-spacing:.8px;margin:.7rem 0 .3rem;'>📚 Supporting Literature <span style=\"color:#0a1828;font-size:.6rem;\">(click to open on PubMed)</span></div>", unsafe_allow_html=True)
     for p2 in papers[:n]:
         pt=" ".join(f"<span style='background:#07152a;color:#1a4060;font-size:.64rem;padding:1px 5px;border-radius:6px;margin-left:3px;'>{t.title()}</span>" for t in p2.get("pt",[])[:2])
-        st.markdown(f"<div class='cite'><a href='{p2['url']}' target='_blank'>{p2['title'][:110]}</a>{pt}<div class='cm'>{p2['authors']} · {p2['journal']} · {p2['year']} · PMID {p2['pmid']}</div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='cite'><a href='{p2['url']}' target='_blank'>{p2['title'][:110]}</a>{pt}<div class='cm' style='color:#4a7090;'>{p2['authors']} · {p2['journal']} · {p2['year']} · PMID {p2['pmid']}</div></div>", unsafe_allow_html=True)
 
 def variant_landscape_fig(variants, protein_length, scored):
     if not variants: return None
@@ -828,7 +878,7 @@ def show_tutorial_dialog():
         )
     st.markdown("<br>", unsafe_allow_html=True)
     c1,c2=st.columns([3,1])
-    with c1: st.markdown("<div style='color:#1e4060;font-size:.85rem;'>💡 Try <b style='color:#3a8090;'>FLNC</b> (disease-critical) vs <b style='color:#3a8090;'>ARRB2</b> (no disease variants) to see the triage system in action.</div>", unsafe_allow_html=True)
+    with c1: st.markdown("<div style='color:#6a9ab0;font-size:.88rem;'>💡 Try <b style='color:#3a8090;'>FLNC</b> (disease-critical) vs <b style='color:#3a8090;'>ARRB2</b> (no disease variants) to see the triage system in action.</div>", unsafe_allow_html=True)
     with c2:
         if st.button("Got it ✓", use_container_width=True, type="primary"):
             st.session_state["show_tutorial"] = False
@@ -843,7 +893,7 @@ for k,v0 in {"pdata":None,"cv":None,"pdb":"","papers":[],"scored":[],"gene":"","
 
 # ─── Sidebar ────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("<div style='text-align:center;padding:.3rem 0 .6rem;'><div style='font-size:1.6rem;'>🧬</div><div style='color:#00e5ff;font-size:1.1rem;font-weight:800;'>Protellect</div><div style='color:#0a2040;font-size:1.02rem;'>Protein Intelligence Platform</div></div><div style='border-top:1px solid #0c2040;margin-bottom:.7rem;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='text-align:center;padding:.3rem 0 .6rem;'><div style='font-size:1.6rem;'>🧬</div><div style='color:#00e5ff;font-size:1.1rem;font-weight:800;'>Protellect</div><div style='color:#5a8090;font-size:1.02rem;'>Protein Intelligence Platform</div></div><div style='border-top:1px solid #0c2040;margin-bottom:.7rem;'></div>", unsafe_allow_html=True)
 
     st.markdown("<div class='sb-t'>🎯 Research Goal</div>", unsafe_allow_html=True)
     goal_label=st.selectbox("Goal",GOAL_OPTIONS,label_visibility="collapsed")
@@ -894,7 +944,7 @@ with st.sidebar:
                           help="High = more variants flagged. Low = only the most certain variants elevated.")
     st.session_state["sensitivity"]=sensitivity
     sens_lbl="🔬 Strict" if sensitivity<30 else "⚖️ Balanced" if sensitivity<70 else "🔓 Sensitive"
-    st.markdown(f"<div style='display:flex;justify-content:space-between;margin-top:1px;'><span style='color:#0e2840;font-size:.81rem;'>Strict</span><span style='color:#00e5ff;font-size:.96rem;font-weight:700;'>{sens_lbl}</span><span style='color:#0e2840;font-size:.81rem;'>Sensitive</span></div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='display:flex;justify-content:space-between;margin-top:1px;'><span style='color:#5a8090;font-size:.81rem;'>Strict</span><span style='color:#00e5ff;font-size:.96rem;font-weight:700;'>{sens_lbl}</span><span style='color:#5a8090;font-size:.81rem;'>Sensitive</span></div>", unsafe_allow_html=True)
 
     st.markdown("<div class='sb-t'>🔗 Compare Interaction Partner</div>", unsafe_allow_html=True)
     partner_q=st.text_input("Partner gene / UniProt ID",placeholder="e.g. ITGAL · FLNC · ARRB2",label_visibility="collapsed",key="partner_inp")
@@ -918,7 +968,7 @@ with st.sidebar:
     if st.session_state["pdata"]:
         p3=st.session_state["pdata"]; gene3=st.session_state["gene"]; uid3=st.session_state["uid"]
         scored3=st.session_state["scored"]; cv3=st.session_state["cv"]
-        st.markdown(f"<div style='border-top:1px solid #0c2040;margin:.6rem 0 .3rem;'></div><div style='background:#040d18;border:1px solid #0c2040;border-radius:8px;padding:7px 9px;'><div style='color:#00e5ff;font-weight:700;font-size:.98rem;'>{gene3}</div><div style='color:#0e2840;font-size:.96rem;'>{uid3}</div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='border-top:1px solid #0c2040;margin:.6rem 0 .3rem;'></div><div style='background:#040d18;border:1px solid #0c2040;border-radius:8px;padding:7px 9px;'><div style='color:#00e5ff;font-weight:700;font-size:.98rem;'>{gene3}</div><div style='color:#5a8090;font-size:.96rem;'>{uid3}</div></div>", unsafe_allow_html=True)
         gi3=st.session_state.get("gi"); ds_scores={}
         for sv in scored3:
             for c2 in sv.get("condition","").split(";"):
@@ -932,7 +982,7 @@ with st.sidebar:
                 score3=ds_scores.get(name3,.4); rk3="CRITICAL" if score3>=.85 else "HIGH" if score3>=.65 else "MEDIUM" if score3>=.40 else "NEUTRAL"
                 if any(k in name3.lower() for k in ["cancer","carcinoma","leukemia","sarcoma"]) and rk3=="MEDIUM": rk3="HIGH"
                 css3=RANK_CSS[rk3]
-                st.markdown(f"<div style='display:flex;align-items:center;gap:6px;margin:3px 0;'><span class='badge {css3}'>{rk3}</span><span style='color:#0e2840;font-size:.81rem;'>{name3[:32]}</span></div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='display:flex;align-items:center;gap:6px;margin:3px 0;'><span class='badge {css3}'>{rk3}</span><span style='color:#5a8090;font-size:.81rem;'>{name3[:32]}</span></div>", unsafe_allow_html=True)
         ptype3=g_ptype(p3)
         sugg3={"kinase":["ADP-Glo kinase assay","Phospho-proteomics","Inhibitor screen"],"gpcr":["cAMP (HTRF)","β-arrestin (BRET)","Radioligand binding"],"transcription_factor":["ChIP-seq","EMSA","Luciferase reporter"],"general":["Co-IP/AP-MS","CRISPR KO","Thermal shift"]}.get(ptype3,["Co-IP","CRISPR KO"])
         st.markdown("<div class='sb-t'>🔭 Suggested Experiments</div>", unsafe_allow_html=True)
@@ -1021,11 +1071,11 @@ if st.session_state["disease_proteins"]:
             bar_w=min(100,int(np2/max(dp_list[0].get("n_pathogenic",1),1)*100))
             st.markdown(
                 f"<div class='dis-protein-row'>"
-                f"<div style='width:90px;flex-shrink:0;'><span style='color:#ff2d55;font-weight:800;font-size:.85rem;'>{np2}</span> <span style='color:#0e2840;font-size:.96rem;'>variants</span></div>"
+                f"<div style='width:90px;flex-shrink:0;'><span style='color:#ff2d55;font-weight:800;font-size:.85rem;'>{np2}</span> <span style='color:#5a8090;font-size:.96rem;'>variants</span></div>"
                 f"<div style='flex:1;min-width:0;'><div style='color:#9ac0d8;font-weight:700;font-size:.94rem;'>{gn}</div>"
-                f"<div style='color:#0e2840;font-size:.80rem;margin-top:2px;'>{cond_str}</div>"
+                f"<div style='color:#5a8090;font-size:.80rem;margin-top:2px;'>{cond_str}</div>"
                 f"<div style='height:3px;background:#07152a;border-radius:3px;overflow:hidden;margin-top:4px;'><div style='width:{bar_w}%;height:100%;background:#ff2d55;'></div></div></div>"
-                f"<div style='flex-shrink:0;'><a class='src-badge' href='{cv_url}' target='_blank'>ClinVar ↗</a></div>"
+                f"<div style='flex-shrink:0;'><a class='src-badge' style='color:#6ab8d0;' href='{cv_url}' target='_blank'>ClinVar ↗</a></div>"
                 f"</div>", unsafe_allow_html=True)
 
 # ─── Data loading ────────────────────────────────────────────────────
@@ -1088,10 +1138,10 @@ if st.session_state["csv_df"] is not None and not st.session_state["pdata"]:
 if not st.session_state["pdata"] and st.session_state["csv_df"] is None:
     st.markdown("""<div style='background:#040d18;border:1px solid #0c2040;border-radius:14px;padding:2rem;text-align:center;margin-top:.5rem;'>
 <img src='data:image/png;base64,{LOGO_B64}' style='width:72px;height:72px;object-fit:contain;display:block;margin:0 auto .8rem;filter:drop-shadow(0 0 16px #2a8a5055);'>
-<div style='color:#0e2840;font-size:1rem;font-weight:600;margin-bottom:.4rem;'>Enter a protein in the sidebar, or upload a wet-lab CSV to begin</div>
+<div style='color:#5a8090;font-size:1rem;font-weight:600;margin-bottom:.4rem;'>Enter a protein in the sidebar, or upload a wet-lab CSV to begin</div>
 <div style='color:#061828;font-size:1.02rem;margin-bottom:1.2rem;'>Try: <b style='color:#0d2840;'>TP53</b> · <b style='color:#0d2840;'>FLNC</b> · <b style='color:#0d2840;'>ACM2</b> · <b style='color:#0d2840;'>ARRB2</b> · <b style='color:#0d2840;'>P04637</b></div>
 <div style='display:flex;gap:.7rem;justify-content:center;flex-wrap:wrap;'>"""
-+"".join(f"<div style='background:#05101e;border:1px solid #0c2040;border-radius:9px;padding:.6rem .9rem;width:145px;'><div style='font-size:1.1rem;'>{ic}</div><div style='color:#0e2840;font-size:.81rem;margin-top:3px;'><b style='color:#1e4060;'>{tt}</b><br>{dd}</div></div>" for ic,tt,dd in [("🔴","Triage","Structure + hotspots"),("📋","Case Study","Tissue · GPCR"),("🔬","Explorer","Click & mutate"),("🧪","Experiments","Protocols")])
++"".join(f"<div style='background:#05101e;border:1px solid #0c2040;border-radius:9px;padding:.6rem .9rem;width:145px;'><div style='font-size:1.1rem;'>{ic}</div><div style='color:#5a8090;font-size:.81rem;margin-top:3px;'><b style='color:#1e4060;'>{tt}</b><br>{dd}</div></div>" for ic,tt,dd in [("🔴","Triage","Structure + hotspots"),("📋","Case Study","Tissue · GPCR"),("🔬","Explorer","Click & mutate"),("🧪","Experiments","Protocols")])
 +"</div></div>", unsafe_allow_html=True)
     st.stop()
 
@@ -1124,14 +1174,31 @@ st.markdown(
     f"<div>"
     f"<div style='color:{v_clr};font-weight:800;font-size:1.05rem;margin-bottom:2px;'>{verdict_label}</div>"
     f"<div style='color:{v_clr}88;font-size:1rem;'>{verdict_body}</div>"
-    f"<div style='margin-top:4px;color:#0e2840;font-size:.80rem;'>"
-    f"Genomic Integrity: <b style='color:{v_clr};'>{gi['verdict']}</b> · "
-    f"{gi['n_pathogenic']} disease-causing / {gi['n_total']} total ClinVar variants · "
-    f"Density: {gi['density']*100:.2f}% · "
+    f"<div style='margin-top:6px;'>"
+    f"<div style='color:#8ab8cc;font-size:.82rem;margin-bottom:4px;'>"
+    f"Genomic Integrity: <b style='color:{v_clr};'>{gi['verdict']}</b>"
+    f" · {gi['n_pathogenic']} confirmed disease-causing / {gi['n_total']} total ClinVar variants"
+    f" · Density: {gi['density']*100:.2f}% · Per 100 aa: {gi['per100']:.2f}"
+    f"</div>"
+    f"<div style='color:#6a9ab0;font-size:.78rem;line-height:1.6;margin-bottom:5px;'>"
+    f"<b style='color:#8ab8cc;'>Why this verdict?</b> The genomic integrity score measures what fraction of all known "
+    f"DNA variants in {gene} actually cause Mendelian disease in humans. A high density (>5%) confirms the protein "
+    f"is non-redundant and physiologically essential. A near-zero density — regardless of citation count, number of solved "
+    f"crystal structures, or in vitro binding data — suggests the protein may be bypassable in vivo. "
+    f"This principle is supported by comparative genomics: essential proteins accumulate loss-of-function variants "
+    f"extremely rarely (Lek et al., Nature 2016; PMID 27535533)."
+    f"</div>"
+    f"<div style='color:#5a8090;font-size:.76rem;margin-bottom:4px;'>"
+    f"<b style='color:#7ab0c0;'>Hypothesis:</b> If {gene} is genuinely essential, introducing confirmed pathogenic variants "
+    f"via CRISPR knock-in should produce a reproducible phenotype in at least two independent cell lines. "
+    f"If no phenotype is observed, this strengthens the case that the protein is redundant or compensated in the model system."
+    f"</div>"
+    f"<div style='margin-top:4px;display:flex;gap:6px;flex-wrap:wrap;'>"
     f"{src_link('ClinVar',f'https://www.ncbi.nlm.nih.gov/clinvar/?term={gene}[gene]')} "
-    f"{src_link('UniProt',f'https://www.uniprot.org/uniprotkb/{uid}')}"
+    f"{src_link('UniProt',f'https://www.uniprot.org/uniprotkb/{uid}')} "
+    f"{src_link('Lek et al. 2016 (gnomAD)','https://pubmed.ncbi.nlm.nih.gov/27535533/')} "
+    f"{src_link('Boycott et al. 2017','https://pubmed.ncbi.nlm.nih.gov/28165487/')}"
     f"</div></div></div>",
-    unsafe_allow_html=True,
 )
 if gi["pursue"]=="deprioritise":
     st.markdown("<div class='bias-warn'><p>⚠️ <b style='color:#ff2d55;'>Genomics Warning:</b> This protein carries no confirmed disease-causing germline variants. The principle — <em>genetics must be the starting point of any biology</em> — means we should not commit wet-lab resources here based on structural data or cell-culture results alone. Famous proteins like β2-arrestin (ARRB2), β-adrenergic receptors, and GRKs share this pattern: extensively studied, no dominant disease variants, likely non-essential in vivo. <b style='color:#ffd60a;'>Protein structures are not a validation of biology. DNA sequences are.</b></p></div>", unsafe_allow_html=True)
@@ -1159,7 +1226,7 @@ with tab1:
             pct_conf=round(sum(1 for b in bf.values() if b>=70)/max(len(bf),1)*100)
             n_sites=sum(1 for v in scored[:50] if v.get("start"))
             components.html(viewer_html(pdb,scored,445),height=450,scrolling=False)
-            st.markdown(f"<div style='color:#0e2840;font-size:.79rem;margin-top:3px;'>Confidence avg (pLDDT): <b style='color:#3a7090;'>{avg_pl}</b> · {pct_conf}% reliably modelled · <b style='color:#ff2d55;'>{n_sites}</b> variant sites shown</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='color:#5a8090;font-size:.79rem;margin-top:3px;'>Confidence avg (pLDDT): <b style='color:#3a7090;'>{avg_pl}</b> · {pct_conf}% reliably modelled · <b style='color:#ff2d55;'>{n_sites}</b> variant sites shown</div>", unsafe_allow_html=True)
         else:
             st.markdown("<div style='background:#040d18;border:1px dashed #0c2040;border-radius:12px;height:340px;display:flex;align-items:center;justify-content:center;'><div style='text-align:center;color:#0e2840;'><div style='font-size:2rem;'>🧬</div><div style='font-size:1rem;margin-top:5px;'>AlphaFold structure unavailable<br>Try a direct UniProt accession (e.g. P04637)</div></div></div>", unsafe_allow_html=True)
 
@@ -1192,7 +1259,16 @@ with tab1:
 
     st.markdown("<hr class='dv'>", unsafe_allow_html=True)
     sh("📊","Variant Landscape — Where on the protein do disease-causing mutations cluster?")
-    st.caption(f"Each dot = one ClinVar variant. Red/orange = disease-causing (pathogenic). Dark = harmless (benign). Flat dark profile = protein may be redundant. {src_link('ClinVar',f'https://www.ncbi.nlm.nih.gov/clinvar/?term={gene}[gene]')}")
+    st.caption(
+        f"Each dot = one ClinVar variant plotted by position in the protein chain. "
+        f"Red/orange = confirmed disease-causing (pathogenic/likely pathogenic). "
+        f"Yellow = unknown significance (VUS). Dark/flat = harmless (benign). "
+        f"A protein with only flat dark dots across its entire sequence — no matter how many variants — "
+        f"is a candidate for deprioritisation (MacArthur et al., Science 2012; PMID 22344438: "
+        f"LoF tolerance predicts biological dispensability). "
+        f"{src_link('ClinVar',f'https://www.ncbi.nlm.nih.gov/clinvar/?term={gene}[gene]')} "
+        f"{src_link('MacArthur 2012','https://pubmed.ncbi.nlm.nih.gov/22344438/')}"
+    )
     landscape=variant_landscape_fig(variants,protein_length,scored)
     if landscape: st.plotly_chart(landscape,use_container_width=True,config={"displayModeBar":False})
     else: st.caption("No positional data available.")
@@ -1213,7 +1289,7 @@ with tab1:
             row_bg=RANK_CLR.get(rk,"#3a5a7a")+"08"
             rows+=(f"<tr style='background:{row_bg};'><td><span class='badge {css3}'>{rk}</span></td>"
                    f"<td style='color:#8ab0c8;font-size:.96rem;'>{nm}</td>"
-                   f"<td style='color:#2a5070;text-align:center;'>{pos2}</td>"
+                   f"<td style='color:#8abccc;text-align:center;'>{pos2}</td>"
                    f"<td style='color:#3a6080;font-size:.94rem;'>{sig2}</td>"
                    f"<td style='color:#2a5070;font-size:1.02rem;'>{cond2}</td>"
                    f"<td><div style='display:flex;align-items:center;gap:4px;'><div style='width:32px;height:4px;background:#07152a;border-radius:3px;overflow:hidden;'><div style='width:{bw}%;height:100%;background:{clr3};'></div></div><span style='color:{clr3};font-size:.77rem;font-weight:700;'>{ml2:.2f}</span></div></td>"
@@ -1324,13 +1400,31 @@ with tab2:
         gpcr_stages=[("1. Ligand binds","Signal molecule (drug/hormone) binds GPCR"),("2. G-protein activated","G-protein (signal relay switch) exchanges GDP→GTP"),("3. Second messenger","cAMP / Ca²⁺ levels change inside cell"),("4. Downstream effects","Kinases activated, gene expression changed"),("5. β-arrestin / desensitisation","Signal switched off (receptor internalised)")]
         st.markdown("<div style='display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-bottom:.6rem;'>", unsafe_allow_html=True)
         for i,(stage_t,stage_d) in enumerate(gpcr_stages):
-            st.markdown(f"<div style='flex:1;min-width:110px;background:#040d18;border:1px solid #0c2040;border-radius:8px;padding:6px 8px;'><div style='color:#00e5ff;font-size:.80rem;font-weight:700;margin-bottom:2px;'>{stage_t}</div><div style='color:#0e2840;font-size:.81rem;line-height:1.4;'>{stage_d}</div></div>{'<div style=\"color:#1e4060;\">→</div>' if i<4 else ''}", unsafe_allow_html=True)
+            st.markdown(f"<div style='flex:1;min-width:110px;background:#040d18;border:1px solid #0c2040;border-radius:8px;padding:6px 8px;'><div style='color:#00e5ff;font-size:.80rem;font-weight:700;margin-bottom:2px;'>{stage_t}</div><div style='color:#5a8090;font-size:.81rem;line-height:1.4;'>{stage_d}</div></div>{'<div style=\"color:#1e4060;\">→</div>' if i<4 else ''}", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
         if fn_text: st.markdown(f"<div class='card'><h4>Function</h4><p>{fn_text[:400]}</p><div style='margin-top:4px;'>{src_link('UniProt Function',f'https://www.uniprot.org/uniprotkb/{uid}#function')}</div></div>", unsafe_allow_html=True)
+        # GPCR-specific hypothesis
+        st.markdown(
+            f"<div style='background:#020d1a;border:1px solid #00e5ff22;border-radius:10px;padding:.9rem 1.1rem;margin-top:.6rem;'>"
+            f"<div style='color:#00e5ff;font-weight:700;font-size:.92rem;margin-bottom:.4rem;'>🔬 GPCR Research Hypothesis</div>"
+            f"<div style='color:#6a9ab0;font-size:.86rem;line-height:1.6;'>"
+            f"Given that {gene} is a GPCR (cell-surface signal receiver), mutations in its transmembrane helices or "
+            f"intracellular loops are predicted to impair G-protein coupling efficiency. "
+            f"<b style='color:#8ab8cc;'>Testable hypothesis:</b> Pathogenic variants will show reduced second-messenger "
+            f"(cAMP or Ca²⁺) response in a cell-based HTRF assay, with EC₅₀ shift ≥10-fold relative to wild-type. "
+            f"GPCR drug discovery has a 34% FDA approval rate — the highest of any protein class "
+            f"(Hauser et al., Nature Reviews 2017, PMID 28935918). "
+            f"Confirmed coupling impairment validates this as a druggable target for biased agonists or allosteric modulators."
+            f"</div>"
+            f"<div style='margin-top:5px;'>{src_link('Hauser et al. 2017',f'https://pubmed.ncbi.nlm.nih.gov/28935918/')} "
+            f"{src_link('GPCR-db','https://gpcrdb.org/')}</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
         st.markdown("</div>", unsafe_allow_html=True)
     else:
         fn_text=g_func(pdata)
-        st.markdown(f"<div style='background:#040d18;border:1px solid #0c2040;border-radius:9px;padding:.8rem 1rem;'><span style='color:#0e2840;font-size:1.02rem;'>Not classified as a GPCR in UniProt.</span> {src_link('UniProt',f'https://www.uniprot.org/uniprotkb/{uid}')}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='background:#040d18;border:1px solid #0c2040;border-radius:9px;padding:.8rem 1rem;'><span style='color:#5a8090;font-size:1.02rem;'>Not classified as a GPCR in UniProt.</span> {src_link('UniProt',f'https://www.uniprot.org/uniprotkb/{uid}')}</div>", unsafe_allow_html=True)
         if fn_text: st.markdown(f"<div class='card' style='margin-top:.5rem;'><h4>Function</h4><p>{fn_text[:400]}</p></div>", unsafe_allow_html=True)
 
     st.markdown("<hr class='dv'>", unsafe_allow_html=True)
@@ -1382,14 +1476,14 @@ with tab3:
             if vd:
                 rk2=vd.get("ml_rank","NEUTRAL"); clr2=RANK_CLR[rk2]; css2=RANK_CSS[rk2]
                 url_vd=vd.get("url","")
-                st.markdown(f"<div class='card' style='border-color:{clr2}33;'><h4 style='color:{clr2};'>⚠️ ClinVar Disease Variant Here</h4><p>{p('pathogenic') if vd.get('score',0)>=4 else vd.get('sig','—')}<br><small style='color:#0e2840;'>{vd.get('condition','')[:80]}</small></p>{'<a href=\"'+url_vd+'\" target=\"_blank\" style=\"color:#2a6a8a;font-size:1.02rem;\">View in ClinVar ↗</a>' if url_vd else ''}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='card' style='border-color:{clr2}33;'><h4 style='color:{clr2};'>⚠️ ClinVar Disease Variant Here</h4><p>{p('pathogenic') if vd.get('score',0)>=4 else vd.get('sig','—')}<br><small style='color:#5a8090;'>{vd.get('condition','')[:80]}</small></p>{'<a href=\"'+url_vd+'\" target=\"_blank\" style=\"color:#2a6a8a;font-size:1.02rem;\">View in ClinVar ↗</a>' if url_vd else ''}</div>", unsafe_allow_html=True)
             else: st.success("No ClinVar disease variant at this position",icon="✅")
         with cm:
             tb1,tb2=st.tabs(["Building-block properties","What if it mutates? →"])
             with tb1:
                 SPECIAL={"C":"Disulfide bonds · metal binding","G":"Most flexible · helix-breaker","P":"Rigid ring · helix-breaker","H":"pH-sensitive (pKa≈6)","W":"Largest · UV-absorbing","Y":"Phosphorylation (chemical tagging) target","R":"DNA/RNA binding · +1 charge","K":"Ubiquitination target · +1","D":"Catalytic acid · −1","E":"Catalytic acid · −1"}
                 for lbl,val in [("Building block (amino acid)",f"{aa} — {AA_NAMES.get(aa,'?')}"),("Water affinity (hydropathy)",f"{AA_HYDRO.get(aa,0):+.1f} (positive=water-hating, negative=water-loving)"),("Electric charge",f"{AA_CHG.get(aa,0):+.1f}"),("Special role",SPECIAL.get(aa,"No special designation"))]:
-                    st.markdown(f"<div style='display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #040c18;'><span style='color:#0e2840;font-size:.79rem;'>{lbl}</span><span style='color:#5a8090;font-size:.79rem;font-weight:600;'>{val}</span></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #040c18;'><span style='color:#5a8090;font-size:.79rem;'>{lbl}</span><span style='color:#5a8090;font-size:.79rem;font-weight:600;'>{val}</span></div>", unsafe_allow_html=True)
             with tb2:
                 alts=[a for a in AA_NAMES.keys() if a!=aa]
                 alt=st.selectbox("Replace with:",alts,key="alt_aa")
@@ -1416,7 +1510,7 @@ with tab3:
                 if alt=="P": imps.append(("🔀","Proline introduced","Rigid kink inserted → helix or sheet structure likely disrupted"))
                 if not imps: imps.append(("🟡","Conservative substitution","Small physicochemical change — likely low structural impact"))
                 for icon2,title2,body2 in imps:
-                    st.markdown(f"<div style='display:flex;gap:8px;background:#05101e;border:1px solid #0c2040;border-radius:8px;padding:8px 10px;margin:4px 0;'><span style='font-size:1.05rem;flex-shrink:0;'>{icon2}</span><div><div style='color:#5a8090;font-size:.96rem;font-weight:700;'>{title2}</div><div style='color:#0e2840;font-size:1.02rem;margin-top:1px;'>{body2}</div></div></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='display:flex;gap:8px;background:#05101e;border:1px solid #0c2040;border-radius:8px;padding:8px 10px;margin:4px 0;'><span style='font-size:1.05rem;flex-shrink:0;'>{icon2}</span><div><div style='color:#5a8090;font-size:.96rem;font-weight:700;'>{title2}</div><div style='color:#5a8090;font-size:1.02rem;margin-top:1px;'>{body2}</div></div></div>", unsafe_allow_html=True)
 
     st.markdown("<hr class='dv'>", unsafe_allow_html=True)
 
@@ -1474,7 +1568,23 @@ with tab3:
                     if "frameshift" in vn_all or "del" in vn_all: mechs.append(f"Reading-frame shift ({p('frameshift')}) → completely wrong protein sequence from mutation site onward.")
                     if "splice" in vn_all: mechs.append("Splice-site disruption → exon (coding section) skipped or intron (non-coding) included → corrupted protein.")
                     if "missense" in vn_all: mechs.append(f"Letter-swap mutation ({p('missense')}) → one wrong building block → altered shape or lost function.")
-                    if not mechs: mechs.append("Mechanism not yet fully characterised — functional studies needed to confirm causality.")
+                    if not mechs: mechs.append("Mechanism not yet fully characterised — functional studies required. Recommended zero-cost first step: Rosetta ΔΔG stability screening to rank which variants are structurally disruptive before wet-lab commitment.")
+                    best_v = vlist_s[0] if vlist_s else {}
+                    best_ml = best_v.get('ml', 0)
+                    hyp_txt = (
+                        f"<b style='color:#8ab8d0;'>Testable hypothesis:</b> "
+                        f"If these {len(vlist_s)} variant(s) in {gene} are genuinely causal for "
+                        f"{cond5[:40]}, CRISPR knock-in of the top-ranked variant "
+                        f"(ML: {best_ml:.2f}) should produce a measurable disease-relevant phenotype "
+                        f"in ≥2 independent cell lines within 72–96 h. "
+                        f"A null result in both lines supports variant reclassification."
+                    )
+                    st.markdown(
+                        f"<div style='background:#020810;border:1px solid #0d2545;"
+                        f"border-radius:8px;padding:8px 12px;margin:.5rem 0;color:#6a9ab0;font-size:.84rem;'>"
+                        f"{hyp_txt}</div>",
+                        unsafe_allow_html=True,
+                    )
                     for m in mechs: st.markdown(f"<div style='color:#1e4060;font-size:.96rem;margin:2px 0;'>• {m}</div>", unsafe_allow_html=True)
 
     render_citations(papers,4)
@@ -1514,7 +1624,7 @@ with tab4:
                  "caution":"⚠️ CAUTION — very low disease burden. Verify partner proteins carry the actual risk first.",
                  "deprioritise":"🛑 DO NOT INVEST — zero Mendelian disease variants. Risk of wasted resources is high. Protein structures and cell-culture data alone are insufficient justification.",
                  "neutral":"❓ HOLD — insufficient data. Need more ClinVar submissions before a genetics-based decision."}
-    st.markdown(f"<div class='{gi['css']}'><div style='color:{gi_clr4};font-weight:800;font-size:1.05rem;margin-bottom:5px;'>{gi['icon']} {gi['verdict']}: {gi['label']}</div><div style='color:{gi_clr4}88;font-size:1.02rem;margin-bottom:.6rem;'>{gi['explanation']}</div><div style='color:{gi_clr4};font-weight:700;font-size:.94rem;margin-bottom:.5rem;'>{pursue_recs.get(gi['pursue'],'—')}</div><div style='color:#0e2840;font-size:.81rem;font-style:italic;border-top:1px solid {gi_clr4}22;padding-top:.5rem;'>Principle: <em>Protein structures by themselves are not a validation of biology. DNA sequences are. Genetics must be the starting point of any biology.</em><br>Sources: {src_link('ClinVar',f'https://www.ncbi.nlm.nih.gov/clinvar/?term={gene}[gene]')} · {src_link('UniProt',f'https://www.uniprot.org/uniprotkb/{uid}')}</div></div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='{gi['css']}'><div style='color:{gi_clr4};font-weight:800;font-size:1.05rem;margin-bottom:5px;'>{gi['icon']} {gi['verdict']}: {gi['label']}</div><div style='color:{gi_clr4}88;font-size:1.02rem;margin-bottom:.6rem;'>{gi['explanation']}</div><div style='color:{gi_clr4};font-weight:700;font-size:.94rem;margin-bottom:.5rem;'>{pursue_recs.get(gi['pursue'],'—')}</div><div style='color:#5a8090;font-size:.81rem;font-style:italic;border-top:1px solid {gi_clr4}22;padding-top:.5rem;'>Principle: <em>Protein structures by themselves are not a validation of biology. DNA sequences are. Genetics must be the starting point of any biology.</em><br>Sources: {src_link('ClinVar',f'https://www.ncbi.nlm.nih.gov/clinvar/?term={gene}[gene]')} · {src_link('UniProt',f'https://www.uniprot.org/uniprotkb/{uid}')}</div></div>", unsafe_allow_html=True)
 
     if assay:
         st.markdown("<hr class='dv'>", unsafe_allow_html=True); sh("🧫","Assay Next Steps")
@@ -1534,13 +1644,59 @@ with tab4:
     for (sym,(clr,bg)),col in zip(COST_MAP.items(),cc):
         col.markdown(f"<div style='background:{bg};border:1px solid {clr}33;border-radius:8px;padding:5px;text-align:center;'><div style='color:{clr};font-weight:800;'>{sym}</div><div style='color:{clr}88;font-size:.81rem;'>{{'Free':'No cost','$':'<$1K','$$':'$1-10K','$$$':'$10-50K','$$$$':'$50K+'}}[sym]</div></div>", unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
+    # ── Why each experiment is suggested ──
+    # Each card includes: purpose · rationale (WHY) · hypothesis · protocol · focus · neglect · outcome
+    st.markdown(
+        "<div style='background:#020810;border:1px solid #0d2545;border-radius:10px;"
+        "padding:.9rem 1.2rem;margin-bottom:1rem;'>"
+        "<div style='color:#d0e8ff;font-weight:700;font-size:.95rem;margin-bottom:.4rem;'>"
+        "🔬 Experiment Selection Rationale</div>"
+        f"<div style='color:#6a9ab0;font-size:.86rem;line-height:1.6;'>"
+        f"Experiments below are suggested based on: (1) the protein type ({g_ptype(pdata).replace('_',' ').title()}), "
+        f"(2) the Genomic Integrity verdict ({gi['verdict']}), "
+        f"(3) the number of CRITICAL/HIGH variants ({n_crit2}/{n_high2}), "
+        f"(4) estimated druggability ({drugg:.0%}). "
+        f"Each card states WHY this experiment is appropriate and presents a testable hypothesis. "
+        f"Experiments are ordered by evidence-to-cost ratio — start with the cheapest high-yield assay first.</div>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
     EXPS=[
-        ("🧬","Enzyme activity assay (ADP-Glo™ kinase assay)","$$","3–6 wks","Directly measure whether a mutation makes the protein hyperactive or broken.",["Express normal and mutant proteins (bacteria or insect cells).","Purify via His-tag column + size-exclusion.","ADP-Glo™ luminescent kinase reaction.","Compare efficiency (Km/Vmax): normal vs each variant.","Triplicate; error ≤10%."],"Mutations at catalytic (active) sites.","Mutations in unstructured regions or pLDDT <50.","Quantitative activity ratio — direct functional evidence."),
+        ("🧬","Enzyme activity assay (ADP-Glo™ kinase assay)","$$","3–6 wks",
+         "Directly measure whether a pathogenic mutation hyperactivates or silences the protein's core function. "
+         "WHY: ClinVar-confirmed pathogenic variants at catalytic residues strongly predict loss or gain of function, "
+         "but this must be quantified biochemically before any drug screen. "
+         "Hypothesis: Pathogenic missense variants at D-loop or activation-loop residues will reduce Vmax by ≥50% "
+         "relative to wild-type, while gain-of-function variants may show reduced Km (increased substrate affinity). "
+         "Reference: Kornev et al., PNAS 2008 (PMID 18768809) — catalytic spine architecture predicts function.",
+         ["Express normal and mutant proteins (bacteria or insect cells).","Purify via His-tag column + size-exclusion.","ADP-Glo™ luminescent kinase reaction.","Compare efficiency (Km/Vmax): normal vs each variant.","Triplicate; error ≤10%."],
+         "Mutations at catalytic (active) sites — D-loop, activation loop, P-loop.","Mutations in unstructured regions or pLDDT <50 — structurally unreliable.",
+         "Quantitative activity ratio — direct functional evidence. Feeds directly into drug target validation."),
         ("🧬","Protein interaction mapping (Co-IP / AP-MS)","$$$","4–8 wks","Discover which partner proteins are lost or gained with each mutation.",["Tag protein (3×FLAG or GFP) in HEK293T cells.","Native cell lysis (NP-40 buffer).","Pull-down + protein A/G beads.","Mass-spectrometry (TMT-labelled) or gel electrophoresis.","Confirm top hits with reverse pull-down."],"Interface residues predicted by AlphaFold-Multimer.","Variants with identical binding domains.","Interaction network rewiring map per mutation."),
         ("🧬","Protein stability screen (Thermal Shift Assay)","$","1–2 wks","Find drugs that stabilise mutant proteins, or confirm protein is destabilised.",["Purify protein (0.5 mg/mL).","96-well plate + SYPRO Orange fluorescent dye.","Heat ramp 25→95°C at 1°C/min.","Melting temperature (Tm) by curve fitting.","Flag compounds shifting Tm ≥1°C as stabilisers."],"Destabilising missense variants in structured domains.","Unstructured regions — no Tm signal expected.","Stability change per mutation; drug hit identification."),
-        ("🔬","CRISPR gene knock-in (precise mutation introduction)","$$$","6–12 wks","Put exact patient mutations into cells to study their effects.",["Design guide RNAs (CRISPOR tool).","SpCas9 protein + guide RNA + repair template.","Screen ≥50 cell clones by DNA sequencing.","Confirm protein expression by western blot.","Run all functional assays on confirmed mutant cells."],"Confirmed disease-causing (P/LP) variants + ML score ≥0.75.","Variants of unknown significance with <2-star review — too uncertain.","Isogenic (genetically identical except for mutation) cell lines — gold standard."),
+        ("🔬","CRISPR gene knock-in (precise mutation introduction)","$$$","6–12 wks",
+         "Introduce exact patient-identical variants into the endogenous locus to study their effects in a physiologically relevant context. "
+         "WHY: Cell-free or overexpression assays may not reflect endogenous protein levels or interaction partners. "
+         "Isogenic knock-in models are the gold standard for variant pathogenicity evidence (ClinGen framework, Richards et al. 2015, PMID 25741868). "
+         "Hypothesis: A confirmed pathogenic knock-in will produce a measurable phenotype (altered proliferation, apoptosis, or signalling) "
+         "in at least two independent cell lines. Absence of phenotype in both lines calls the ClinVar classification into question. "
+         "Negative result is equally valuable — it may reclassify the variant to VUS.",
+         ["Design guide RNAs (CRISPOR tool).","SpCas9 protein + guide RNA + repair template.","Screen ≥50 cell clones by DNA sequencing.","Confirm protein expression by western blot.","Run all functional assays on confirmed mutant cells."],
+         "ClinVar P/LP variants + ML score ≥0.75 + ≥2-star ClinVar review status.","Variants of unknown significance with <2-star review — too uncertain and too costly.",
+         "Isogenic cell lines — gold standard for variant functional evidence (ClinGen PS3 criterion)."),
         ("🔬","Luciferase reporter assay (gene activation test)","$","1–3 wks","Test whether a transcription-factor mutation changes gene activation.",["Clone target gene promoter (1 kb) into luciferase (light-emitting) vector.","Express normal or mutant protein + control reporter.","Measure light output ratio at 48h.","≥3 independent experiments in triplicate."],"Mutations in DNA-binding or activation domains.","Unstructured N-terminal segments.","Fold-change in target gene activation/repression."),
-        ("🧫","Structure prediction + stability scoring (Rosetta ΔΔG)","Free","1–3 days","Computationally rank ALL mutations by structural damage before wet lab — eliminates ~50% of candidates.",["Download AlphaFold structure.","Rosetta FastRelax on normal structure.","Introduce each mutation computationally.","Flag ΔΔG ≥2 REU as structurally disruptive.","Cross-reference with ClinVar + ML scores."],"All letter-swap mutations (missense) in well-structured regions (pLDDT ≥70).","Unstructured regions (pLDDT <50) — Rosetta not reliable here.","Pre-ranked candidate list — eliminates ~50% before any wet-lab spend."),
+        ("🧫","Structure prediction + stability scoring (Rosetta ΔΔG)","Free","1–3 days",
+         "Computationally rank ALL missense variants by predicted structural damage before committing a single dollar to wet lab. "
+         "WHY: ΔΔG (change in folding free energy) ≥2 REU predicts destabilising mutations with ~70–80% accuracy "
+         "(Kellogg et al., Proteins 2011, PMID 21287615). This eliminates structurally neutral variants from further study — "
+         "typically ~40–60% of all candidates — before any wet-lab spend. "
+         "Hypothesis: Variants scoring ΔΔG ≥2 REU in Rosetta will show reduced protein half-life in CHX chase experiments, "
+         "consistent with accelerated proteasomal degradation of the destabilised fold. "
+         "This is a zero-cost filter that should always precede biochemical assays.",
+         ["Download AlphaFold structure.","Rosetta FastRelax on normal structure.","Introduce each mutation computationally.","Flag ΔΔG ≥2 REU as structurally disruptive.","Cross-reference with ClinVar + ML scores."],
+         "All missense variants in well-structured domains (pLDDT ≥70) — Rosetta reliable here.","Unstructured regions (pLDDT <50) — Rosetta force field is not parameterised for IDRs.",
+         "Pre-ranked candidate list — eliminates ~50% before any wet-lab spend. Run this first, always."),
         ("🐭","Tumour implant model (xenograft)","$$$$","8–16 wks","Test cancer-causing mutations in living organisms.",["Implant 1×10⁶ mutant cells under skin of immunocompromised mice.","Measure tumour size twice weekly (callipers).","Stain tumour tissue at study end (H&E + protein markers).","Statistical comparison (log-rank test): normal vs mutant growth."],"Mutations with in-vitro proliferation data already confirming cancer activity.","Variants of uncertain significance without prior cell data — too costly.","In vivo tumour growth curves; tissue-level disease confirmation."),
         ("💊","Drug screen (High-Throughput Screening)","$$$$","6–12 mo","Find drugs that fix or block mutant protein function.",["Set up automated assay compatible with 96/384-well plates.","Screen compound library at 10 µM (10K–1M compounds).","Eliminate compounds that are just toxic to cells.","Confirm dose-response (IC₅₀) for top 50 compounds.","Progress top 5 for medicinal chemistry optimisation."],"Confirmed high-priority variants with drug-binding pockets.","Unstructured proteins without defined pockets.","Lead drug compound series for further development."),
         ("💊","Protein degrader (PROTAC)","$$$$","6–12 mo","Destroy hyperactive mutant proteins that cannot be inhibited by conventional drugs.",["Design PROTAC molecule: target-binding warhead + cell-recycling-machinery recruiter.","Synthesise 10–20 candidates.","Measure protein destruction efficiency (DC₅₀) in cells.","Confirm by western blot and mass-spectrometry.","Full proteome check — ensure only target is degraded."],"Hyperactive (gain-of-function) mutations that conventional drugs cannot block.","Loss-of-function mutations — destroying remaining protein makes disease worse.","Selective protein degrader DC₅₀ <100 nM."),
