@@ -42,9 +42,13 @@ except ImportError:
         else: return {"role":"critical_driver","label":"Critical disease driver","icon":"🔴","color":"#FF4C4C","note":f"{n} pathogenic variants."}
     EXPERIMENT_LADDER = {}
 
-from diagrams import (build_tissue_diagram, build_genomic_diagram,
-                      build_gpcr_association_diagram, build_cell_impact_diagram,
-                      GPCR_ASSOC, TISSUE_DATA)
+from diagrams import build_tissue_diagram, build_genomic_diagram, build_cell_impact_diagram, GPCR_ASSOC, TISSUE_DATA
+try:
+    from diagrams import build_gpcr_association_diagram
+except ImportError:
+    def build_gpcr_association_diagram(gene, g_protein="", protein_name="", is_gpcr=False):
+        from diagrams import build_gpcr_diagram
+        return build_gpcr_diagram(gene, g_protein or "Gq/11", protein_name, 7)
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Protellect", page_icon="🧬", layout="wide",
