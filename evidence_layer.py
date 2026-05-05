@@ -109,69 +109,11 @@ def classify_protein_role(gene_name: str, n_pathogenic: int,
                            interaction_partners: list = None) -> dict:
     """
     Classify a protein as essential driver, scaffold/piggyback, or unclassified.
-
-    CLINVAR IS THE ONLY SOURCE OF TRUTH (Sujay Subbayya Ithychanda framework):
-    - If n_pathogenic > 0 from ClinVar: protein causes real human disease. PERIOD.
-      It can NEVER be classified as piggyback regardless of any known list.
-      A protein with ClinVar pathogenic variants is essential by definition.
-    - If n_pathogenic == 0: protein may be a structural scaffold/piggyback.
-      Even then, check the known list for guidance.
-
-    FLNA has hundreds of pathogenic ClinVar variants → ESSENTIAL, never piggyback.
-    β-arrestin has ZERO → correctly flagged as scaffold.
+    Returns a classification dict with explanation.
     """
     gene_upper = gene_name.upper()
 
-    # ── CLINVAR FIRST — always overrides any static classification ────────────
-    # Any confirmed pathogenic variant = this protein causes human disease
-    if n_pathogenic > 0:
-        # Check known essential list for additional context
-        if gene_upper in KNOWN_ESSENTIAL_PROTEINS:
-            ess = KNOWN_ESSENTIAL_PROTEINS[gene_upper]
-            return {
-                "role":     "essential",
-                "label":    "Confirmed essential driver",
-                "icon":     "⚡",
-                "color":    "#FF4C4C",
-                "name":     ess["common_name"],
-                "note":     ess["note"],
-                "diseases": ess.get("diseases",[]),
-            }
-        # Not in known list but has ClinVar evidence — classify by count
-        if n_pathogenic >= 500:
-            return {
-                "role":  "critical_driver",
-                "label": "Critical disease driver",
-                "icon":  "🔴",
-                "color": "#FF4C4C",
-                "note":  f"{n_pathogenic} confirmed pathogenic ClinVar variants. One of the most pathogenically constrained proteins known.",
-            }
-        elif n_pathogenic >= 50:
-            return {
-                "role":  "validated",
-                "label": "Genomically validated disease gene",
-                "icon":  "🟠",
-                "color": "#FFA500",
-                "note":  f"{n_pathogenic} confirmed pathogenic variants in ClinVar. Solid human genetic disease evidence.",
-            }
-        elif n_pathogenic >= 5:
-            return {
-                "role":  "validated",
-                "label": "Validated disease gene",
-                "icon":  "🟠",
-                "color": "#FFA500",
-                "note":  f"{n_pathogenic} confirmed pathogenic variants. Human genetic evidence supports disease relevance.",
-            }
-        else:
-            return {
-                "role":  "rare_mendelian",
-                "label": "Confirmed rare Mendelian disease gene",
-                "icon":  "🟡",
-                "color": "#FFD700",
-                "note":  f"{n_pathogenic} confirmed pathogenic variant(s). Rare disease — low count reflects disease rarity, NOT protein dispensability. This is NOT the β-arrestin pattern.",
-            }
-
-    # ── n_pathogenic == 0: Check for known scaffold/piggyback pattern ─────────
+    # Check known piggyback list
     if gene_upper in KNOWN_PIGGYBACK_PROTEINS:
         pb = KNOWN_PIGGYBACK_PROTEINS[gene_upper]
         return {
@@ -183,22 +125,62 @@ def classify_protein_role(gene_name: str, n_pathogenic: int,
             "note":    pb["note"],
             "partners":pb["partners"],
             "warning": (
-                f"{pb['common_name']} has ZERO confirmed pathogenic variants in ClinVar. "
+                f"{pb['common_name']} has no confirmed pathogenic variants in ClinVar. "
                 f"It acts as a {pb['type'].lower()} for proteins like {', '.join(pb['partners'][:3])}. "
-                "Disease implications reside in the interaction partners, not this protein. "
-                "Pursuing this as a drug target risks the β-arrestin trap."
+                "The disease implications you are studying likely reside in its interaction "
+                "partners, not in this protein itself. "
+                "Pursuing this as a primary drug target risks the β-arrestin trap: "
+                "extensive in vitro evidence, no human genetic validation."
             ),
         }
 
-    # Zero ClinVar variants, not in known piggyback list
-    return {
-        "role":    "unvalidated",
-        "label":   "No ClinVar disease evidence",
-        "icon":    "⚪",
-        "color":   "#555555",
-        "note":    "Zero pathogenic variants in ClinVar. Cannot confirm human disease relevance from genetics alone.",
-        "warning": "Zero ClinVar pathogenic variants. Run gnomAD pLI check. If pLI < 0.1, protein is likely dispensable.",
-    }
+    # Check known essential list
+    if gene_upper in KNOWN_ESSENTIAL_PROTEINS:
+        ess = KNOWN_ESSENTIAL_PROTEINS[gene_upper]
+        return {
+            "role":     "essential",
+            "label":    "Confirmed essential driver",
+            "icon":     "⚡",
+            "color":    "#FF4C4C",
+            "name":     ess["common_name"],
+            "note":     ess["note"],
+            "diseases": ess["diseases"],
+        }
+
+    # Generic classification by ClinVar count
+    if n_pathogenic == 0:
+        return {
+            "role":    "unvalidated",
+            "label":   "Genomically unvalidated",
+            "icon":    "⚪",
+            "color":   "#555555",
+            "note":    "No pathogenic variants in ClinVar. Cannot confirm essential role in humans.",
+            "warning": "Zero ClinVar pathogenic variants. Check whether this protein is a structural scaffold for an essential partner.",
+        }
+    elif n_pathogenic <= 10:
+        return {
+            "role":  "rare_mendelian",
+            "label": "Confirmed rare Mendelian disease gene",
+            "icon":  "🟡",
+            "color": "#FFD700",
+            "note":  f"{n_pathogenic} confirmed pathogenic variant(s). Rare disease — low ClinVar count reflects disease rarity, not protein dispensability.",
+        }
+    elif n_pathogenic <= 200:
+        return {
+            "role":  "validated",
+            "label": "Genomically validated disease gene",
+            "icon":  "🟠",
+            "color": "#FFA500",
+            "note":  f"{n_pathogenic} confirmed pathogenic variants. Solid human genetic evidence.",
+        }
+    else:
+        return {
+            "role":  "critical_driver",
+            "label": "Critical disease driver",
+            "icon":  "🔴",
+            "color": "#FF4C4C",
+            "note":  f"{n_pathogenic} confirmed pathogenic variants. One of the most important disease genes in this category.",
+        }
 
 
 # ── Core papers ──────────────────────────────────────────────────────────────
