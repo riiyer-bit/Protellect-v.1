@@ -4416,7 +4416,6 @@ if st.session_state["csv_df"] is not None and not st.session_state["pdata"]:
             f"<p style='color:#7ab0c0;font-size:.88rem;line-height:1.65;'>{f_body_s}</p></div>",
             unsafe_allow_html=True,
         )
-        st.markdown(f"<div class='card'><h4>{title4}</h4><p>{body4}</p></div>", unsafe_allow_html=True)
     # ── Visualisations for each CSV type ────────────────────────────────────
     if csv_type in ('clinical_variants','vcf_variants'):
         import re as _re_chart
