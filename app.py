@@ -1257,11 +1257,25 @@ def compute_gi(cv, protein_length):
 
 # ─── CSV processing ─────────────────────────────────────────────────
 def detect_csv_type(df):
-    cols=" ".join(c.lower() for c in df.columns)
-    if any(k in cols for k in ["fold","logfc","log2","fpkm","rpkm","tpm","count","expr"]): return "expression"
-    if any(k in cols for k in ["variant","mutation","chrom","ref","alt","rsid","pos"]): return "variants"
-    if any(k in cols for k in ["protein","abundance","intensity","peptide","spectral"]): return "proteomics"
-    if any(k in cols for k in ["pvalue","p_val","padj","fdr","qvalue"]): return "stats"
+    cols = " ".join(c.lower() for c in df.columns)
+    vals = " ".join(str(v) for v in df.iloc[0].values if v)[:200].lower() if len(df) > 0 else ""
+    
+    # DMS (Deep Mutational Scanning) — specific detection
+    if any(k in cols for k in ["effect_score","fitness","dms","ddg","stability","enrich"]):
+        return "dms"
+    if ("mutation" in cols or "variant" in cols) and ("effect" in cols or "score" in cols or "fitness" in cols):
+        return "dms"
+    # Check values for amino acid notation like G12D, A42V
+    import re as _re
+    if _re.search(r"[A-Z][0-9]+[A-Z*]", vals):
+        return "dms"
+    if any(k in cols for k in ["fold","logfc","log2","fpkm","rpkm","tpm","count","expr","deseq","edger"]): return "expression"
+    if any(k in cols for k in ["chrom","chr","ref","alt","rsid","vcf","gnomad","af_","allele_freq"]): return "vcf_variants"
+    if any(k in cols for k in ["variant","mutation","hgvs","clinvar","pathogen","classification"]): return "clinical_variants"
+    if any(k in cols for k in ["protein","abundance","intensity","peptide","spectral","lfq","tmt"]): return "proteomics"
+    if any(k in cols for k in ["pvalue","p_val","padj","fdr","qvalue","z_score","beta","odds_ratio"]): return "stats"
+    if any(k in cols for k in ["cell","viability","ic50","ec50","apoptosis","proliferation","caspase"]): return "cell_assay"
+    if any(k in cols for k in ["binding","kd","kon","koff","spr","itc","affinity","tm","shift"]): return "binding_assay"
     return "generic"
 
 def summarise_assay(df, csv_type):
@@ -1277,30 +1291,340 @@ def summarise_assay(df, csv_type):
                "generic":f"Dataset: {n_rows:,} rows × {n_cols} columns. Column headers: {', '.join(df.columns[:6].tolist())}."}
     return summaries.get(csv_type, summaries["generic"])
 
-def analyse_csv_standalone(df, csv_type, goal):
-    findings=[]
-    fc_col=next((c for c in df.columns if any(k in c.lower() for k in ["fold","logfc","log2fc"])),None)
-    p_col=next((c for c in df.columns if any(k in c.lower() for k in ["pvalue","p_val","padj","fdr"])),None)
-    gene_col=next((c for c in df.columns if any(k in c.lower() for k in ["gene","symbol","name","id"])),None)
-    findings.append(("📋 Dataset type",f"Auto-detected: **{csv_type.replace('_',' ').title()}** · {len(df):,} rows · {len(df.columns)} columns"))
-    if fc_col and df[fc_col].dtype in [float,int,'float64','int64']:
-        up=(df[fc_col]>1).sum(); dn=(df[fc_col]<-1).sum()
-        findings.append(("📈 Expression changes (cell activity level changes)",
-                         f"Upregulated (increased activity): **{up:,}** genes · Downregulated (decreased activity): **{dn:,}** genes · Threshold: |log₂FC| > 1"))
-    if p_col and df[p_col].dtype in [float,'float64']:
-        sig=(df[p_col]<0.05).sum()
-        findings.append(("📊 Statistically significant hits (reliable results)",f"**{sig:,}** entries with p < 0.05 out of {len(df):,} total"))
-    if gene_col:
-        top5=df[gene_col].dropna().astype(str).head(5).tolist()
-        findings.append(("🧬 Top gene identifiers",f"{', '.join(top5)}{'...' if len(df)>5 else ''}"))
-    # Goal-specific
-    goal_l=goal.lower()
+def analyse_csv_standalone(df, csv_type, goal,
+                           gene="", scored=None, variants=None,
+                           am_scores=None, protein_length=1):
+    """
+    Full analysis of any uploaded CSV.
+    Cross-references with ClinVar, AlphaMissense, and protein data where available.
+    Returns list of (title, body, plotly_fig_or_None) tuples.
+    """
+    import re as _re2
+    import numpy as _np2
+    findings = []
+    scored   = scored   or []
+    variants = variants or []
+    am_scores= am_scores or {}
+    
+    # ── Column detection ────────────────────────────────────────────────────────
+    col_l   = {c: c.lower() for c in df.columns}
+    pos_col = next((c for c,l in col_l.items() if any(k in l for k in
+                    ["residue","position","pos","resi","aa_pos","site"])), None)
+    mut_col = next((c for c,l in col_l.items() if any(k in l for k in
+                    ["mutation","variant","change","substitution","hgvs","mut"])), None)
+    eff_col = next((c for c,l in col_l.items() if any(k in l for k in
+                    ["effect","score","fitness","ddg","stability","enrich",
+                     "pathogenicity","functional","activity","log_ratio"])), None)
+    fc_col  = next((c for c,l in col_l.items() if any(k in l for k in
+                    ["fold","logfc","log2fc","log2_fold","lfc"])), None)
+    p_col   = next((c for c,l in col_l.items() if any(k in l for k in
+                    ["pvalue","p_val","padj","fdr","qvalue","p.value","p-value"])), None)
+    gene_col= next((c for c,l in col_l.items() if any(k in l for k in
+                    ["gene","symbol","name","geneid","gene_name","gene_id"])), None)
+    int_col = next((c for c,l in col_l.items() if any(k in l for k in
+                    ["intensity","abundance","lfq","tmt","count","area","peptide"])), None)
+    exp_col = next((c for c,l in col_l.items() if any(k in l for k in
+                    ["experiment","type","assay","condition","class"])), None)
+    
+    findings.append(("📋 Dataset",
+        f"**{csv_type.replace('_',' ').title()}** · {len(df):,} rows · {len(df.columns)} columns · "
+        f"Columns: {', '.join(df.columns.tolist()[:8])}"))
+    
+    # ════════════════════════════════════════════════════════════════
+    # DMS (Deep Mutational Scanning) — full cross-referenced analysis
+    # ════════════════════════════════════════════════════════════════
+    if csv_type == "dms":
+        findings.append(("🔬 Assay type identified",
+            "**Deep Mutational Scanning (DMS)** — measures the functional effect of every possible "
+            "amino acid substitution in a protein. Effect score near 1.0 = highly deleterious. "
+            "Near 0.0 = neutral/tolerated. Cross-referencing positions against ClinVar and AlphaMissense now."))
+        
+        # Parse mutations into structured data
+        mutations = []
+        for _, row in df.iterrows():
+            pos    = None
+            aa_wt  = None
+            aa_alt = None
+            # Get position
+            if pos_col and _re2.match(r"\d+", str(row.get(pos_col,""))):
+                try: pos = int(float(str(row[pos_col]).split(".")[0]))
+                except: pass
+            # Get mutation string
+            mut_str = str(row.get(mut_col, "")) if mut_col else ""
+            m = _re2.match(r"([A-Za-z*])([0-9]+)([A-Za-z*])", mut_str)
+            if m:
+                aa_wt  = m.group(1).upper()
+                if pos is None: pos = int(m.group(2))
+                aa_alt = m.group(3).upper()
+            # Get effect score
+            eff = None
+            if eff_col:
+                try: eff = float(row[eff_col])
+                except: pass
+            mutations.append({
+                "pos": pos, "wt": aa_wt, "alt": aa_alt,
+                "mut_str": mut_str, "eff": eff,
+                "row": row.to_dict()
+            })
+        
+        valid_muts = [m for m in mutations if m["pos"] is not None and m["eff"] is not None]
+        
+        if valid_muts:
+            effs   = [m["eff"] for m in valid_muts]
+            n_high = sum(1 for e in effs if e >= 0.7)
+            n_med  = sum(1 for e in effs if 0.3 <= e < 0.7)
+            n_low  = sum(1 for e in effs if e < 0.3)
+            top5   = sorted(valid_muts, key=lambda x: -x["eff"])[:5]
+            
+            findings.append(("📊 Effect score distribution",
+                f"**{n_high}** highly deleterious (≥0.7) · **{n_med}** moderate (0.3–0.7) · "
+                f"**{n_low}** tolerated (<0.3) · Mean score: **{sum(effs)/len(effs):.3f}**"))
+            
+            top5_text = " · ".join(
+                f"{m['mut_str']} ({m['eff']:.2f})" for m in top5
+            )
+            findings.append(("🔴 Most deleterious mutations", top5_text))
+            
+            # ── ClinVar cross-reference ────────────────────────────────────
+            if variants:
+                cv_by_pos = {}
+                for v in variants:
+                    try: cv_by_pos[int(v.get("start",""))] = v
+                    except: pass
+                
+                matched_cv = []
+                for m in valid_muts:
+                    if m["pos"] in cv_by_pos:
+                        cv = cv_by_pos[m["pos"]]
+                        matched_cv.append({
+                            "mut": m["mut_str"],
+                            "eff": m["eff"],
+                            "cv_sig": cv.get("sig",""),
+                            "cv_score": cv.get("score",0),
+                            "cv_cond": cv.get("condition","")[:50],
+                            "cv_url": cv.get("url",""),
+                        })
+                
+                if matched_cv:
+                    # Sort by combined score
+                    matched_cv.sort(key=lambda x: -(x["eff"]*0.5 + x["cv_score"]/10))
+                    agreement = sum(1 for x in matched_cv if
+                                    (x["eff"]>=0.5 and x["cv_score"]>=3) or
+                                    (x["eff"]<0.3 and x["cv_score"]<=1))
+                    findings.append(("✅ ClinVar cross-reference",
+                        f"**{len(matched_cv)}** DMS positions match ClinVar variant positions. "
+                        f"**{agreement}** show agreement between DMS effect score and ClinVar classification. "
+                        f"Top concordant: " +
+                        " · ".join(f"{x['mut']} (DMS={x['eff']:.2f}, ClinVar={x['cv_sig'][:20]})"
+                                   for x in matched_cv[:3])))
+                else:
+                    findings.append(("ClinVar cross-reference",
+                        f"No direct position overlap with ClinVar variants for {gene}. "
+                        "This may indicate these are novel positions not yet in ClinVar — "
+                        "high-scoring DMS positions are prime candidates for ClinVar submission."))
+            
+            # ── AlphaMissense cross-reference ──────────────────────────────
+            if am_scores:
+                am_concordant = []
+                am_discordant = []
+                for m in valid_muts:
+                    pos_am = am_scores.get(m["pos"], {})
+                    alt_am = pos_am.get(m["alt"], {}) if m["alt"] else {}
+                    am_score = alt_am.get("score") if isinstance(alt_am, dict) else None
+                    am_class = alt_am.get("class","") if isinstance(alt_am, dict) else ""
+                    if am_score is not None:
+                        dms_path = m["eff"] >= 0.5
+                        am_path  = am_score >= 0.564
+                        if dms_path == am_path:
+                            am_concordant.append((m["mut_str"], m["eff"], am_score))
+                        else:
+                            am_discordant.append((m["mut_str"], m["eff"], am_score))
+                
+                if am_concordant or am_discordant:
+                    findings.append(("🤖 AlphaMissense AI vs DMS agreement",
+                        f"**{len(am_concordant)}** mutations where DMS functional data agrees with "
+                        f"AlphaMissense AI prediction · **{len(am_discordant)}** discordant (investigate these — "
+                        f"may reflect cell-type-specific effects not captured by structure-based AI). "
+                        f"Concordant examples: " +
+                        " · ".join(f"{t[0]} (DMS={t[1]:.2f}, AM={t[2]:.2f})"
+                                   for t in am_concordant[:3])))
+            
+            # ── Hotspot analysis from DMS ──────────────────────────────────
+            pos_effs = {}
+            for m in valid_muts:
+                if m["pos"] not in pos_effs:
+                    pos_effs[m["pos"]] = []
+                pos_effs[m["pos"]].append(m["eff"])
+            pos_avg = {p: sum(e)/len(e) for p,e in pos_effs.items()}
+            
+            hot_positions = sorted(
+                [(p, avg) for p, avg in pos_avg.items() if avg >= 0.65],
+                key=lambda x: -x[1]
+            )
+            if hot_positions:
+                findings.append(("🎯 DMS hotspot positions",
+                    f"**{len(hot_positions)}** positions where the majority of substitutions are deleterious (avg effect ≥0.65) — "
+                    f"these are structurally or functionally critical residues. "
+                    f"Top positions: " +
+                    ", ".join(f"pos {p} (avg={a:.2f})" for p,a in hot_positions[:8])))
+            
+            # ── Experimental triage from DMS ───────────────────────────────
+            findings.append(("🧪 Recommended next experiments",
+                f"**1. Validate top {min(5,n_high)} deleterious mutations biochemically** — "
+                f"Express {', '.join(m['mut_str'] for m in top5[:3])} as recombinant protein and measure activity vs wild-type (thermal shift, enzyme assay). "
+                f"**2. Cross-reference with patient data** — submit high-effect positions to ClinVar search; "
+                f"check if any patient carries these variants. "
+                f"**3. Structure-guided targeting** — map deleterious hotspot positions onto AlphaFold structure "
+                f"to identify whether they cluster in a druggable pocket. "
+                f"**4. CRISPR knock-in** — introduce top 3 high-effect mutations into endogenous locus "
+                f"and measure cellular phenotype (viability, morphology, signalling)."))
+    
+    # ════════════════════════════════════════════════════════════════
+    # EXPRESSION (RNA-seq / microarray / qPCR)
+    # ════════════════════════════════════════════════════════════════
+    elif csv_type == "expression":
+        if fc_col and df[fc_col].dtype in [float, 'float64', int, 'int64']:
+            up   = (df[fc_col] > 1).sum()
+            dn   = (df[fc_col] < -1).sum()
+            neut = len(df) - up - dn
+            findings.append(("📈 Differential expression",
+                f"**{up:,}** upregulated (log₂FC > 1) · **{dn:,}** downregulated (log₂FC < −1) · "
+                f"**{neut:,}** unchanged · Mean |FC|: {df[fc_col].abs().mean():.2f}"))
+        if p_col and df[p_col].dtype in [float, 'float64']:
+            sig = (df[p_col] < 0.05).sum()
+            sig01 = (df[p_col] < 0.01).sum()
+            findings.append(("📊 Statistical significance",
+                f"**{sig:,}** significant at p < 0.05 · **{sig01:,}** at p < 0.01 out of {len(df):,} total. "
+                f"Multiple testing correction applied? Check for 'padj' or 'FDR' column."))
+        if fc_col and p_col and gene_col:
+            try:
+                sig_mask = (df[p_col] < 0.05) & (df[fc_col].abs() > 1)
+                sig_genes = df.loc[sig_mask, gene_col].dropna().astype(str).tolist()
+                if sig_genes:
+                    findings.append(("🧬 Significant differentially expressed genes",
+                        f"{', '.join(sig_genes[:10])}{'...' if len(sig_genes)>10 else ''} "
+                        f"({len(sig_genes)} total)"))
+                if gene and any(str(gene).upper() == g.upper() for g in sig_genes):
+                    fc_val = df.loc[df[gene_col].astype(str).str.upper()==gene.upper(), fc_col].values[0]
+                    findings.append((f"🎯 {gene} in this dataset",
+                        f"**{gene} is significantly differentially expressed** — log₂FC = {fc_val:.2f}. "
+                        f"This functional data supports its ClinVar pathogenic variant profile. "
+                        f"Cross-reference: does expression change in the disease tissue where ClinVar variants are found?"))
+            except: pass
+        findings.append(("🧪 Recommended next experiments",
+            "**1. Pathway enrichment** — run GSEA or ORA on significantly changed genes using MSigDB hallmarks. "
+            "**2. ClinVar intersection** — which significantly changed genes also carry ClinVar pathogenic variants? These are highest-priority. "
+            "**3. Validation** — qPCR validate top 5–10 hits in independent samples before protein-level follow-up. "
+            "**4. Protein level** — run western blot or proteomics to confirm mRNA changes translate to protein abundance changes."))
+    
+    # ════════════════════════════════════════════════════════════════
+    # CLINICAL VARIANTS / VCF
+    # ════════════════════════════════════════════════════════════════
+    elif csv_type in ("clinical_variants", "vcf_variants"):
+        sig_col = next((c for c in df.columns if any(k in c.lower() for k in
+                        ["significance","class","pathogen","interp","clinvar"])), None)
+        pos_col2= next((c for c in df.columns if any(k in c.lower() for k in ["pos","position","start"])), None)
+        if sig_col:
+            vc = df[sig_col].value_counts()
+            path_n = sum(v for k,v in vc.items() if "pathogen" in str(k).lower())
+            vus_n  = sum(v for k,v in vc.items() if "uncertain" in str(k).lower() or "vus" in str(k).lower())
+            findings.append(("📊 Variant classification breakdown",
+                f"**{path_n}** pathogenic/likely pathogenic · **{vus_n}** VUS · breakdown: " +
+                " · ".join(f"{k}: {v}" for k,v in list(vc.items())[:6])))
+        if len(df) > 0:
+            findings.append(("📍 Variant summary", f"**{len(df):,}** variants in dataset"))
+        findings.append(("🧪 Recommended next experiments",
+            "**1. ClinVar submission** — pathogenic variants not in ClinVar should be submitted. "
+            "**2. Functional validation** — P/LP variants lacking functional evidence: run DMS or CRISPR knock-in. "
+            "**3. VUS resolution** — for each VUS: check AlphaMissense score and DMS data if available. "
+            "**4. Segregation analysis** — confirm P/LP variants segregate with disease in family members."))
+    
+    # ════════════════════════════════════════════════════════════════
+    # PROTEOMICS (MS intensity / LFQ / TMT)
+    # ════════════════════════════════════════════════════════════════
+    elif csv_type == "proteomics":
+        if int_col and df[int_col].dtype in [float, 'float64']:
+            findings.append(("📊 Intensity range",
+                f"Min: {df[int_col].min():.2e} · Max: {df[int_col].max():.2e} · "
+                f"Median: {df[int_col].median():.2e} · "
+                f"Dynamic range: {df[int_col].max()/max(df[int_col].min(),1):.0f}×"))
+        if gene_col and gene:
+            match = df[df[gene_col].astype(str).str.upper().str.contains(gene.upper(), na=False)]
+            if not match.empty:
+                int_val = match.iloc[0].get(int_col, "N/A") if int_col else "N/A"
+                findings.append((f"🎯 {gene} in this proteomics dataset",
+                    f"**{gene} detected** — intensity: {int_val}. "
+                    f"Compare this abundance to the disease-associated expression context from the protein's ClinVar data."))
+        findings.append(("🧪 Recommended next experiments",
+            "**1. Normalisation** — confirm TIC, iBAQ, or LFQ normalisation was applied before comparison. "
+            "**2. Statistical testing** — use Perseus or MSstats for proper proteomics differential analysis. "
+            "**3. PTM analysis** — run phosphoproteomics to see which sites change — cross-reference with PhosphoSitePlus. "
+            "**4. Interaction confirmation** — co-IP/AP-MS to confirm whether abundance-changed proteins interact with your target."))
+    
+    # ════════════════════════════════════════════════════════════════
+    # CELL VIABILITY / PHENOTYPIC ASSAY
+    # ════════════════════════════════════════════════════════════════
+    elif csv_type == "cell_assay":
+        via_col = next((c for c in df.columns if any(k in c.lower() for k in
+                        ["viability","survival","growth","proliferation","ic50","ec50"])), None)
+        if via_col and df[via_col].dtype in [float, 'float64']:
+            findings.append(("📊 Phenotype summary",
+                f"Mean value: {df[via_col].mean():.2f} · Range: {df[via_col].min():.2f}–{df[via_col].max():.2f}. "
+                f"Values <70% viability suggest cytotoxic or growth-inhibitory effect."))
+        findings.append(("🧪 Recommended next experiments",
+            "**1. Mechanism** — if viability reduced: western blot for caspase 3/7 (apoptosis) vs LC3 (autophagy) vs γH2AX (DNA damage). "
+            "**2. Rescue** — re-introduce wild-type protein to confirm phenotype is on-target. "
+            "**3. Dose-response** — establish IC50 curve if not already done. "
+            "**4. Selectivity** — test in ≥2 cell lines to confirm effect is not cell-line-specific."))
+    
+    # ════════════════════════════════════════════════════════════════
+    # BINDING ASSAY (SPR / ITC / TSA)
+    # ════════════════════════════════════════════════════════════════
+    elif csv_type == "binding_assay":
+        kd_col = next((c for c in df.columns if any(k in c.lower() for k in
+                       ["kd","affinity","binding","tm","melting","shift"])), None)
+        if kd_col:
+            findings.append(("📊 Binding data",
+                f"Column detected: **{kd_col}** · Range: {df[kd_col].min():.3e}–{df[kd_col].max():.3e}. "
+                f"Values <100 nM KD = high affinity binding (drug-like range)."))
+        findings.append(("🧪 Recommended next experiments",
+            "**1. Validate binding mode** — competitive displacement assay to confirm binding site. "
+            "**2. Structural validation** — cryo-EM or X-ray co-crystal structure of protein + top binder. "
+            "**3. Cellular activity** — confirm biophysical binding translates to cellular effect (NanoBRET, FRET). "
+            "**4. SAR expansion** — synthesise analogs of top binder to improve KD and selectivity."))
+    
+    # ════════════════════════════════════════════════════════════════
+    # GENERIC
+    # ════════════════════════════════════════════════════════════════
+    else:
+        findings.append(("📋 Data summary",
+            f"{len(df):,} rows · {len(df.columns)} columns · "
+            f"Columns: {', '.join(df.columns.tolist())}"))
+        numeric_cols = df.select_dtypes(include=[float, int]).columns
+        for nc in list(numeric_cols)[:4]:
+            findings.append((f"📊 {nc}",
+                f"Range: {df[nc].min():.3g} – {df[nc].max():.3g} · "
+                f"Mean: {df[nc].mean():.3g} · Std: {df[nc].std():.3g}"))
+    
+    # ── Goal-specific overlay (always appended) ──────────────────────────────
+    goal_l = goal.lower()
     if "therapeutic" in goal_l or "drug" in goal_l:
-        findings.append(("🎯 Drug target insight","Filter for genes with: (1) fold-change >2, (2) p<0.01, AND (3) known ClinVar pathogenic variants. Only proteins at this intersection are credible targets."))
+        findings.append(("🎯 Therapeutic goal — prioritisation strategy",
+            "Intersection rule: only genes/mutations scoring HIGH in **this assay** AND carrying "
+            "ClinVar pathogenic variants are credible drug targets. Single-assay evidence alone is insufficient. "
+            "Require: functional effect in this data + ClinVar genetic evidence + structural druggability."))
     if "biomarker" in goal_l:
-        findings.append(("📊 Biomarker candidate strategy","Biomarker candidates = genes significantly changed in disease state + detectable in accessible tissue (blood, urine). Cross-reference expression changes with OMIM disease gene list."))
+        findings.append(("📊 Biomarker goal — strategy",
+            "Biomarker candidates must: (1) show significant change in this assay, "
+            "(2) be detectable in an accessible biofluid (blood/urine/CSF), "
+            "(3) correlate with disease severity in patient cohorts. "
+            "Next step: cross-reference significant hits with Human Protein Atlas tissue expression data."))
     if "mechanism" in goal_l:
-        findings.append(("🔬 Mechanistic insight","Perform pathway enrichment (GSEA/ORA) on significant genes. Prioritise pathways with ≥3 significant hits AND known genetic disease association."))
+        findings.append(("🔬 Mechanistic goal — strategy",
+            "Use this assay data to build a mechanistic model: which positions/genes "
+            "are functionally sensitive? Map onto protein structure. Do they cluster in a "
+            "known functional domain? Does the pattern match loss-of-function or gain-of-function?"))
+    
     return findings
 
 # ─── 3-D viewer ─────────────────────────────────────────────────────
@@ -2795,7 +3119,17 @@ def build_disease_timeline_html(
             if key != "default" and key in name_l:
                 prog = stages; break
 
-        sev = min(95, 20 + cv_count*8 + (20 if "dominant" in inh.lower() else 0))
+        _tl_lof = sum(1 for v in scored if
+                      v.get("score",0)>=3 and
+                      any(k in (v.get("variant_name","")+"").lower()
+                          for k in ["del","frameshift","ter","fs","nonsense","stop"]) and
+                      name_l[:15] in v.get("condition","").lower())
+        _tl_p   = sum(1 for v in scored if v.get("score",0)>=4 and
+                      name_l[:15] in v.get("condition","").lower())
+        sev = min(97, max(5, _tl_p*7 + _tl_lof*8 + cv_count*4 +
+                          (8 if "dominant" in inh.lower() else 0) +
+                          (10 if any(k in name_l for k in ["cancer","carcinoma","fatal","congenital","lethal"]) else 0) +
+                          (-12 if any(k in name_l for k in ["mild","benign","attenuated","subclinical"]) else 0)))
         onset_early, onset_typical, onset_late, onset_label = onset_data
 
         timeline_items.append({
@@ -3393,7 +3727,7 @@ if st.session_state.get("csv_triage_active") and st.session_state.get("csv_df") 
     with c_m2: st.markdown(mc(len(df_t.columns), "Columns", "#4a90d9"), unsafe_allow_html=True)
     with c_m3: st.markdown(mc(ct_t.replace("_"," ").title(), "Type detected", "#00c896"), unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
-    for t_t, b_t in analyse_csv_standalone(df_t, ct_t, active_goal):
+    for t_t, b_t in analyse_csv_standalone(df_t, ct_t, active_goal, gene=gene, scored=scored, variants=variants, am_scores=am_scores, protein_length=protein_length):
         st.markdown(f"<div class='card'><h4>{t_t}</h4><p>{b_t}</p></div>", unsafe_allow_html=True)
     # Volcano plot
     import numpy as np
@@ -3776,7 +4110,12 @@ with tab0:
                 # Find matching variants
                 d_vars = [v for v in variants if nm.lower()[:20] in v.get("condition","").lower() and v.get("score",0)>=2]
                 n_d_vars = len(d_vars)
-                sev = min(95, 20 + n_d_vars*8 + (20 if "dominant" in inh.lower() else 0))
+                _n_lof_s = sum(1 for v in d_vars if any(k in (v.get("variant_name","")).lower()
+                               for k in ["del","frameshift","ter","fs","nonsense","stop"]))
+                _n_p_s   = sum(1 for v in d_vars if v.get("score",0)>=4)
+                sev = min(97, max(5, _n_p_s*7 + _n_lof_s*8 + n_d_vars*3 +
+                          (8 if "dominant" in inh.lower() else 0) +
+                          (10 if any(k in nm.lower() for k in ["cancer","carcinoma","fatal","lethal"]) else 0)))
                 s_clr = "#ff2d55" if sev>70 else "#ff8c42" if sev>40 else "#ffd60a"
                 dis_rows += (
                     f"<tr>"
@@ -4195,7 +4534,7 @@ with tab1:
     if st.session_state["csv_df"] is not None:
         st.markdown("<hr class='dv'>", unsafe_allow_html=True); sh("📂","Wet-Lab CSV Analysis")
         df2=st.session_state["csv_df"]; ct2=st.session_state["csv_type"]
-        for t5,b5 in analyse_csv_standalone(df2,ct2,active_goal):
+        for t5,b5 in analyse_csv_standalone(df2,ct2,active_goal, gene=gene, scored=scored, variants=variants, am_scores=am_scores, protein_length=protein_length):
             st.markdown(f"<div class='card'><h4>{t5}</h4><p>{b5}</p></div>", unsafe_allow_html=True)
         with st.expander("📋 View data"): st.dataframe(df2,use_container_width=True)
 
@@ -4446,9 +4785,70 @@ with tab2:
             # Display labels
             inh_display = d_inh if d_inh else "See ClinVar submissions"
             mut_display = d_mut if d_mut else "Multiple variant types"
-            sev_score = min(95, 20 + cv_count*8 + (20 if "dominant" in d_inh.lower() else 0))
+            # ── Real severity from actual variant data per disease ──────────────────
+            # Count by ClinVar score tier — weighted by clinical significance
+            n_p_dis  = sum(1 for v in matched_variants if v.get("score",0) >= 4)  # P/LP
+            n_rf_dis = sum(1 for v in matched_variants if v.get("score",0) == 3)  # Risk factor
+            n_vus_dis= sum(1 for v in matched_variants if v.get("score",0) == 2)  # VUS
+            
+            # Mutation type severity weights — from clinical genetics evidence
+            n_lof    = sum(1 for v in matched_variants
+                           if any(k in (v.get("variant_name","")+" "+v.get("title","")).lower()
+                                  for k in ["del","frameshift","ter","nonsense","stop","fs","dup"]))
+            n_miss   = sum(1 for v in matched_variants
+                           if any(k in (v.get("variant_name","")+" "+v.get("title","")).lower()
+                                  for k in ["missense","p.","substitution"])
+                           and not any(k in (v.get("variant_name","")+" "+v.get("title","")).lower()
+                                       for k in ["del","ter","fs"]))
+            n_splice = sum(1 for v in matched_variants
+                           if "splice" in (v.get("variant_name","")+" "+v.get("title","")).lower())
+            
+            # Review quality — higher star rating = more reliable severity
+            star_scores = []
+            for v in matched_variants:
+                rv = v.get("review","").lower()
+                if "practice guideline" in rv or "expert panel" in rv: star_scores.append(4)
+                elif "multiple submitters" in rv: star_scores.append(3)
+                elif "single submitter" in rv: star_scores.append(2)
+                else: star_scores.append(1)
+            avg_stars = sum(star_scores)/max(len(star_scores),1)
+            
+            # Build severity from evidence — each component is grounded in real data
+            sev_score = 0
+            sev_score += min(35, n_p_dis * 7)       # Pathogenic count (max 35 pts)
+            sev_score += min(10, n_rf_dis * 5)       # Risk factor count (max 10 pts)
+            sev_score += min(5,  n_vus_dis * 1)      # VUS count (small contribution)
+            sev_score += min(20, n_lof * 8)          # LoF variants (frameshift/stop) — highest impact
+            sev_score += min(10, n_miss * 3)         # Missense — moderate impact
+            sev_score += min(10, n_splice * 5)       # Splice — high but context-dependent
+            sev_score += min(10, int(avg_stars * 2.5))  # Evidence quality bonus
+            # Inheritance bonus
+            if "dominant" in inh_display.lower(): sev_score += 8
+            elif "recessive" in inh_display.lower(): sev_score += 4
+            elif "de novo" in inh_display.lower(): sev_score += 10
+            # Disease class from name
+            d_name_low = d_name.lower()
+            if any(k in d_name_low for k in ["cancer","carcinoma","leukemia","glioma","sarcoma","lymphoma"]):
+                sev_score += 15
+            if any(k in d_name_low for k in ["lethal","fatal","congenital","neonatal","severe"]):
+                sev_score += 10
+            if any(k in d_name_low for k in ["mild","benign","attenuated","subclinical"]):
+                sev_score = max(10, sev_score - 15)
+            sev_score = min(98, max(5, sev_score))
+            
+            # Cascade bars — computed from variant type profile, not fixed values
+            # Each represents a biological stage severity based on actual mutation burden
+            lof_frac  = n_lof / max(len(matched_variants),1)
+            miss_frac = n_miss / max(len(matched_variants),1)
+            sp_frac   = n_splice / max(len(matched_variants),1)
+            
+            cas_protein  = max(5, 100 - int(lof_frac*60 + miss_frac*30 + sp_frac*40))
+            cas_pathway  = max(5, 100 - int(sev_score*0.55))
+            cas_cell     = max(5, 100 - int(sev_score*0.40))
+            cas_disease  = min(98, int(sev_score*0.92))
+            
             sev_colour = "#ff2d55" if sev_score>70 else "#ff8c42" if sev_score>40 else "#ffd60a"
-            sev_label  = "Severe" if sev_score>70 else "Moderate" if sev_score>40 else "Mild/Unknown"
+            sev_label  = "Severe" if sev_score>70 else "Moderate" if sev_score>40 else "Mild / Subclinical"
             with st.expander(f"🏥 {d_name}  ·  {d_inh}  ·  {sev_label}", expanded=(sev_score>70)):
                 cl, cr = st.columns([3,2])
                 with cl:
@@ -4489,11 +4889,13 @@ with tab2:
                         "<div style='color:#3a6070;font-size:.73rem;margin-bottom:4px;'>Mutation → Disease cascade:</div>",
                         unsafe_allow_html=True,
                     )
-                    for stage_name, pct, s_clr in [("Normal protein",100,"#00c896"),
-                                                    ("Variant introduced",max(5,100-sev_score//3),"#ffd60a"),
-                                                    ("Protein dysfunction",max(5,100-sev_score//2),sev_colour),
-                                                    ("Cell impact",max(5,sev_score-10),"#ff6b42"),
-                                                    ("Disease expression",sev_score,"#ff2d55")]:
+                    for stage_name, pct, s_clr in [
+                        ("Normal protein",    100,         "#00c896"),
+                        ("Variant introduced", cas_protein, "#ffd60a"),
+                        ("Protein dysfunction",cas_pathway, sev_colour),
+                        ("Cell impact",        cas_cell,    "#ff6b42"),
+                        ("Disease expression", cas_disease, "#ff2d55")
+                    ]:
                         st.markdown(
                             f"<div style='display:flex;align-items:center;gap:5px;margin:3px 0;'>"
                             f"<div style='color:#3a6070;font-size:.7rem;width:100px;flex-shrink:0;'>{stage_name}</div>"
@@ -4825,7 +5227,7 @@ with tab4:
     if st.session_state["csv_df"] is not None:
         st.markdown("<hr class='dv'>", unsafe_allow_html=True); sh("📂","CSV-Informed Experimental Strategy")
         df3=st.session_state["csv_df"]; ct3=st.session_state["csv_type"]
-        for t3,b3 in analyse_csv_standalone(df3,ct3,active_goal):
+        for t3,b3 in analyse_csv_standalone(df3,ct3,active_goal, gene=gene, scored=scored, variants=variants, am_scores=am_scores, protein_length=protein_length):
             st.markdown(f"<div class='card'><h4>{t3}</h4><p>{b3}</p></div>", unsafe_allow_html=True)
 
     st.markdown("<hr class='dv'>", unsafe_allow_html=True)
