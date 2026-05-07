@@ -372,53 +372,103 @@ def parse_aa(name):
 # ─── API functions ─────────────────────────────────────────────────
 @st.cache_data(show_spinner=False, ttl=3600)
 def fetch_uniprot(query):
+    """
+    Fetch UniProt entry — STRICTLY human only (organism_id:9606 / Homo sapiens).
+    Validates organism on EVERY result before returning.
+    Non-human proteins raise a clear ValueError with explanation.
+    """
     base = "https://rest.uniprot.org/uniprotkb"
-    HUMAN_ORG = "organism_id:9606"
+    HUMAN_TAXID = 9606
 
-    # Direct accession lookup — but validate it's human
+    # Known non-human protein terms — immediate rejection
+    NON_HUMAN_TERMS = {
+        "ovalbumin":"chicken (Gallus gallus)",
+        "beta keratin":"reptile/bird — no human equivalent",
+        "beta-keratin":"reptile/bird — no human equivalent",
+        "serum albumin bovine":"cow (Bos taurus)",
+        "lysozyme hen":"chicken (Gallus gallus)",
+        "insulin bovine":"cow (Bos taurus)",
+        "hemoglobin horse":"horse (Equus caballus)",
+        "cytochrome c horse":"horse (Equus caballus)",
+        "green fluorescent protein":"jellyfish (Aequorea victoria)",
+        "gfp":"jellyfish (Aequorea victoria) — use human fluorescent reporters",
+        "luciferase":"firefly (Photinus pyralis)",
+    }
+    q_lower = query.lower().strip()
+    for term, species in NON_HUMAN_TERMS.items():
+        if term in q_lower:
+            raise ValueError(
+                f"⚠️ '{query}' is a non-human protein ({species}). "
+                f"Protellect analyses human proteins only. "
+                f"If you're looking for the human version, try searching for the human gene name or function instead."
+            )
+
+    def validate_human(entry):
+        """Returns True if entry is Homo sapiens, raises ValueError otherwise."""
+        org = entry.get("organism", {})
+        sci = org.get("scientificName", "")
+        taxid = org.get("taxonId", 0)
+        if "Homo sapiens" in sci or taxid == HUMAN_TAXID:
+            return True
+        common = org.get("commonName", sci)
+        gene_n = entry.get("genes",[{}])[0].get("geneName",{}).get("value","this protein") if entry.get("genes") else "this protein"
+        acc_n  = entry.get("primaryAccession","?")
+        raise ValueError(
+            f"⚠️ Non-human protein detected: '{query}' resolved to **{gene_n}** ({acc_n}) from "
+            f"**{common}** ({sci}). "
+            f"Protellect is human-only. This protein does not exist in the human genome. "
+            f"If a human orthologue exists, search by the human gene symbol (e.g. KRT — human keratin). "
+            f"Human proteins to try: TP53 · FLNC · BRCA1 · ACM2 · EGFR · P04637"
+        )
+
+    # ── Direct accession lookup ────────────────────────────────────────────
     if re.match(r"^[OPQ][0-9][A-Z0-9]{3}[0-9]$|^[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2}$", query.strip(), re.I):
         r = requests.get(f"{base}/{query.strip().upper()}", headers={"Accept":"application/json"}, timeout=20)
         r.raise_for_status()
         entry = r.json()
-        # Check organism
-        org = entry.get("organism", {}).get("scientificName", "")
-        if "Homo sapiens" not in org:
-            org_common = entry.get("organism", {}).get("commonName", org)
-            raise ValueError(
-                f"⚠️ Accession {query.upper()} belongs to **{org_common}** ({org}), not Homo sapiens. "
-                f"Protellect only analyses human proteins. Please enter a human gene or UniProt accession."
-            )
+        validate_human(entry)  # raises if non-human
         return entry
 
-    # Text search — ALWAYS human-only, never fall back to non-human
+    # ── Text search — strict human-only at every step ──────────────────────
     human_queries = [
-        f"gene:{query} AND reviewed:true AND {HUMAN_ORG}",
-        f"protein_name:{query} AND reviewed:true AND {HUMAN_ORG}",
-        f"({query}) AND reviewed:true AND {HUMAN_ORG}",
-        f"({query}) AND {HUMAN_ORG}",          # include unreviewed human
+        f"gene:{query} AND reviewed:true AND organism_id:9606",
+        f"gene_exact:{query} AND organism_id:9606",
+        f"protein_name:{query} AND reviewed:true AND organism_id:9606",
+        f"({query}) AND reviewed:true AND organism_id:9606",
     ]
     for qry in human_queries:
-        r = requests.get(f"{base}/search", params={"query": qry, "format": "json", "size": 1},
-                         headers={"Accept": "application/json"}, timeout=20)
-        r.raise_for_status()
-        res = r.json().get("results", [])
-        if res:
-            uid = res[0]["primaryAccession"]
-            r2 = requests.get(f"{base}/{uid}", headers={"Accept":"application/json"}, timeout=20)
-            r2.raise_for_status()
-            entry = r2.json()
-            # Double-check organism on every result
-            org = entry.get("organism", {}).get("scientificName", "")
-            if "Homo sapiens" not in org:
-                continue   # skip non-human hits, try next query
-            return entry
+        try:
+            r = requests.get(f"{base}/search",
+                             params={"query": qry, "format": "json", "size": 3},
+                             headers={"Accept": "application/json"}, timeout=20)
+            r.raise_for_status()
+            results = r.json().get("results", [])
+            for candidate in results:
+                org = candidate.get("organism", {})
+                sci = org.get("scientificName","")
+                taxid = org.get("taxonId", 0)
+                if "Homo sapiens" not in sci and taxid != HUMAN_TAXID:
+                    continue  # skip non-human silently
+                # Fetch full entry for confirmed human hit
+                uid = candidate["primaryAccession"]
+                r2 = requests.get(f"{base}/{uid}", headers={"Accept":"application/json"}, timeout=20)
+                r2.raise_for_status()
+                full_entry = r2.json()
+                validate_human(full_entry)  # final check
+                return full_entry
+        except ValueError:
+            raise  # re-raise human validation errors
+        except Exception:
+            continue
 
+    # ── No human result found ──────────────────────────────────────────────
     raise ValueError(
-        f"⚠️ No **human** protein found for '{query}'. "
-        f"Protellect is human-only. If you entered a non-human protein "
-        f"(e.g. ovalbumin = chicken, insulin = cow), there will be no human equivalent "
-        f"unless a human orthologue exists (e.g. try 'INS' for human insulin). "
-        f"Try: TP53 · BRCA1 · EGFR · FLNC · ACM2 · P04637"
+        f"⚠️ No human (Homo sapiens) protein found for '{query}'. "
+        f"Protellect analyses human proteins only. "
+        f"Possible reasons: (1) this protein doesn't exist in humans, "
+        f"(2) you searched a non-human protein name, "
+        f"(3) the gene symbol is different in humans. "
+        f"Try: TP53 · FLNC · BRCA1 · EGFR · ACM2 · ARRB2 · P04637 (TP53 accession)"
     )
 
 @st.cache_data(show_spinner=False, ttl=3600)
@@ -4409,11 +4459,16 @@ if st.session_state["csv_df"] is not None and not st.session_state["pdata"]:
     with c3: st.markdown(mc(csv_type.replace("_"," ").title(),"Data type detected","#00c896"),unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
     findings=analyse_csv_standalone(df,csv_type,active_goal)
+    import re as _re_rnd
+    def _md2html(txt):
+        txt = _re_rnd.sub(r'\*\*(.+?)\*\*', lambda m: '<b style="color:#c0d8f0;">'+m.group(1)+'</b>', str(txt))
+        txt = _re_rnd.sub(r'\*(.+?)\*', lambda m: '<i>'+m.group(1)+'</i>', txt)
+        return txt
     for f_title_s, f_body_s in findings:
         st.markdown(
-            f"<div class='card' style='animation:fadeInUp .4s ease both;margin-bottom:.6rem;'>"
-            f"<h4 style='color:#00e5ff;font-size:.98rem;'>{f_title_s}</h4>"
-            f"<p style='color:#7ab0c0;font-size:.88rem;line-height:1.65;'>{f_body_s}</p></div>",
+            "<div class='card' style='animation:fadeInUp .4s ease both;margin-bottom:.7rem;'>"
+            f"<h4 style='color:#00e5ff;font-size:.98rem;margin-bottom:.4rem;'>{f_title_s}</h4>"
+            f"<p style='color:#7ab0c0;font-size:.88rem;line-height:1.65;'>{_md2html(f_body_s)}</p></div>",
             unsafe_allow_html=True,
         )
     # ── Visualisations for each CSV type ────────────────────────────────────
@@ -4558,6 +4613,217 @@ if st.session_state["csv_df"] is not None and not st.session_state["pdata"]:
                 height=320,margin=dict(t=10,b=40,l=60,r=10),
                 title=dict(text="Manhattan-style plot — 🔴 genome-wide significant · 🟡 nominally significant",font_color="#3a6080",font_size=11))
             st.plotly_chart(fig_m,use_container_width=True,config={"displayModeBar":False})
+
+    # ══════════════════════════════════════════════════════════════════
+    # FULL EXPERIMENTAL INTELLIGENCE — same depth as protein tabs
+    # ══════════════════════════════════════════════════════════════════
+    import re as _re_xp
+
+    if csv_type in ("clinical_variants","vcf_variants"):
+        gene_col_xp  = next((c for c in df.columns if c.lower() in ["gene(s)","gene","genes","symbol"]),None)
+        sig_col_xp   = next((c for c in df.columns if any(k in c.lower() for k in ["significance","classification"])),None)
+        cond_col_xp  = next((c for c in df.columns if any(k in c.lower() for k in ["condition","disease","phenotype","trait"])),None)
+        prot_col_xp  = next((c for c in df.columns if any(k in c.lower() for k in ["protein change","protein_change","hgvsp"])),None)
+        acc_col_xp   = next((c for c in df.columns if any(k in c.lower() for k in ["accession","rcv","vcv"])),None)
+
+        if gene_col_xp and sig_col_xp:
+            gene_prof = {}
+            for _, row in df.iterrows():
+                for g2 in _re_xp.split(r"[;,|/]", str(row.get(gene_col_xp,""))):
+                    g2 = g2.strip()
+                    if not g2 or g2.lower() in ("nan","","none","-"): continue
+                    if g2 not in gene_prof:
+                        gene_prof[g2] = {"path":0,"vus":0,"ben":0,"lof":0,"miss":0,"spl":0,"conds":set()}
+                    s2 = str(row.get(sig_col_xp,"")).lower()
+                    if any(k in s2 for k in ["pathogenic","likely pathogenic"]): gene_prof[g2]["path"] += 1
+                    elif "uncertain" in s2 or "vus" in s2: gene_prof[g2]["vus"] += 1
+                    elif "benign" in s2: gene_prof[g2]["ben"] += 1
+                    pch = str(row.get(prot_col_xp,"") if prot_col_xp else "").lower()
+                    if any(k in pch for k in ["ter","*","stop","fs","frameshift","del"]): gene_prof[g2]["lof"] += 1
+                    elif _re_xp.search(r"p\.[a-z][0-9]+[a-z]", pch): gene_prof[g2]["miss"] += 1
+                    if "splice" in pch: gene_prof[g2]["spl"] += 1
+                    if cond_col_xp:
+                        for c2 in _re_xp.split(r"[;|]", str(row.get(cond_col_xp,""))):
+                            c2 = c2.strip()
+                            if c2 and c2.lower() not in ("not provided","not specified","","nan","-"):
+                                gene_prof[g2]["conds"].add(c2)
+
+            top_genes_xp = sorted(gene_prof.items(), key=lambda x: -x[1]["path"])[:8]
+
+            st.markdown("<hr class='dv'>", unsafe_allow_html=True)
+            sh("🧬","Gene-by-Gene Deep Dive — Full Variant Profile & Experimental Plan")
+            st.markdown(
+                "<div style='color:#5a8090;font-size:.86rem;margin-bottom:.8rem;'>"
+                "Every gene from this dataset: complete variant landscape, mutation type breakdown, "
+                "disease cascade, and a specific experiment plan. Ranked by confirmed pathogenic variants. "
+                "Click any gene to expand full analysis.</div>",
+                unsafe_allow_html=True,
+            )
+            for gene_xp, prof in top_genes_xp:
+                total_xp = prof["path"] + prof["vus"] + prof["ben"]
+                sev_xp   = min(97, prof["path"]*7 + prof["lof"]*8 + prof["spl"]*5)
+                sev_clr_xp = "#ff2d55" if sev_xp>70 else "#ff8c42" if sev_xp>40 else "#ffd60a"
+                cv_url_xp = f"https://www.ncbi.nlm.nih.gov/clinvar/?term={gene_xp}[gene]"
+                up_url_xp = f"https://www.uniprot.org/uniprotkb?query={gene_xp}+AND+organism_id:9606"
+                top_conds_xp = list(prof["conds"])[:4]
+                path_pct = int(prof["path"]/max(total_xp,1)*100)
+
+                with st.expander(
+                    f"🧬 {gene_xp}  ·  {prof['path']} pathogenic  ·  {prof['vus']} VUS  ·  {prof['lof']} LoF  ·  Severity {sev_xp}/100",
+                    expanded=(len(top_genes_xp) > 0 and gene_xp == top_genes_xp[0][0])
+                ):
+                    ca, cb = st.columns([3,2], gap="large")
+                    with ca:
+                        st.markdown(
+                            f"<div style='display:flex;gap:6px;margin-bottom:.8rem;flex-wrap:wrap;'>"
+                            f"<span style='background:#ff2d5522;color:#ff2d55;border:1px solid #ff2d5544;padding:2px 10px;border-radius:7px;font-size:.8rem;font-weight:700;'>{prof['path']} Pathogenic/LP</span>"
+                            f"<span style='background:#ffd60a22;color:#ffd60a;border:1px solid #ffd60a44;padding:2px 10px;border-radius:7px;font-size:.8rem;'>{prof['vus']} VUS</span>"
+                            f"<span style='background:#00c89622;color:#00c896;border:1px solid #00c89644;padding:2px 10px;border-radius:7px;font-size:.8rem;'>{prof['ben']} Benign</span>"
+                            f"</div>",
+                            unsafe_allow_html=True,
+                        )
+                        st.markdown(
+                            f"<div style='color:#4a7090;font-size:.82rem;margin-bottom:.5rem;'>"
+                            f"<b style='color:#6a9ab0;'>Mutation types:</b> "
+                            f"<span style='color:#ff2d55;'>{prof['lof']} loss-of-function (stop/frameshift)</span> · "
+                            f"<span style='color:#ffd60a;'>{prof['miss']} missense</span> · "
+                            f"<span style='color:#ff8c42;'>{prof['spl']} splice-site</span>"
+                            f"</div>",
+                            unsafe_allow_html=True,
+                        )
+                        for sn2, spct2, sc2 in [
+                            ("Normal protein", 100, "#00c896"),
+                            ("Variant introduced", max(5, 100 - int(prof["lof"]/max(total_xp,1)*70 + prof["miss"]/max(total_xp,1)*30)), "#ffd60a"),
+                            ("Protein dysfunction", max(5, 100 - sev_xp//2), sev_clr_xp),
+                            ("Disease expression", sev_xp, "#ff2d55"),
+                        ]:
+                            st.markdown(
+                                f"<div style='display:flex;align-items:center;gap:8px;margin:3px 0;'>"
+                                f"<div style='color:#3a6070;font-size:.74rem;width:130px;'>{sn2}</div>"
+                                f"<div style='flex:1;height:7px;background:#0a1828;border-radius:4px;overflow:hidden;'>"
+                                f"<div style='width:{spct2}%;height:100%;background:{sc2};border-radius:4px;'></div></div>"
+                                f"<div style='color:{sc2};font-size:.74rem;min-width:30px;text-align:right;'>{spct2}%</div></div>",
+                                unsafe_allow_html=True,
+                            )
+                        if top_conds_xp:
+                            st.markdown(
+                                "<div style='margin-top:.6rem;color:#4a7090;font-size:.8rem;'>"
+                                "<b style='color:#6a9ab0;'>Associated diseases:</b> "
+                                + " · ".join(f"<span style='color:#5a8090;'>{c2}</span>" for c2 in top_conds_xp)
+                                + "</div>",
+                                unsafe_allow_html=True,
+                            )
+                        st.markdown(
+                            f"<div style='margin-top:.6rem;'>"
+                            f"<a class='src-badge' href='{cv_url_xp}' target='_blank'>↗ ClinVar: {gene_xp}</a> "
+                            f"<a class='src-badge' href='{up_url_xp}' target='_blank'>↗ UniProt: {gene_xp}</a>"
+                            f"</div>",
+                            unsafe_allow_html=True,
+                        )
+                    with cb:
+                        priority = "🔴 HIGH" if sev_xp > 70 else "🟡 MEDIUM" if sev_xp > 40 else "🟢 LOW"
+                        p_clr = "#ff2d55" if sev_xp > 70 else "#ffd60a" if sev_xp > 40 else "#00c896"
+                        lof_dominant = prof["lof"] > prof["miss"]
+                        mechanism = ("Loss-of-function dominant — protein likely haploinsufficient. "
+                                     "Most pathogenic variants destroy the protein." if lof_dominant else
+                                     "Missense dominant — protein made but dysfunctional. "
+                                     "May be gain-of-function or dominant-negative.")
+                        hyp = (f"CRISPR knock-in of the top pathogenic variant should cause {top_conds_xp[0][:40] if top_conds_xp else 'disease phenotype'} "
+                               f"in ≥2 cell lines. Null result calls the ClinVar classification into question." if prof["path"]>0 else
+                               f"Insufficient pathogenic evidence — functional DMS scan recommended before CRISPR investment.")
+                        st.markdown(
+                            f"<div style='background:#020810;border:1px solid {p_clr}33;border-radius:10px;padding:.9rem;'>"
+                            f"<div style='color:{p_clr};font-weight:800;font-size:.9rem;margin-bottom:5px;'>{priority} PRIORITY</div>"
+                            f"<div style='color:#5a8090;font-size:.82rem;margin-bottom:.5rem;'><b style='color:#7ab0c0;'>Mechanism:</b> {mechanism}</div>"
+                            f"<div style='background:#010508;border-left:2px solid {p_clr}44;padding:6px 10px;border-radius:0 6px 6px 0;margin-bottom:.5rem;'>"
+                            f"<div style='color:#4a7090;font-size:.78rem;'><b style='color:#6a9ab0;'>Hypothesis:</b> {hyp}</div></div>"
+                            f"<div style='color:#4a7090;font-size:.8rem;'><b style='color:#6a9ab0;'>Experiment plan:</b></div>"
+                            f"<div style='color:#3a6080;font-size:.78rem;line-height:1.6;'>"
+                            f"1. {'✅ Already justified' if prof['path']>=5 else '⚠️ Build evidence first'} — "
+                            f"{'CRISPR knock-in top variant ($25K, 8wk)' if prof['path']>=5 else 'Thermal shift assay ($2K, 2wk)'}<br>"
+                            f"2. {'Rosetta ΔΔG in silico (free, 2d) on all ' + str(prof['miss']) + ' missense' if prof['miss']>0 else 'No missense variants to model'}<br>"
+                            f"3. {'AlphaMissense cross-reference for ' + str(prof['vus']) + ' VUS (free, 1d)' if prof['vus']>0 else 'No VUS — proceed to functional validation'}<br>"
+                            f"4. Search '<b>{gene_xp}</b>' in Protellect protein search for full 3D structural analysis"
+                            f"</div></div>",
+                            unsafe_allow_html=True,
+                        )
+
+    # ── Overall dataset experiment plan ────────────────────────────────────────
+    st.markdown("<hr class='dv'>", unsafe_allow_html=True)
+    sh("🧪","Full Experimental Triage Plan for This Dataset")
+    exp_steps = [
+        ("🆓 FREE · Day 1","Computational pre-screening",
+         f"Run Rosetta ΔΔG on all missense variants in your top gene — eliminates ~50% of candidates before any wet-lab spend. "
+         f"Cross-reference all variants against AlphaMissense (free via AlphaFold EBI). "
+         f"Variants where ClinVar P/LP AND AlphaMissense ≥0.564 AND Rosetta ΔΔG ≥2 REU = Tier 1 candidates.",
+         "#00c896"),
+        ("$500 · Week 1","Protein expression & western blot",
+         f"Express wild-type and top 3 Tier 1 variants as recombinant protein (bacteria or HEK293T). "
+         f"Western blot to confirm expression levels — if mutant protein is absent, it's being degraded (LoF confirmed). "
+         f"If present at lower level, protein is unstable. If same level, likely dominant-negative or GoF.",
+         "#4a90d9"),
+        ("$2K · Week 2","Thermal shift assay (TSA)",
+         f"Measure melting temperature (Tm) for each variant vs wild-type. "
+         f"ΔTm ≥1°C = structurally destabilising — confirms variant is pathogenic through stability mechanism. "
+         f"ΔTm <1°C but protein still pathogenic = functional (not structural) mechanism — different experiments needed.",
+         "#ffd60a"),
+        ("$5K · Weeks 2–4","Cell viability & phenotypic assay",
+         f"Express each variant in disease-relevant cell line. Measure viability (CellTiter-Glo) at 72h. "
+         f"If reduced: stain for caspase 3/7 (apoptosis) and γH2AX (DNA damage) to identify mechanism. "
+         f"Rescue: re-express wild-type to confirm on-target effect. "
+         f"If no viability effect: try disease-specific functional readout (e.g. cardiomyocyte contractility for cardiomyopathy genes).",
+         "#ff8c42"),
+        ("$25K · Weeks 6–12","CRISPR knock-in validation",
+         f"Only after TSA + viability confirm destabilisation/dysfunction. "
+         f"Introduce exact patient-identical variant into endogenous locus via HDR. "
+         f"Screen ≥50 clones by sequencing. Test confirmed clones in all functional assays. "
+         f"Positive result = ClinGen PS3 functional evidence. This supports ClinVar P/LP classification and IND filing.",
+         "#ff2d55"),
+        ("$80K+ · Months 3–6","In vivo model (if justified)",
+         f"Only after CRISPR confirms reproducible phenotype in ≥2 cell lines. "
+         f"Patient-derived organoids (if tissue accessible) OR xenograft (cancer) OR knock-in mouse. "
+         f"Organoids are preferred for rare disease — faster, more human-relevant, and cheaper than mouse.",
+         "#c0102a"),
+    ]
+    for step_cost, step_name, step_body, step_clr in exp_steps:
+        st.markdown(
+            f"<div style='background:#020810;border:1px solid {step_clr}33;border-left:3px solid {step_clr};"
+            f"border-radius:0 10px 10px 0;padding:.9rem 1.1rem;margin:.5rem 0;animation:fadeInUp .4s ease both;'>"
+            f"<div style='display:flex;align-items:center;gap:10px;margin-bottom:5px;'>"
+            f"<span style='background:{step_clr}22;color:{step_clr};border:1px solid {step_clr}44;"
+            f"padding:2px 10px;border-radius:7px;font-size:.78rem;font-weight:700;'>{step_cost}</span>"
+            f"<span style='color:#d0e8ff;font-weight:700;font-size:.9rem;'>{step_name}</span>"
+            f"</div>"
+            f"<div style='color:#6a9ab0;font-size:.85rem;line-height:1.6;'>{step_body}</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+    # ── Cross-database search prompt ─────────────────────────────────────────
+    if csv_type in ("clinical_variants","vcf_variants") and gene_col_xp:
+        top_gene_name = top_genes_xp[0][0] if (gene_prof and top_genes_xp) else ""
+        if top_gene_name:
+            st.markdown(
+                f"<div style='background:#020d18;border:1px solid #00e5ff22;border-radius:10px;padding:.9rem 1.2rem;margin-top:.8rem;'>"
+                f"<div style='color:#00e5ff;font-weight:700;font-size:.9rem;margin-bottom:.4rem;'>⚡ Next step — search top gene in Protellect</div>"
+                f"<div style='color:#5a8090;font-size:.86rem;margin-bottom:.5rem;'>"
+                f"Type <b style='color:#00e5ff;'>{top_gene_name}</b> in the protein search box (sidebar) to get the full "
+                f"protein intelligence report: 3D structure, AlphaMissense per-residue scores, hotspot clusters, "
+                f"druggability map, OpenTargets tractability, gnomAD constraint, and AI-generated experiment plan.</div>"
+                f"<div style='display:flex;gap:6px;flex-wrap:wrap;'>"
+                + "".join([
+                    f"<a href='{u}' target='_blank' class='src-badge'>↗ {l}</a>"
+                    for l,u in [
+                        (f"ClinVar: {top_gene_name}", f"https://www.ncbi.nlm.nih.gov/clinvar/?term={top_gene_name}[gene]"),
+                        (f"UniProt: {top_gene_name}", f"https://www.uniprot.org/uniprotkb?query={top_gene_name}+AND+organism_id:9606"),
+                        (f"DepMap: {top_gene_name}", f"https://depmap.org/portal/gene/{top_gene_name}"),
+                        (f"HPA: {top_gene_name}", f"https://www.proteinatlas.org/search/{top_gene_name}"),
+                        (f"OpenTargets: {top_gene_name}", f"https://platform.opentargets.org/target?search={top_gene_name}"),
+                    ]
+                ])
+                + "</div></div>",
+                unsafe_allow_html=True,
+            )
 
     if not st.session_state["pdata"]:
         st.stop()
