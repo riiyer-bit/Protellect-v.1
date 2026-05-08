@@ -4404,9 +4404,22 @@ if st.session_state["disease_proteins"]:
 
 # ─── Data loading ────────────────────────────────────────────────────
 if search and query and query!=st.session_state["last"]:
+    # Clear any previously cached non-human result
+    fetch_uniprot.clear()
     with st.spinner("🔬 Fetching UniProt · ClinVar · AlphaFold · PubMed…"):
         try:
-            pdata=fetch_uniprot(query); st.session_state["pdata"]=pdata
+            pdata=fetch_uniprot(query)
+            # Final organism guard — reject anything not Homo sapiens
+            _org_check = pdata.get("organism",{})
+            _sci_name  = _org_check.get("scientificName","")
+            _tax_id    = _org_check.get("taxonId",0)
+            if "Homo sapiens" not in _sci_name and _tax_id != 9606:
+                _common = _org_check.get("commonName", _sci_name)
+                raise ValueError(
+                    f"Non-human protein: '{query}' resolved to {_common} ({_sci_name}). "
+                    f"Protellect only analyses human proteins. Try: TP53 · FLNC · BRCA1 · EGFR"
+                )
+            st.session_state["pdata"]=pdata
             gene=g_gene(pdata); uid=pdata.get("primaryAccession","")
             st.session_state["gene"]=gene; st.session_state["uid"]=uid
             cv=fetch_clinvar(gene,max_v); st.session_state["cv"]=cv
@@ -4445,7 +4458,30 @@ if search and query and query!=st.session_state["last"]:
                 st.session_state["patients"]  = patient_d
             st.rerun()
         except Exception as e:
-            st.error(f"⚠️ {e}")
+            err_msg = str(e)
+            # Show a clear, styled error — especially for non-human proteins
+            if "non-human" in err_msg.lower() or "homo sapiens" in err_msg.lower() or "reptile" in err_msg.lower() or "bird" in err_msg.lower() or "chicken" in err_msg.lower() or "not in humans" in err_msg.lower():
+                st.markdown(
+                    "<div style='background:#0a0300;border:2px solid #ff8c42;border-radius:12px;"
+                    "padding:1.1rem 1.4rem;margin:.5rem 0;'>"
+                    "<div style='color:#ff8c42;font-weight:800;font-size:1rem;margin-bottom:5px;'>"
+                    "⚠️ Non-human protein detected — Protellect is human-only</div>"
+                    f"<div style='color:#8a6040;font-size:.88rem;line-height:1.6;'>{err_msg}</div>"
+                    "<div style='margin-top:.7rem;color:#5a4030;font-size:.82rem;'>"
+                    "<b style='color:#7a6040;'>Try these human proteins instead:</b> "
+                    "TP53 · FLNC · BRCA1 · EGFR · ACM2 · ARRB2 · KRT5 (human keratin) · INS (human insulin)"
+                    "</div></div>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(
+                    "<div style='background:#0a0100;border:2px solid #ff2d55;border-radius:12px;"
+                    "padding:1rem 1.4rem;margin:.5rem 0;'>"
+                    "<div style='color:#ff2d55;font-weight:800;font-size:.95rem;margin-bottom:4px;'>⚠️ Search error</div>"
+                    f"<div style='color:#804050;font-size:.86rem;'>{err_msg}</div>"
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
 
 # CSV-only mode (no protein needed)
 if st.session_state["csv_df"] is not None and not st.session_state["pdata"]:
@@ -6064,9 +6100,6 @@ with tab3:
                 title=dict(text=f"AlphaMissense scores for position {am_pos_input} ({seq[int(am_pos_input)-1] if int(am_pos_input)<=len(seq) else '?'})",font_color="#5a8090",font_size=11),
                 shapes=[dict(type="line",y0=0.564,y1=0.564,x0=-0.5,x1=len(aa_list)-0.5,
                             line=dict(color="#ff2d5566",width=1,dash="dot"))],
-                annotations=[dict(x=0.01,y=0.58,text="Pathogenic threshold (0.564)",
-                                  font_size=9,font_color="#ff2d5588",showarrow=False,
-                                  xref="paper",yref="paper")],
             )
             st.plotly_chart(fig_am, use_container_width=True, config={"displayModeBar":False})
             # ClinVar cross-reference
