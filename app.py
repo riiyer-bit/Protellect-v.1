@@ -1143,6 +1143,14 @@ Interpretation: {'Highly intolerant to LoF — essential gene' if gnomad.get('in
 === WET LAB ASSAY DATA (if provided) ===
 {assay_text or 'None provided'}
 
+=== MICROBIOLOGY CONTEXT (if applicable) ===
+If this protein is a host receptor or entry factor for any pathogen, use the organism-specific data:
+- Specify the exact organism (species + strain) — never be generic
+- Distinguish: host receptor blocking (prevents entry) vs viral protein targeting (direct antiviral)
+- Host receptor strategies avoid resistance evolution — the pathogen cannot mutate around a human protein
+- Cite specific published precedents where blocking a host receptor worked (e.g. maraviroc/CCR5, camostat/TMPRSS2)
+- If protein has no microbiology relevance, skip this section
+
 === ADDITIONAL CONTEXT FOR CURE HYPOTHESES ===
 For diseases that lack known cures (including rare Mendelian diseases, aggressive cancers, and 
 infectious diseases like hantavirus, Nipah, Marburg), use the mechanistic data above to propose
@@ -4625,6 +4633,339 @@ if(document.querySelector('.strat-card')) document.querySelector('.strat-card').
 
 
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  MICROBIOLOGY KNOWLEDGE BASE
+#  Covers bacteria, viruses, fungi, parasites — with organism specification
+#  All host receptor data is sourced from published literature
+# ═══════════════════════════════════════════════════════════════════════════════
+
+MICRO_ORGANISMS = {
+    # ── VIRUSES ────────────────────────────────────────────────────────────────
+    "hantavirus": {
+        "organism": "Hantavirus (Bunyaviridae family; Sin Nombre virus, Hantaan virus, Seoul virus)",
+        "type": "RNA virus (negative-sense, single-stranded)",
+        "host_receptors": ["ITGB3 (integrin β3)", "ITGAV (integrin αV)", "DAG1 (dystroglycan)", "CD55 (DAF)"],
+        "human_search_terms": ["ITGB3", "ITGAV", "DAG1"],
+        "key_proteins": {
+            "Gn/Gc glycoproteins": "Viral entry proteins — bind host integrins. Target for neutralising antibodies.",
+            "Nucleoprotein (N)": "RNA encapsidation — essential for replication. Conserved across hantaviruses.",
+            "RNA-dependent RNA polymerase (L)": "Viral replication — no human homolog, ideal antiviral target.",
+        },
+        "disease": "Hantavirus pulmonary syndrome (HPS) / Haemorrhagic fever with renal syndrome (HFRS)",
+        "mechanism": "Virus binds ITGB3/ITGAV on endothelial cells → cell infection → capillary leak syndrome",
+        "drug_targets": "Host: ITGB3/ITGAV antagonists (cilengitide analogs). Viral: L protein inhibitors.",
+        "clinical_status": "No approved antivirals. Ribavirin has limited efficacy. Vaccine candidates in trials.",
+        "refs": ["Mackow & Gavrilovskaya, 2009 (PMID 19913499)", "Jonsson et al., 2010 (PMID 20584982)"],
+    },
+    "ebola": {
+        "organism": "Ebola virus (Filoviridae; Zaire ebolavirus, Sudan ebolavirus)",
+        "type": "RNA virus (negative-sense, single-stranded)",
+        "host_receptors": ["NPC1 (Niemann-Pick C1)", "HAVCR1 (TIM-1)", "AXL", "TYRO3"],
+        "human_search_terms": ["NPC1", "HAVCR1", "AXL"],
+        "key_proteins": {
+            "Glycoprotein (GP)": "Viral fusion protein — binds NPC1 in endosome after cathepsin cleavage.",
+            "VP35": "Interferon antagonist — suppresses innate immunity.",
+            "VP24": "Interferon signalling blocker — prevents STAT1 nuclear transport.",
+            "L (RNA polymerase)": "Viral replication — target for remdesivir and favipiravir.",
+        },
+        "disease": "Ebola virus disease (EVD) — haemorrhagic fever, 25-90% fatality",
+        "mechanism": "GP binds TIM-1/AXL → macropinocytosis → endosomal cathepsin cleaves GP → NPC1 binding → fusion",
+        "drug_targets": "NPC1 small molecule blockers (U18666A analogs). GP-targeted antibodies (mAb114, REGN-EB3 — FDA approved).",
+        "clinical_status": "Two FDA-approved mAb therapies (Inmazeb, Ebanga). Remdesivir shows partial efficacy.",
+        "refs": ["Carette et al., Nature 2011 (PMID 21866103)", "Cote et al., Nature 2011 (PMID 21866101)"],
+    },
+    "sars_cov2": {
+        "organism": "SARS-CoV-2 (Coronaviridae; Betacoronavirus)",
+        "type": "RNA virus (positive-sense, single-stranded)",
+        "host_receptors": ["ACE2", "TMPRSS2", "FURIN", "NRP1", "HSPA5 (GRP78)"],
+        "human_search_terms": ["ACE2", "TMPRSS2", "FURIN", "NRP1"],
+        "key_proteins": {
+            "Spike (S)": "Binds ACE2 — RBD is primary vaccine antigen and neutralising Ab target.",
+            "Main protease (Mpro/3CLpro)": "Essential for viral polyprotein processing — target for nirmatrelvir (Paxlovid).",
+            "RNA-dependent RNA polymerase (nsp12)": "Viral replication — target for remdesivir/molnupiravir.",
+            "Papain-like protease (PLpro)": "Deubiquitinase — evades innate immunity.",
+        },
+        "disease": "COVID-19 — respiratory failure, hyperinflammation, long COVID",
+        "mechanism": "Spike S1 binds ACE2 → TMPRSS2 primes S2 → membrane fusion OR endosomal CTSL/B pathway",
+        "drug_targets": "ACE2 decoys. TMPRSS2 inhibitors (camostat). Mpro inhibitors (nirmatrelvir). RdRp inhibitors (remdesivir).",
+        "clinical_status": "Paxlovid (nirmatrelvir+ritonavir) FDA-approved. Remdesivir approved. Vaccines highly effective.",
+        "refs": ["Hoffmann et al., Cell 2020 (PMID 32142651)", "Owen et al., Science 2021 (PMID 34726479)"],
+    },
+    "hiv": {
+        "organism": "HIV-1/HIV-2 (Retroviridae; Lentivirus)",
+        "type": "RNA retrovirus (positive-sense, diploid)",
+        "host_receptors": ["CD4", "CCR5", "CXCR4"],
+        "human_search_terms": ["CCR5", "CXCR4", "CD4"],
+        "key_proteins": {
+            "gp120/gp41 envelope": "Binds CD4 then CCR5/CXCR4 — primary vaccine and entry inhibitor target.",
+            "Reverse transcriptase (RT)": "Converts viral RNA to DNA — NRTIs, NNRTIs all target RT.",
+            "Integrase": "Inserts viral DNA into host genome — target for raltegravir, dolutegravir.",
+            "Protease": "Cleaves viral polyprotein — target for ritonavir, darunavir class.",
+        },
+        "disease": "AIDS — CD4+ T cell depletion, opportunistic infections",
+        "mechanism": "gp120 binds CD4 → conformational change → CCR5/CXCR4 coreceptor binding → gp41 fusion",
+        "drug_targets": "CCR5 antagonist (maraviroc — FDA approved). CD4-binding site antibodies (ibalizumab). gp120 PGT121 bnAbs.",
+        "clinical_status": "ART (antiretroviral therapy) suppresses viral load. No cure. CCR5-deleted T cells (ZFN) cured 1 patient.",
+        "refs": ["Wei et al., Nature 1995 (PMID 7753197)", "Alkhatib et al., Science 1996 (PMID 8658128)"],
+    },
+    "influenza": {
+        "organism": "Influenza A/B/C virus (Orthomyxoviridae)",
+        "type": "RNA virus (negative-sense, segmented)",
+        "host_receptors": ["Sialic acid receptors (α2,3 and α2,6)", "TMPRSS2", "SIAE"],
+        "human_search_terms": ["TMPRSS2", "SIAE", "ST3GAL1"],
+        "key_proteins": {
+            "Haemagglutinin (HA)": "Binds sialic acid receptors — primary vaccine antigen, target for universal flu vaccines.",
+            "Neuraminidase (NA)": "Cleaves sialic acid for viral release — target for oseltamivir (Tamiflu), zanamivir.",
+            "RNA polymerase (PB1, PB2, PA)": "Viral replication — target for baloxavir marboxil (Xofluza).",
+            "M2 proton channel": "Viral uncoating — target for amantadine (now resistant).",
+        },
+        "disease": "Influenza — seasonal flu, pandemic risk (H5N1, H7N9 avian influenza)",
+        "mechanism": "HA binds sialic acid → endocytosis → HA2 fusion → viral RNA release. NA cleaves sialic acid for egress.",
+        "drug_targets": "TMPRSS2 inhibitors block HA priming. Universal HA stalk antibodies. NA inhibitors (oseltamivir).",
+        "clinical_status": "Oseltamivir, zanamivir, baloxavir FDA-approved. Universal vaccine in development.",
+        "refs": ["Böttcher et al., J Virol 2006 (PMID 16775340)", "Crist et al., PNAS 2020 (PMID 32873639)"],
+    },
+    "dengue": {
+        "organism": "Dengue virus (DENV 1-4; Flaviviridae)",
+        "type": "RNA virus (positive-sense, single-stranded)",
+        "host_receptors": ["CLEC5A", "AXL", "TYRO3", "ITGA5", "CD300a"],
+        "human_search_terms": ["CLEC5A", "AXL", "TYRO3"],
+        "key_proteins": {
+            "Envelope (E) protein": "Viral attachment and fusion — type-specific and cross-reactive epitopes.",
+            "NS3 helicase/protease": "RNA replication and polyprotein processing — drug target.",
+            "NS5 RNA polymerase": "Viral RNA synthesis — target for nucleoside analogs.",
+        },
+        "disease": "Dengue fever, severe dengue (dengue haemorrhagic fever/shock syndrome)",
+        "mechanism": "E protein binds CLEC5A/AXL → receptor-mediated endocytosis → pH-triggered fusion → replication",
+        "drug_targets": "AXL/TYRO3 kinase inhibitors block entry. NS3/NS5 inhibitors in clinical trials.",
+        "clinical_status": "No approved antivirals. Dengvaxia vaccine approved but restricted. Novel vaccines in trials.",
+        "refs": ["Chen et al., J Exp Med 2008 (PMID 18794339)", "Meertens et al., Cell Host Microbe 2012 (PMID 22817988)"],
+    },
+    "hepatitis_b": {
+        "organism": "Hepatitis B virus (HBV; Hepadnaviridae)",
+        "type": "Partially double-stranded DNA virus (reverse-transcribing)",
+        "host_receptors": ["NTCP (SLC10A1)", "EGFR", "Sodium taurocholate cotransporter"],
+        "human_search_terms": ["SLC10A1", "EGFR"],
+        "key_proteins": {
+            "Surface antigen (HBsAg)": "Viral envelope — pre-S1 domain binds NTCP. Target for therapeutic antibodies.",
+            "HBV polymerase (Pol)": "Reverse transcriptase — target for tenofovir, entecavir.",
+            "Core protein (HBc)": "Nucleocapsid assembly — target for core inhibitors (NovaBay, Janssen).",
+            "HBx protein": "Transcriptional activator — promotes viral gene expression and contributes to HCC.",
+        },
+        "disease": "Chronic hepatitis B — cirrhosis, hepatocellular carcinoma (HCC)",
+        "mechanism": "HBsAg pre-S1 binds NTCP → viral entry → cccDNA formation in nucleus → persistent infection",
+        "drug_targets": "NTCP inhibitors (bulevirtide — EMA approved for HDV). HBV Pol inhibitors (tenofovir, entecavir).",
+        "clinical_status": "Tenofovir, entecavir suppress viral load but do not cure. Bulevirtide approved for HDV coinfection.",
+        "refs": ["Yan et al., eLife 2012 (PMID 23133019)", "Yan et al., J Hepatol 2015 (PMID 25684700)"],
+    },
+    "malaria": {
+        "organism": "Plasmodium falciparum, P. vivax, P. malariae, P. ovale (Apicomplexa)",
+        "type": "Eukaryotic parasite (protozoan)",
+        "host_receptors": ["GYPA (Glycophorin A)", "GYPC (Glycophorin C)", "DARC (Duffy antigen)", "CD36", "ICAM1"],
+        "human_search_terms": ["GYPA", "GYPC", "DARC", "ACKR1"],
+        "key_proteins": {
+            "EBA-175 (Erythrocyte-binding antigen)": "P. falciparum invasion ligand — binds GYPA. Vaccine candidate.",
+            "PfRH5": "Binds basigin (CD147) — essential for merozoite invasion. Lead vaccine target.",
+            "Merozoite surface protein 1 (MSP1)": "Abundant surface antigen — clinical trial vaccine target.",
+            "Dihydrofolate reductase (DHFR)": "Folate synthesis — target for pyrimethamine (resistance widespread).",
+            "Plasmepsin enzymes": "Haemoglobin digestion — antimalarial drug targets.",
+        },
+        "disease": "Malaria — cerebral malaria, severe anaemia, 600,000+ deaths/year",
+        "mechanism": "Merozoite uses EBA-175/GYPA and PfRH5/CD147 for erythrocyte invasion → intracellular replication",
+        "drug_targets": "GYPA/GYPC blocking peptides. PfRH5 vaccines (in Phase 2 trial). Artemisinin combinations (ACT).",
+        "clinical_status": "R21/Matrix-M vaccine WHO-approved (2023). ACT first-line treatment. Resistance emerging.",
+        "refs": ["Crosnier et al., Nature 2011 (PMID 22080952)", "Wright et al., Nature 2014 (PMID 25219458)"],
+    },
+    "tuberculosis": {
+        "organism": "Mycobacterium tuberculosis (Actinobacteria)",
+        "type": "Gram-positive bacterium (acid-fast)",
+        "host_receptors": ["SLC11A1 (NRAMP1)", "VDR", "TLR2", "TLR4", "IFNG receptor"],
+        "human_search_terms": ["SLC11A1", "VDR", "TLR2", "IFNGR1"],
+        "key_proteins": {
+            "InhA (enoyl-ACP reductase)": "Mycolic acid synthesis — target for isoniazid (after KatG activation).",
+            "RpoB (RNA polymerase β)": "Transcription — target for rifampicin. Mutations = rifampicin resistance.",
+            "GyrA/GyrB (DNA gyrase)": "DNA replication — target for fluoroquinolones.",
+            "EsxA (ESAT-6)": "Virulence — disrupts phagosomal membrane, enables escape to cytosol.",
+            "Ag85 complex": "Mycolyl transferase — target for vaccine BCG and novel compounds.",
+        },
+        "disease": "Tuberculosis — pulmonary TB, miliary TB, TB meningitis. 1.7M deaths/year.",
+        "mechanism": "M.tb inhaled → alveolar macrophage phagocytosis → phagosome escape via ESAT-6 → intracellular survival",
+        "drug_targets": "SLC11A1 variants affect susceptibility. VDR agonists boost antimicrobial peptides. Host-directed therapy.",
+        "clinical_status": "6-month RHEZ regimen standard. Bedaquiline + delamanid for MDR-TB. Novel regimens in BPaL trial.",
+        "refs": ["Bellamy et al., NEJM 1998 (PMID 9708741)", "Schaible et al., J Clin Invest 2003 (PMID 12750395)"],
+    },
+    "staph_aureus": {
+        "organism": "Staphylococcus aureus (Firmicutes; including MRSA)",
+        "type": "Gram-positive coccus",
+        "host_receptors": ["ITGA5B1", "Fibronectin", "Fibrinogen", "Von Willebrand factor"],
+        "human_search_terms": ["ITGA5", "FN1", "FGA", "VWF"],
+        "key_proteins": {
+            "Protein A (SpA)": "IgG Fc binding — immune evasion. Binds TNFR1 on epithelial cells.",
+            "Alpha-toxin (Hla)": "Pore-forming toxin — target for monoclonal antibody MEDI4893.",
+            "PBP2a (mecA)": "Modified penicillin-binding protein — MRSA resistance mechanism.",
+            "Sortase A (SrtA)": "Surface protein anchoring — virulence and antibiotic resistance target.",
+            "TSST-1": "Superantigen — causes toxic shock syndrome.",
+        },
+        "disease": "Skin infections, bacteraemia, endocarditis, MRSA pneumonia, toxic shock",
+        "mechanism": "Fibronectin-binding proteins (FnBPA/B) bind ITGA5B1 → invasion → intracellular persistence",
+        "drug_targets": "Sortase A inhibitors (non-essential — resistance won't select). MEDI4893 anti-Hla mAb in trials. SrtA small molecules.",
+        "clinical_status": "Vancomycin, daptomycin for MRSA. Novel: ceftaroline, dalbavancin. Anti-virulence approaches in trials.",
+        "refs": ["Patti et al., Annu Rev Microbiol 1994 (PMID 7826009)", "Schneewind et al., Annu Rev Biochem 2012 (PMID 22578885)"],
+    },
+    "ecoli": {
+        "organism": "Escherichia coli (Proteobacteria; including UPEC, ETEC, STEC O157:H7)",
+        "type": "Gram-negative rod",
+        "host_receptors": ["Uroplakin (UPIa/UPIb) for UPEC", "GM1 ganglioside for ETEC", "Gb3 (CD77) for STEC"],
+        "human_search_terms": ["UPK1A", "UPK1B", "B4GALNT1"],
+        "key_proteins": {
+            "FimH adhesin": "Type 1 fimbrial tip adhesin — binds mannosylated uroplakin. Target for mannoside inhibitors.",
+            "Shiga toxin (Stx1/2)": "AB5 toxin — binds Gb3, inhibits protein synthesis. Cause of HUS.",
+            "Heat-labile toxin (LT)": "ETEC — ADP-ribosylates Gsα, activates cAMP, causes diarrhoea.",
+            "Beta-lactamase (TEM, SHV, CTX-M)": "Antibiotic resistance — destroys penicillins/cephalosporins.",
+        },
+        "disease": "UTI, sepsis, HUS (STEC), traveller's diarrhoea, neonatal meningitis",
+        "mechanism": "FimH binds mannosylated UPIa → type 1 fimbriae-mediated invasion → intracellular bacterial communities",
+        "drug_targets": "FimH mannoside antagonists (oral, non-antibiotic). Shiga toxin receptor Gb3 analogs (agonists block toxin).",
+        "clinical_status": "Mannoside FimH inhibitors in Phase 2 UTI trials. No specific STEC antivirals (antibiotics worsen HUS).",
+        "refs": ["Klein et al., Cell Host Microbe 2010 (PMID 20816993)", "Kau et al., Nature 2011 (PMID 21430765)"],
+    },
+    "candida": {
+        "organism": "Candida albicans, C. auris, C. glabrata (Ascomycota; Saccharomycetes)",
+        "type": "Dimorphic fungus (yeast ↔ hyphae)",
+        "host_receptors": ["Dectin-1 (CLEC7A)", "TLR2", "TLR4", "FcγRIII (CD16)"],
+        "human_search_terms": ["CLEC7A", "TLR2", "CARD9"],
+        "key_proteins": {
+            "Lanosterol 14α-demethylase (ERG11/CYP51)": "Ergosterol synthesis — target for azoles (fluconazole, voriconazole).",
+            "β-1,3-glucan synthase (FKS1)": "Cell wall — target for echinocandins (caspofungin, micafungin).",
+            "Als3 adhesin": "Binds E-cadherin and N-cadherin on host — invasion trigger.",
+            "Hsp90": "Thermal stress response — enables azole tolerance. Target for Hsp90 inhibitors.",
+        },
+        "disease": "Candidaemia, invasive candidiasis, oral/vaginal thrush. C. auris — multidrug-resistant, nosocomial outbreaks.",
+        "mechanism": "Als3 binds E-cadherin → endocytosis → hyphae formation → tissue invasion",
+        "drug_targets": "CLEC7A agonists boost antifungal immunity. ERG11 inhibitors (azoles). FKS1 inhibitors (echinocandins).",
+        "clinical_status": "Echinocandins first-line for invasive candidiasis. Ibrexafungerp (novel class) approved 2021. C. auris resistant to all classes.",
+        "refs": ["Phan et al., Science 2007 (PMID 17525341)", "Wisplinghoff et al., Clin Infect Dis 2004 (PMID 15494903)"],
+    },
+    "aspergillus": {
+        "organism": "Aspergillus fumigatus (Ascomycota; Eurotiomycetes)",
+        "type": "Filamentous mould (conidial)",
+        "host_receptors": ["Dectin-1 (CLEC7A)", "CR3 (CD11b/CD18)", "DC-SIGN (CD209)", "Siglec-10"],
+        "human_search_terms": ["CLEC7A", "ITGAM", "CD209"],
+        "key_proteins": {
+            "Gliotoxin": "Immunosuppressive mycotoxin — disables neutrophil function.",
+            "ERG11/CYP51A": "Azole target — TR34/L98H mutation causes pan-azole resistance.",
+            "β-1,3-glucan synthase (FksA)": "Echinocandin target.",
+            "Alkaline protease (Alp)": "Tissue invasion — degrades IgG, complement, elastin.",
+        },
+        "disease": "Invasive pulmonary aspergillosis (IPA) — 30-90% mortality in immunocompromised",
+        "mechanism": "Conidia inhaled → germination → Dectin-1 recognition → phagocytosis (healthy) or invasion (immunocompromised)",
+        "drug_targets": "Voriconazole, isavuconazole first-line. Olorofim (novel class, DHODH inhibitor) in trials. Monoclonal anti-conidia antibodies.",
+        "clinical_status": "Voriconazole standard-of-care. Olorofim granted Breakthrough Therapy Designation.",
+        "refs": ["Latgé, Clin Microbiol Rev 1999 (PMID 10069213)", "Verweij et al., Lancet Infect Dis 2016 (PMID 27568821)"],
+    },
+    "nipah": {
+        "organism": "Nipah virus (Paramyxoviridae; Henipavirus)",
+        "type": "RNA virus (negative-sense, single-stranded)",
+        "host_receptors": ["EFNB2 (Ephrin-B2)", "EFNB3 (Ephrin-B3)"],
+        "human_search_terms": ["EFNB2", "EFNB3"],
+        "key_proteins": {
+            "G glycoprotein": "Binds EFNB2/EFNB3 — entry and cell tropism determinant.",
+            "F glycoprotein": "Membrane fusion — m102.4 antibody (emergency use in Australia) targets F.",
+            "C protein": "Interferon antagonist.",
+        },
+        "disease": "Nipah encephalitis — 40-75% fatality rate. Bat reservoir (Pteropus).",
+        "mechanism": "G binds EFNB2 on neurons and endothelium → F-mediated fusion → syncytia formation → encephalitis",
+        "drug_targets": "EFNB2/B3 soluble decoy receptors. m102.4 anti-G mAb. Favipiravir and remdesivir show preclinical activity.",
+        "clinical_status": "No approved treatments. m102.4 compassionate use. EFNB2-based vaccine strategies in development.",
+        "refs": ["Bonaparte et al., PNAS 2005 (PMID 15659548)", "Broder et al., Nat Rev Drug Discov 2012 (PMID 22790804)"],
+    },
+}
+
+def get_micro_context(query: str) -> dict:
+    """Look up microbiology context for a query term."""
+    q_lower = query.lower().strip()
+    for key, data in MICRO_ORGANISMS.items():
+        if (key in q_lower or q_lower in key or
+            any(q_lower in r.lower() for r in data.get("host_receptors",[])) or
+            any(q_lower in p.lower() for p in data.get("key_proteins",{}).keys()) or
+            q_lower in data.get("disease","").lower() or
+            q_lower in data.get("organism","").lower()):
+            return {**data, "pathogen_key": key}
+    # Partial match
+    for key, data in MICRO_ORGANISMS.items():
+        if any(word in q_lower for word in key.split("_")):
+            return {**data, "pathogen_key": key}
+    return {}
+
+def micro_drug_hypothesis(micro: dict, gene: str, scored: list, gi: dict) -> list:
+    """
+    Generate testable therapeutic hypotheses for microbial diseases,
+    grounded in the actual protein-pathogen interaction data.
+    """
+    if not micro: return []
+    hyps = []
+    pathogen    = micro.get("organism","pathogen")
+    disease     = micro.get("disease","")
+    host_recs   = micro.get("host_receptors",[])
+    key_proteins= micro.get("key_proteins",{})
+    n_path      = gi.get("n_pathogenic",0)
+    is_receptor = gene.upper() in " ".join(host_recs).upper()
+    
+    if is_receptor:
+        hyps.append({
+            "title": f"Host receptor blockade — prevent {pathogen.split(';')[0]} entry via {gene}",
+            "confidence": "HIGH" if n_path > 5 else "MEDIUM",
+            "organism": pathogen,
+            "mechanism": (
+                f"{gene} is a confirmed host receptor or entry factor for {pathogen.split(';')[0]}. "
+                f"Blocking {gene} prevents viral/pathogen entry without targeting the pathogen directly — "
+                f"avoiding resistance evolution (the pathogen cannot mutate around a host factor). "
+                f"Analogy: maraviroc blocks CCR5 for HIV; camostat blocks TMPRSS2 for SARS-CoV-2."
+            ),
+            "approaches": [
+                f"Soluble {gene} decoy receptor: express ectodomain as Fc fusion protein to compete with pathogen for binding",
+                f"Small molecule {gene} antagonist: screen for compounds that occupy the {pathogen.split()[0]}-binding epitope without blocking normal {gene} function",
+                f"Monoclonal antibody targeting {gene} binding site: sterically block pathogen without permanently disabling receptor",
+                f"CRISPR: introduce CCR5Δ32-equivalent loss-of-function in {gene} — test whether cells become resistant to infection",
+                f"Gene therapy: deliver dominant-negative {gene} variant to high-risk tissue",
+            ],
+            "prediction": (
+                f"A high-affinity {gene} antagonist (KD <10nM) will reduce {pathogen.split()[0]} infection by ≥90% "
+                f"in primary cell infection assay (BSL2-3 required). "
+                f"Selectivity: must not affect normal {gene} physiology — test receptor function assay in parallel."
+            ),
+            "key_experiment": f"Pseudotyped virus assay (BSL2-safe): lentivirus displaying {pathogen.split()[0]} entry proteins + {gene}-expressing target cells + candidate blocker",
+            "refs": micro.get("refs",[]),
+        })
+    
+    # Viral protein targeting
+    for prot_name, prot_desc in list(key_proteins.items())[:3]:
+        if "target" in prot_desc.lower() or "inhibitor" in prot_desc.lower():
+            hyps.append({
+                "title": f"Direct antiviral: {prot_name} inhibitor ({pathogen.split(';')[0]})",
+                "confidence": "MEDIUM",
+                "organism": pathogen,
+                "mechanism": (
+                    f"{prot_name}: {prot_desc} "
+                    f"Note: antiviral drug targets are pathogen proteins, not human genes. "
+                    f"The value of Protellect here is to identify which HUMAN proteins regulate susceptibility, "
+                    f"immune response, and drug metabolism for {disease}."
+                ),
+                "approaches": [
+                    f"Search ChEMBL for existing {prot_name} inhibitor scaffolds",
+                    f"AlphaFold2 structure of {prot_name} → virtual screen → biophysical validation",
+                    f"Host factor approach: identify which human proteins {prot_name} binds — block the interaction",
+                ],
+                "prediction": f"Inhibitor with IC50 <100nM against {prot_name} will reduce viral replication by ≥2 log10 in cell culture (MOI 0.01, 48h).",
+                "key_experiment": f"Recombinant {prot_name} biochemical assay + antiviral cell culture (plaque reduction or RT-qPCR)",
+                "refs": micro.get("refs",[]),
+            })
+            break  # one viral protein hypothesis
+    
+    return hyps
+
+
 def get_goal_config(gl):
     for k in GOAL_CONFIG:
         if k.lower() in gl.lower() or gl.lower() in k.lower():
@@ -4711,34 +5052,41 @@ with st.sidebar:
                 if not dp:
                     st.session_state["disease_proteins"]=[]
                     _dq_low = disease_q.strip().lower()
-                    _viral_map = {
-                        "hantavirus": "Hantavirus enters cells via ITGB3 (integrin beta-3) and ITGAV. These are the druggable host receptors. Search: ITGB3, ITGAV, DAG1",
-                        "ebola": "Ebola entry requires NPC1. Also exploits TIM1 (HAVCR1) and AXL. Search: NPC1, HAVCR1, AXL",
-                        "sars": "SARS-CoV-2 enters via ACE2 + TMPRSS2. Search: ACE2, TMPRSS2, FURIN, NRP1",
-                        "covid": "SARS-CoV-2 enters via ACE2 + TMPRSS2. Search: ACE2, TMPRSS2, FURIN",
-                        "hiv": "HIV entry requires CD4, CCR5, CXCR4. Druggable with maraviroc (CCR5). Search: CCR5, CXCR4, CD4",
-                        "influenza": "Influenza binds via sialic acid — host enzyme SIAE. Cleavage via TMPRSS2. Search: TMPRSS2",
-                        "dengue": "Dengue entry via CLEC5A, AXL, TYRO3. Search: CLEC5A, AXL, TYRO3",
-                        "hepatitis": "HBV enters via NTCP (SLC10A1). HCV via CD81+CLDN1. Search: SLC10A1, CD81, CLDN1",
-                        "malaria": "P. falciparum uses GYPA, GYPC, DARC for invasion. Search: GYPA, DARC, GYPC",
-                        "nipah": "Nipah uses EFNB2 and EFNB3 as receptors. Search: EFNB2, EFNB3",
-                        "marburg": "Marburg uses NPC1 like Ebola. Search: NPC1, AXL",
-                        "rabies": "Rabies enters via NCAM1, NGFR, AChR subunits. Search: NCAM1, NGFR",
-                        "tuberculosis": "TB susceptibility genes: SLC11A1, VDR, TLR2. Search: SLC11A1, VDR",
-                        "herpes": "HSV entry via NECTIN1, NECTIN2, HVEM (TNFRSF14). Search: NECTIN1, TNFRSF14",
-                    }
-                    _viral_hit = next(((k,v) for k,v in _viral_map.items() if k in _dq_low), None)
-                    if _viral_hit:
+                    # Use MICRO_ORGANISMS database instead of hardcoded dict
+                    _micro_hit = get_micro_context(disease_q.strip())
+                    if _micro_hit:
+                        _mtype = _micro_hit.get("type","pathogen")
+                        _mrecs = ", ".join(_micro_hit.get("human_search_terms",[]))
+                        _mterms= " · ".join(_micro_hit.get("host_receptors",[])[:4])
+                        _mdisease= _micro_hit.get("disease","")
+                        _morgan = _micro_hit.get("organism","")
                         st.markdown(
-                            f"<div style='background:#020d18;border:1px solid #00e5ff44;border-radius:10px;padding:.9rem 1.1rem;'>"
-                            f"<div style='color:#00e5ff;font-weight:700;margin-bottom:.3rem;'>Infectious disease — search host receptor instead</div>"
-                            f"<div style='color:#5a8090;font-size:.83rem;margin-bottom:.4rem;'>Viral diseases don't appear in ClinVar. Druggable targets are the <b style='color:#8ab8cc;'>human host entry factors</b> the virus exploits.</div>"
-                            f"<div style='color:#7ab0c0;font-size:.85rem;'><b>{_viral_hit[0].capitalize()}:</b> {_viral_hit[1]}</div>"
-                            f"</div>",
+                            f"<div style='background:#020d18;border:1px solid #00e5ff44;border-radius:10px;padding:1rem 1.2rem;'>"
+                            f"<div style='color:#00e5ff;font-weight:700;font-size:.95rem;margin-bottom:.3rem;'>"
+                            f"🦠 {_morgan}</div>"
+                            f"<div style='color:#3a7090;font-size:.8rem;margin-bottom:.4rem;'>{_mtype}</div>"
+                            f"<div style='color:#5a8090;font-size:.84rem;margin-bottom:.5rem;'>"
+                            f"<b style='color:#8ab8cc;'>Disease:</b> {_mdisease}</div>"
+                            f"<div style='color:#5a8090;font-size:.84rem;margin-bottom:.4rem;'>"
+                            f"<b style='color:#8ab8cc;'>Host receptors / entry factors:</b> {_mterms}</div>"
+                            f"<div style='background:#030810;border:1px solid #00e5ff22;border-radius:7px;padding:.6rem .8rem;'>"
+                            f"<div style='color:#4a9090;font-size:.8rem;font-weight:700;margin-bottom:2px;'>Search these human proteins in Protellect:</div>"
+                            f"<div style='color:#6ab0a0;font-size:.86rem;'>{_mrecs}</div>"
+                            f"</div>"
+                            + "".join(
+                                f"<div style='color:#2a6060;font-size:.76rem;margin-top:4px;'>📄 {r}</div>"
+                                for r in _micro_hit.get("refs",[])[:2]
+                            )
+                            + f"</div>",
                             unsafe_allow_html=True,
                         )
-                    else:
-                        st.warning(f"No ClinVar results for '{disease_q.strip()}'. Try: cardiomyopathy · Glanzmann · Fanconi anemia · breast cancer · hypertrophic cardiomyopathy")
+                        # Show clickable search buttons for each human receptor
+                        rec_cols = st.columns(min(len(_micro_hit.get("human_search_terms",[])), 4))
+                        for r_idx, rec_gene in enumerate(_micro_hit.get("human_search_terms",[])[:4]):
+                            with rec_cols[r_idx]:
+                                if st.button(f"Analyse {rec_gene}", key=f"micro_rec_{r_idx}_{rec_gene}", use_container_width=True):
+                                    st.session_state["_trigger_search"] = rec_gene
+                                    st.rerun()
         else:
             st.warning("Enter a disease name first.")
 
@@ -8421,7 +8769,91 @@ with tab5:
                         unsafe_allow_html=True,
                     )
 
-        if st.button("♻️ Regenerate AI Report", key="regen_ai"):
+        # ── Microbiology / Infectious Disease Hypothesis Section ─────────────────
+    # Check if this protein is a host receptor for any known pathogen
+    _micro_ctx = get_micro_context(gene)
+    if not _micro_ctx:
+        # Check by function text
+        _func_text = g_func(pdata).lower()
+        for _key in ["itgb3","itgav","ace2","tmprss2","cd4","ccr5","npc1","efnb2","clec7a","slc10a1"]:
+            if _key in gene.lower() or _key in _func_text:
+                _micro_ctx = next((v for k,v in MICRO_ORGANISMS.items()
+                                   if _key in " ".join(v.get("human_search_terms",[])).lower()), {})
+                if _micro_ctx: break
+    
+    if _micro_ctx:
+        st.markdown("<hr class='dv'>", unsafe_allow_html=True)
+        sh("🦠","Infectious Disease Context — Host-Pathogen Interface")
+        _mpathogen = _micro_ctx.get("organism","")
+        _mdisease  = _micro_ctx.get("disease","")
+        _mtype     = _micro_ctx.get("type","")
+        _mstatus   = _micro_ctx.get("clinical_status","")
+        _mrefs     = _micro_ctx.get("refs",[])
+        _mdrugs    = _micro_ctx.get("drug_targets","")
+        _mkeys     = _micro_ctx.get("key_proteins",{})
+        
+        st.markdown(
+            f"<div style='background:#020d10;border:1px solid #00c89633;border-radius:12px;"
+            f"padding:1.1rem 1.4rem;margin-bottom:.8rem;'>"
+            f"<div style='color:#00c896;font-weight:800;font-size:.98rem;margin-bottom:.3rem;'>🦠 {_mpathogen}</div>"
+            f"<div style='color:#3a7060;font-size:.78rem;margin-bottom:.5rem;'>{_mtype}</div>"
+            f"<div style='color:#5a9080;font-size:.85rem;margin-bottom:.5rem;'><b>Disease:</b> {_mdisease}</div>"
+            f"<div style='color:#4a8070;font-size:.85rem;margin-bottom:.5rem;'>"
+            f"<b>{gene} role:</b> {gene} is a host entry factor or susceptibility gene for this pathogen.</div>"
+            f"<div style='color:#3a6060;font-size:.83rem;margin-bottom:.5rem;'>"
+            f"<b>Existing drug targets:</b> {_mdrugs}</div>"
+            f"<div style='color:#2a5050;font-size:.82rem;margin-bottom:.4rem;'>"
+            f"<b>Clinical status:</b> {_mstatus}</div>"
+            f"<div style='display:flex;gap:6px;flex-wrap:wrap;margin-top:.5rem;'>"
+            + "".join(f"<div style='color:#1a4040;font-size:.74rem;'>📄 {r}</div>" for r in _mrefs)
+            + "</div></div>",
+            unsafe_allow_html=True,
+        )
+        
+        # Key pathogen proteins
+        if _mkeys:
+            with st.expander(f"Key {_mpathogen.split(';')[0].split('(')[0].strip()} proteins — drug targets", expanded=False):
+                for prot, desc in _mkeys.items():
+                    st.markdown(
+                        f"<div style='background:#020810;border:1px solid #0d2545;border-radius:8px;"
+                        f"padding:.7rem .9rem;margin:.3rem 0;'>"
+                        f"<div style='color:#5a9080;font-weight:700;font-size:.85rem;'>{prot}</div>"
+                        f"<div style='color:#3a6060;font-size:.82rem;'>{desc}</div>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+        
+        # Generate micro-specific drug hypotheses
+        _micro_hyps = micro_drug_hypothesis(_micro_ctx, gene, scored, gi)
+        if _micro_hyps:
+            st.markdown(f"<div style='color:#4a8070;font-size:.86rem;font-weight:700;margin:.6rem 0 .3rem;'>Therapeutic hypotheses for {_mdisease}:</div>", unsafe_allow_html=True)
+            for _mh in _micro_hyps:
+                _mconf_clr = {"HIGH":"#00c896","MEDIUM":"#ffd60a","LOW":"#ff8c42"}.get(_mh.get("confidence","MEDIUM"),"#3a6080")
+                with st.expander(f"{_mh['title']}  ·  {_mh.get('confidence','?')} confidence", expanded=True):
+                    st.markdown(
+                        f"<div style='color:#3a7060;font-size:.78rem;font-weight:700;margin-bottom:2px;'>"
+                        f"Organism: {_mh['organism'][:80]}</div>"
+                        f"<div style='color:#5a9080;font-size:.85rem;margin-bottom:.5rem;'>{_mh['mechanism']}</div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown("<div style='color:#4a7060;font-size:.82rem;font-weight:600;margin-bottom:.3rem;'>Approaches:</div>", unsafe_allow_html=True)
+                    for app in _mh.get("approaches",[]):
+                        st.markdown(f"<div style='color:#3a6050;font-size:.82rem;padding-left:10px;'>→ {app}</div>", unsafe_allow_html=True)
+                    st.markdown(
+                        f"<div style='background:#010d08;border:1px solid #00c89633;border-radius:8px;"
+                        f"padding:.6rem .8rem;margin-top:.4rem;'>"
+                        f"<div style='color:#4a9070;font-size:.8rem;'><b style='color:#5a9880;'>Key experiment:</b> {_mh.get('key_experiment','')}</div>"
+                        f"</div>"
+                        f"<div style='background:#020d18;border:1px solid #0d2545;border-radius:8px;"
+                        f"padding:.6rem .8rem;margin-top:.3rem;'>"
+                        f"<div style='color:#3a7080;font-size:.8rem;'><b style='color:#4a8090;'>Prediction:</b> {_mh.get('prediction','')}</div>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+                    for r in _mh.get("refs",[]):
+                        st.markdown(f"<div style='color:#1a4040;font-size:.74rem;margin-top:3px;'>📄 {r}</div>", unsafe_allow_html=True)
+
+    if st.button("♻️ Regenerate AI Report", key="regen_ai"):
             st.session_state["ai_result"] = {}
             st.rerun()
 
