@@ -468,17 +468,17 @@ SIG_LABEL = {
     "likely pathogenic":                       "Likely Disease-causing",
     "pathogenic/likely pathogenic":            "Pathogenic / Likely Path.",
     "risk factor":                             "Risk Factor",
-    "uncertain significance":                  "Unknown Significance (VUS)",
+    "uncertain significance":                  "Uncertain significance (VUS)",
     "conflicting interpretations":             "Conflicting Evidence",
     "conflicting interpretations of pathogenicity": "Conflicting Evidence",
     "likely benign":                           "Likely Harmless (Likely Benign)",
     "benign":                                  "Harmless (Benign)",
     "benign/likely benign":                    "Benign / Likely Benign",
-    "not provided":                            "Not Classified",
-    "not classified":                          "Not Classified",
+    "not provided":                            "Classification pending",
+    "not classified":                          "Classification in progress",
     # Numeric code fallbacks
     "4":"Likely Disease-causing","3/4":"Pathogenic/LP","5":"Risk Factor",
-    "2":"Unknown Significance","1":"Likely Harmless","0":"Harmless",
+    "2":"Uncertain (VUS)","1":"Likely Benign","0":"Benign",
 }
 
 def clean_sig(raw):
@@ -2948,7 +2948,7 @@ def variant_landscape_fig(variants, protein_length, scored):
     if not variants: return None
     sig_c={5:"#ff2d55",4:"#ff6b55",3:"#ff8c42",2:"#ffd60a",1:"#2a6040",0:"#0e2840",-1:"#060f18"}
     sig_l={5:"Disease-causing (pathogenic)",4:"Likely disease-causing",3:"Risk factor",
-           2:"Unknown significance (VUS)",1:"Likely harmless (likely benign)",0:"Harmless (benign)",-1:"Not classified"}
+           2:"Uncertain significance (VUS — evidence insufficient to classify)",1:"Likely benign",0:"Benign",-1:"Unclassified"}
     ml_map={v.get("uid",""):v.get("ml",0) for v in scored}
     positions,ys,colours,labels,urls=[],[],[],[],[]
     for v in variants:
@@ -2986,7 +2986,7 @@ def variant_landscape_fig(variants, protein_length, scored):
     fig.update_layout(paper_bgcolor="#04080f",plot_bgcolor="#04080f",font_color="#1e4060",
         xaxis=dict(title="Position in protein chain (amino acid number)",range=[0,maxpos],gridcolor="#060f1c",color="#0e2840"),
         yaxis=dict(title="Disease severity score",range=[-0.1,6.2],
-            tickvals=[0,2,4,5],ticktext=["Harmless","Unknown","Likely Disease","Disease-causing"],
+            tickvals=[0,2,4,5],ticktext=["Benign","Uncertain (VUS)","Likely Pathogenic","Pathogenic"],
             gridcolor="#060f1c",color="#0e2840"),
         height=270,margin=dict(t=8,b=30,l=90,r=8),hovermode="closest")
     return fig
