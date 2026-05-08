@@ -5412,13 +5412,16 @@ with tab0:
         unsafe_allow_html=True,
     )
     # ── Protein-specific experiment roadmap from actual data ───────────────────
+    # Safe defaults for roadmap variables
+    af_url     = f'https://alphafold.ebi.ac.uk/entry/{uid}' if uid else ''
+    has_struct = bool(uid)
     n_crit_s   = sum(1 for v in scored if v.get("ml_rank")=="CRITICAL")
     n_high_s   = sum(1 for v in scored if v.get("ml_rank")=="HIGH")
     n_lof_s    = sum(1 for v in scored if any(k in (v.get("variant_name","")).lower()
                     for k in ["del","ter","frameshift","fs","stop","nonsense"]) and v.get("score",0)>=3)
     top_crit   = [v for v in scored if v.get("ml_rank")=="CRITICAL"][:3]
     top_crit_names = ", ".join(v.get("variant_name","")[:25] for v in top_crit) or "top ranked variants"
-    has_struct = bool(af_url)
+    has_struct = bool(uid)  # AlphaFold structure available for any protein with UniProt ID
     is_tractable_sm = bool(ot_data.get("tractability",{}).get("Small molecule")) if ot_data else False
     is_tractable_ab = bool(ot_data.get("tractability",{}).get("Antibody")) if ot_data else False
     pli_val    = gnomad_data.get("pLI",0) if gnomad_data else 0
