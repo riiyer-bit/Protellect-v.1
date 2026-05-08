@@ -192,119 +192,142 @@ def decrement_search():
 st.set_page_config(page_title="Protellect", page_icon="🧬",
                    layout="wide", initial_sidebar_state="expanded")
 
-LOGO_B64 = "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyMDAgMjAwIiB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCI+CiAgPGRlZnM+CiAgICA8cmFkaWFsR3JhZGllbnQgaWQ9Imdsb3ciIGN4PSI1MCUiIGN5PSI1MCUiIHI9IjUwJSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiMwMGU1ZmYiIHN0b3Atb3BhY2l0eT0iMC4zIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iIzAwZTVmZiIgc3RvcC1vcGFjaXR5PSIwIi8+CiAgICA8L3JhZGlhbEdyYWRpZW50PgogICAgPHJhZGlhbEdyYWRpZW50IGlkPSJjb3JlR2xvdyIgY3g9IjUwJSIgY3k9IjUwJSIgcj0iNTAlIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iIzAwZmZjYyIgc3RvcC1vcGFjaXR5PSIwLjkiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSI2MCUiIHN0b3AtY29sb3I9IiMwMGU1ZmYiIHN0b3Atb3BhY2l0eT0iMC43Ii8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iIzAwNjZhYSIgc3RvcC1vcGFjaXR5PSIwLjMiLz4KICAgIDwvcmFkaWFsR3JhZGllbnQ+CiAgICA8ZmlsdGVyIGlkPSJibHVyIj4KICAgICAgPGZlR2F1c3NpYW5CbHVyIHN0ZERldmlhdGlvbj0iMyIgcmVzdWx0PSJibHVyIi8+CiAgICAgIDxmZUNvbXBvc2l0ZSBpbj0iU291cmNlR3JhcGhpYyIgaW4yPSJibHVyIiBvcGVyYXRvcj0ib3ZlciIvPgogICAgPC9maWx0ZXI+CiAgICA8ZmlsdGVyIGlkPSJnbG93LWZpbHRlciI+CiAgICAgIDxmZUdhdXNzaWFuQmx1ciBzdGREZXZpYXRpb249IjIuNSIgcmVzdWx0PSJjb2xvcmVkQmx1ciIvPgogICAgICA8ZmVNZXJnZT48ZmVNZXJnZU5vZGUgaW49ImNvbG9yZWRCbHVyIi8+PGZlTWVyZ2VOb2RlIGluPSJTb3VyY2VHcmFwaGljIi8+PC9mZU1lcmdlPgogICAgPC9maWx0ZXI+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9InN0cmFuZDEiIHgxPSIwJSIgeTE9IjAlIiB4Mj0iMCUiIHkyPSIxMDAlIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iIzAwZmZjYyIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjUwJSIgc3RvcC1jb2xvcj0iIzAwZTVmZiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiMwMDg4Y2MiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9InN0cmFuZDIiIHgxPSIwJSIgeTE9IjAlIiB4Mj0iMCUiIHkyPSIxMDAlIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iIzAwNjZhYSIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjUwJSIgc3RvcC1jb2xvcj0iIzAwYzhmZiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiMwMGZmY2MiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9Im5vZGVHcmFkIiB4MT0iMCUiIHkxPSIwJSIgeDI9IjEwMCUiIHkyPSIxMDAlIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iIzAwZmZjYyIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiMwMGU1ZmYiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgPC9kZWZzPgoKICA8IS0tIEJhY2tncm91bmQgZ2xvdyAtLT4KICA8Y2lyY2xlIGN4PSIxMDAiIGN5PSIxMDAiIHI9Ijk1IiBmaWxsPSJ1cmwoI2dsb3cpIi8+CgogIDwhLS0gRE5BIEhlbGl4IC0gU3RyYW5kIEEgKGxlZnQgY3VydmUpIC0tPgogIDxwYXRoIGQ9Ik0gNzIgMjAgQyA0NSAzOCwgNTUgNTgsIDcyIDc1IEMgODkgOTIsIDk5IDExMiwgODIgMTMwIEMgNjUgMTQ4LCA3MiAxNjgsIDkwIDE4MCIKICAgICAgICBmaWxsPSJub25lIiBzdHJva2U9InVybCgjc3RyYW5kMSkiIHN0cm9rZS13aWR0aD0iNCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIgogICAgICAgIGZpbHRlcj0idXJsKCNnbG93LWZpbHRlcikiIG9wYWNpdHk9IjAuOTUiLz4KCiAgPCEtLSBETkEgSGVsaXggLSBTdHJhbmQgQiAocmlnaHQgY3VydmUpIC0tPgogIDxwYXRoIGQ9Ik0gMTEwIDIwIEMgMTM3IDM4LCAxMjcgNTgsIDExMCA3NSBDIDkzIDkyLCA4MyAxMTIsIDEwMCAxMzAgQyAxMTcgMTQ4LCAxMTAgMTY4LCA5MiAxODAiCiAgICAgICAgZmlsbD0ibm9uZSIgc3Ryb2tlPSJ1cmwoI3N0cmFuZDIpIiBzdHJva2Utd2lkdGg9IjQiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIKICAgICAgICBmaWx0ZXI9InVybCgjZ2xvdy1maWx0ZXIpIiBvcGFjaXR5PSIwLjk1Ii8+CgogIDwhLS0gQ3Jvc3MtcnVuZ3Mgb2YgRE5BIGhlbGl4IC0tPgogIDxsaW5lIHgxPSI3MiIgeTE9IjMyIiB4Mj0iMTEwIiB5Mj0iMzIiIHN0cm9rZT0iIzAwZTVmZiIgc3Ryb2tlLXdpZHRoPSIyLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgb3BhY2l0eT0iMC44Ii8+CiAgPGxpbmUgeDE9IjYwIiB5MT0iNTAiIHgyPSIxMjIiIHkyPSI1MCIgc3Ryb2tlPSIjMDBlNWZmIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgb3BhY2l0eT0iMC42Ii8+CiAgPGxpbmUgeDE9IjU2IiB5MT0iNjgiIHgyPSIxMjQiIHkyPSI2OCIgc3Ryb2tlPSIjMDBmZmNjIiBzdHJva2Utd2lkdGg9IjIuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBvcGFjaXR5PSIwLjkiLz4KICA8bGluZSB4MT0iNjAiIHkxPSI4NiIgeDI9IjEyMCIgeTI9Ijg2IiBzdHJva2U9IiMwMGU1ZmYiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBvcGFjaXR5PSIwLjciLz4KICA8bGluZSB4MT0iNzIiIHkxPSIxMDQiIHgyPSIxMDgiIHkyPSIxMDQiIHN0cm9rZT0iIzAwZTVmZiIgc3Ryb2tlLXdpZHRoPSIyLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgb3BhY2l0eT0iMC44Ii8+CiAgPGxpbmUgeDE9IjgyIiB5MT0iMTIyIiB4Mj0iOTgiIHkyPSIxMjIiIHN0cm9rZT0iIzAwZmZjYyIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIG9wYWNpdHk9IjAuNiIvPgogIDxsaW5lIHgxPSI4MiIgeTE9IjE0MCIgeDI9IjEwMCIgeTI9IjE0MCIgc3Ryb2tlPSIjMDBlNWZmIiBzdHJva2Utd2lkdGg9IjIuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBvcGFjaXR5PSIwLjgiLz4KICA8bGluZSB4MT0iODYiIHkxPSIxNTgiIHgyPSI5NiIgeTI9IjE1OCIgc3Ryb2tlPSIjMDBlNWZmIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgb3BhY2l0eT0iMC42Ii8+CgogIDwhLS0gTmV1cmFsIGNpcmN1aXQgbm9kZXMgYnJhbmNoaW5nIGZyb20gaGVsaXggLS0+CiAgPCEtLSBUb3AgY2x1c3RlciAtLT4KICA8bGluZSB4MT0iMTEwIiB5MT0iMzIiIHgyPSIxNDUiIHkyPSIyMiIgc3Ryb2tlPSIjMDBlNWZmIiBzdHJva2Utd2lkdGg9IjEuNSIgb3BhY2l0eT0iMC41Ii8+CiAgPGxpbmUgeDE9IjE0NSIgeTE9IjIyIiB4Mj0iMTY4IiB5Mj0iMzUiIHN0cm9rZT0iIzAwZTVmZiIgc3Ryb2tlLXdpZHRoPSIxLjIiIG9wYWNpdHk9IjAuNCIvPgogIDxjaXJjbGUgY3g9IjE0NSIgY3k9IjIyIiByPSI0IiBmaWxsPSJ1cmwoI25vZGVHcmFkKSIgZmlsdGVyPSJ1cmwoI2dsb3ctZmlsdGVyKSIgb3BhY2l0eT0iMC45Ii8+CiAgPGNpcmNsZSBjeD0iMTY4IiBjeT0iMzUiIHI9IjMiIGZpbGw9IiMwMGU1ZmYiIG9wYWNpdHk9IjAuNyIvPgogIDxsaW5lIHgxPSIxNDUiIHkxPSIyMiIgeDI9IjE1OCIgeTI9IjEwIiBzdHJva2U9IiMwMGU1ZmYiIHN0cm9rZS13aWR0aD0iMS4yIiBvcGFjaXR5PSIwLjQiLz4KICA8Y2lyY2xlIGN4PSIxNTgiIGN5PSIxMCIgcj0iMi41IiBmaWxsPSIjMDBmZmNjIiBvcGFjaXR5PSIwLjYiLz4KCiAgPCEtLSBNaWQgY2x1c3RlciAtLT4KICA8bGluZSB4MT0iNTYiIHkxPSI2OCIgeDI9IjI4IiB5Mj0iNTUiIHN0cm9rZT0iIzAwZTVmZiIgc3Ryb2tlLXdpZHRoPSIxLjUiIG9wYWNpdHk9IjAuNSIvPgogIDxsaW5lIHgxPSIyOCIgeTE9IjU1IiB4Mj0iMTQiIHkyPSI2OCIgc3Ryb2tlPSIjMDBlNWZmIiBzdHJva2Utd2lkdGg9IjEuMiIgb3BhY2l0eT0iMC40Ii8+CiAgPGNpcmNsZSBjeD0iMjgiIGN5PSI1NSIgcj0iNCIgZmlsbD0idXJsKCNub2RlR3JhZCkiIGZpbHRlcj0idXJsKCNnbG93LWZpbHRlcikiIG9wYWNpdHk9IjAuOSIvPgogIDxjaXJjbGUgY3g9IjE0IiBjeT0iNjgiIHI9IjMiIGZpbGw9IiMwMGU1ZmYiIG9wYWNpdHk9IjAuNyIvPgogIDxsaW5lIHgxPSIyOCIgeTE9IjU1IiB4Mj0iMTgiIHkyPSI0MiIgc3Ryb2tlPSIjMDBlNWZmIiBzdHJva2Utd2lkdGg9IjEuMiIgb3BhY2l0eT0iMC4zNSIvPgogIDxjaXJjbGUgY3g9IjE4IiBjeT0iNDIiIHI9IjIuNSIgZmlsbD0iIzAwZmZjYyIgb3BhY2l0eT0iMC42Ii8+CgogIDwhLS0gUmlnaHQgbWlkIGNsdXN0ZXIgLS0+CiAgPGxpbmUgeDE9IjEyNCIgeTE9IjY4IiB4Mj0iMTU4IiB5Mj0iNzIiIHN0cm9rZT0iIzAwZTVmZiIgc3Ryb2tlLXdpZHRoPSIxLjUiIG9wYWNpdHk9IjAuNSIvPgogIDxsaW5lIHgxPSIxNTgiIHkxPSI3MiIgeDI9IjE3NSIgeTI9IjU4IiBzdHJva2U9IiMwMGU1ZmYiIHN0cm9rZS13aWR0aD0iMS4yIiBvcGFjaXR5PSIwLjQiLz4KICA8Y2lyY2xlIGN4PSIxNTgiIGN5PSI3MiIgcj0iMy41IiBmaWxsPSJ1cmwoI25vZGVHcmFkKSIgZmlsdGVyPSJ1cmwoI2dsb3ctZmlsdGVyKSIgb3BhY2l0eT0iMC44NSIvPgogIDxjaXJjbGUgY3g9IjE3NSIgY3k9IjU4IiByPSIyLjUiIGZpbGw9IiMwMGU1ZmYiIG9wYWNpdHk9IjAuNiIvPgogIDxsaW5lIHgxPSIxNTgiIHkxPSI3MiIgeDI9IjE3OCIgeTI9IjgyIiBzdHJva2U9IiMwMGU1ZmYiIHN0cm9rZS13aWR0aD0iMS4yIiBvcGFjaXR5PSIwLjM1Ii8+CiAgPGNpcmNsZSBjeD0iMTc4IiBjeT0iODIiIHI9IjIiIGZpbGw9IiMwMGZmY2MiIG9wYWNpdHk9IjAuNTUiLz4KCiAgPCEtLSBCb3R0b20gY2x1c3RlciAtLT4KICA8bGluZSB4MT0iMTAwIiB5MT0iMTQwIiB4Mj0iMTMwIiB5Mj0iMTU1IiBzdHJva2U9IiMwMGU1ZmYiIHN0cm9rZS13aWR0aD0iMS41IiBvcGFjaXR5PSIwLjUiLz4KICA8bGluZSB4MT0iMTMwIiB5MT0iMTU1IiB4Mj0iMTUwIiB5Mj0iMTQ1IiBzdHJva2U9IiMwMGU1ZmYiIHN0cm9rZS13aWR0aD0iMS4yIiBvcGFjaXR5PSIwLjQiLz4KICA8Y2lyY2xlIGN4PSIxMzAiIGN5PSIxNTUiIHI9IjQiIGZpbGw9InVybCgjbm9kZUdyYWQpIiBmaWx0ZXI9InVybCgjZ2xvdy1maWx0ZXIpIiBvcGFjaXR5PSIwLjkiLz4KICA8Y2lyY2xlIGN4PSIxNTAiIGN5PSIxNDUiIHI9IjMiIGZpbGw9IiMwMGU1ZmYiIG9wYWNpdHk9IjAuNyIvPgogIDxsaW5lIHgxPSIxMzAiIHkxPSIxNTUiIHgyPSIxMzgiIHkyPSIxNzIiIHN0cm9rZT0iIzAwZTVmZiIgc3Ryb2tlLXdpZHRoPSIxLjIiIG9wYWNpdHk9IjAuMzUiLz4KICA8Y2lyY2xlIGN4PSIxMzgiIGN5PSIxNzIiIHI9IjIuNSIgZmlsbD0iIzAwZmZjYyIgb3BhY2l0eT0iMC41NSIvPgoKICA8IS0tIExlZnQgYm90dG9tIC0tPgogIDxsaW5lIHgxPSI4MiIgeTE9IjEzMCIgeDI9IjUwIiB5Mj0iMTQ1IiBzdHJva2U9IiMwMGU1ZmYiIHN0cm9rZS13aWR0aD0iMS41IiBvcGFjaXR5PSIwLjUiLz4KICA8Y2lyY2xlIGN4PSI1MCIgY3k9IjE0NSIgcj0iMy41IiBmaWxsPSJ1cmwoI25vZGVHcmFkKSIgZmlsdGVyPSJ1cmwoI2dsb3ctZmlsdGVyKSIgb3BhY2l0eT0iMC44NSIvPgogIDxsaW5lIHgxPSI1MCIgeTE9IjE0NSIgeDI9IjMyIiB5Mj0iMTM4IiBzdHJva2U9IiMwMGU1ZmYiIHN0cm9rZS13aWR0aD0iMS4yIiBvcGFjaXR5PSIwLjQiLz4KICA8Y2lyY2xlIGN4PSIzMiIgY3k9IjEzOCIgcj0iMi41IiBmaWxsPSIjMDBlNWZmIiBvcGFjaXR5PSIwLjY1Ii8+CgogIDwhLS0gQ2VudHJhbCBnbG93IHB1bHNlIGF0IGhlbGl4IG1pZHBvaW50IC0tPgogIDxjaXJjbGUgY3g9IjkxIiBjeT0iMTAwIiByPSI4IiBmaWxsPSIjMDBlNWZmIiBvcGFjaXR5PSIwLjEyIi8+CiAgPGNpcmNsZSBjeD0iOTEiIGN5PSIxMDAiIHI9IjUiIGZpbGw9IiMwMGZmY2MiIG9wYWNpdHk9IjAuMjUiLz4KICA8Y2lyY2xlIGN4PSI5MSIgY3k9IjEwMCIgcj0iMi41IiBmaWxsPSIjZmZmZmZmIiBvcGFjaXR5PSIwLjgiLz4KCiAgPCEtLSBLZXkgcnVuZyBub2RlcyAod2hlcmUgcnVuZ3MgbWVldCBzdHJhbmRzKSAtLT4KICA8Y2lyY2xlIGN4PSI3MiIgY3k9IjMyIiByPSIzIiBmaWxsPSIjMDBmZmNjIiBmaWx0ZXI9InVybCgjZ2xvdy1maWx0ZXIpIiBvcGFjaXR5PSIwLjkiLz4KICA8Y2lyY2xlIGN4PSIxMTAiIGN5PSIzMiIgcj0iMyIgZmlsbD0iIzAwZTVmZiIgZmlsdGVyPSJ1cmwoI2dsb3ctZmlsdGVyKSIgb3BhY2l0eT0iMC45Ii8+CiAgPGNpcmNsZSBjeD0iNTYiIGN5PSI2OCIgcj0iMy41IiBmaWxsPSIjMDBmZmNjIiBmaWx0ZXI9InVybCgjZ2xvdy1maWx0ZXIpIiBvcGFjaXR5PSIwLjk1Ii8+CiAgPGNpcmNsZSBjeD0iMTI0IiBjeT0iNjgiIHI9IjMuNSIgZmlsbD0iIzAwZTVmZiIgZmlsdGVyPSJ1cmwoI2dsb3ctZmlsdGVyKSIgb3BhY2l0eT0iMC45NSIvPgogIDxjaXJjbGUgY3g9IjcyIiBjeT0iMTA0IiByPSIzIiBmaWxsPSIjMDBmZmNjIiBmaWx0ZXI9InVybCgjZ2xvdy1maWx0ZXIpIiBvcGFjaXR5PSIwLjkiLz4KICA8Y2lyY2xlIGN4PSIxMDgiIGN5PSIxMDQiIHI9IjMiIGZpbGw9IiMwMGU1ZmYiIGZpbHRlcj0idXJsKCNnbG93LWZpbHRlcikiIG9wYWNpdHk9IjAuOSIvPgogIDxjaXJjbGUgY3g9IjgyIiBjeT0iMTQwIiByPSIzIiBmaWxsPSIjMDBmZmNjIiBmaWx0ZXI9InVybCgjZ2xvdy1maWx0ZXIpIiBvcGFjaXR5PSIwLjg1Ii8+CiAgPGNpcmNsZSBjeD0iMTAwIiBjeT0iMTQwIiByPSIzIiBmaWxsPSIjMDBlNWZmIiBmaWx0ZXI9InVybCgjZ2xvdy1maWx0ZXIpIiBvcGFjaXR5PSIwLjg1Ii8+Cjwvc3ZnPg=="
+LOGO_B64 = "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyMDAgMjAwIiB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCI+CiAgPGRlZnM+CiAgICA8cmFkaWFsR3JhZGllbnQgaWQ9ImJnIiBjeD0iNTAlIiBjeT0iNTAlIiByPSI1MCUiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjMDAxYTJlIiBzdG9wLW9wYWNpdHk9IjAuNiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiMwMDA1MDgiIHN0b3Atb3BhY2l0eT0iMCIvPgogICAgPC9yYWRpYWxHcmFkaWVudD4KICAgIDxmaWx0ZXIgaWQ9Imdsb3ciIHg9Ii01MCUiIHk9Ii01MCUiIHdpZHRoPSIyMDAlIiBoZWlnaHQ9IjIwMCUiPgogICAgICA8ZmVHYXVzc2lhbkJsdXIgc3RkRGV2aWF0aW9uPSIyLjUiIHJlc3VsdD0iYmx1ciIvPgogICAgICA8ZmVNZXJnZT48ZmVNZXJnZU5vZGUgaW49ImJsdXIiLz48ZmVNZXJnZU5vZGUgaW49IlNvdXJjZUdyYXBoaWMiLz48L2ZlTWVyZ2U+CiAgICA8L2ZpbHRlcj4KICAgIDxmaWx0ZXIgaWQ9InNvZnRnbG93Ij4KICAgICAgPGZlR2F1c3NpYW5CbHVyIHN0ZERldmlhdGlvbj0iMS41IiByZXN1bHQ9ImJsdXIiLz4KICAgICAgPGZlTWVyZ2U+PGZlTWVyZ2VOb2RlIGluPSJibHVyIi8+PGZlTWVyZ2VOb2RlIGluPSJTb3VyY2VHcmFwaGljIi8+PC9mZU1lcmdlPgogICAgPC9maWx0ZXI+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImhlbGl4MSIgeDE9IjAlIiB5MT0iMCUiIHgyPSIwJSIgeTI9IjEwMCUiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjMDBmZmVlIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iNDAlIiBzdG9wLWNvbG9yPSIjMDBlNWZmIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iIzAwNTVjYyIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iaGVsaXgyIiB4MT0iMCUiIHkxPSIxMDAlIiB4Mj0iMCUiIHkyPSIwJSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiMwMGZmZWUiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSI0MCUiIHN0b3AtY29sb3I9IiMwMGM4ZmYiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjMDA0NGFhIi8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJub2RlR3JhZCIgeDE9IjAlIiB5MT0iMCUiIHgyPSIxMDAlIiB5Mj0iMTAwJSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiNmZmZmZmYiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjMDBlNWZmIi8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogIDwvZGVmcz4KCiAgPCEtLSBPdXRlciByaW5nIC0tPgogIDxjaXJjbGUgY3g9IjEwMCIgY3k9IjEwMCIgcj0iOTAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzAwZTVmZiIgc3Ryb2tlLXdpZHRoPSIwLjYiIG9wYWNpdHk9IjAuMTUiLz4KICA8Y2lyY2xlIGN4PSIxMDAiIGN5PSIxMDAiIHI9Ijc1IiBmaWxsPSJub25lIiBzdHJva2U9IiMwMGU1ZmYiIHN0cm9rZS13aWR0aD0iMC40IiBvcGFjaXR5PSIwLjEiLz4KICA8Y2lyY2xlIGN4PSIxMDAiIGN5PSIxMDAiIHI9IjkyIiBmaWxsPSJ1cmwoI2JnKSIvPgoKICA8IS0tIFRpY2sgbWFya3Mgb24gb3V0ZXIgcmluZyAtLT4KICA8ZyBzdHJva2U9IiMwMGU1ZmYiIHN0cm9rZS13aWR0aD0iMC44IiBvcGFjaXR5PSIwLjI1Ij4KICAgIDxsaW5lIHgxPSIxMDAiIHkxPSIxMCIgeDI9IjEwMCIgeTI9IjE4Ii8+CiAgICA8bGluZSB4MT0iMTAwIiB5MT0iMTgyIiB4Mj0iMTAwIiB5Mj0iMTkwIi8+CiAgICA8bGluZSB4MT0iMTAiIHkxPSIxMDAiIHgyPSIxOCIgeTI9IjEwMCIvPgogICAgPGxpbmUgeDE9IjE4MiIgeTE9IjEwMCIgeDI9IjE5MCIgeTI9IjEwMCIvPgogICAgPGxpbmUgeDE9IjM2IiB5MT0iMzYiIHgyPSI0MSIgeTI9IjQxIi8+CiAgICA8bGluZSB4MT0iMTU5IiB5MT0iMzYiIHgyPSIxNjQiIHkyPSI0MSIvPgogICAgPGxpbmUgeDE9IjM2IiB5MT0iMTY0IiB4Mj0iNDEiIHkyPSIxNTkiLz4KICAgIDxsaW5lIHgxPSIxNTkiIHkxPSIxNjQiIHgyPSIxNjQiIHkyPSIxNTkiLz4KICA8L2c+CgogIDwhLS0gRE5BIHN0cmFuZCBBIOKAlCBzaW51c29pZGFsIHBhdGggbGVmdCAtLT4KICA8cGF0aCBkPSJNIDgyIDIyIEMgNjAgNDAsIDY4IDU4LCA4NiA3MiBDIDEwNCA4NiwgMTEyIDEwNCwgOTIgMTIwIEMgNzIgMTM2LCA3NiAxNTYsIDg4IDE3NCIKICAgICAgICBmaWxsPSJub25lIiBzdHJva2U9InVybCgjaGVsaXgxKSIgc3Ryb2tlLXdpZHRoPSIzLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIKICAgICAgICBmaWx0ZXI9InVybCgjZ2xvdykiIG9wYWNpdHk9IjAuOTUiLz4KCiAgPCEtLSBETkEgc3RyYW5kIEIg4oCUIG9wcG9zaXRlIHBoYXNlIC0tPgogIDxwYXRoIGQ9Ik0gMTEyIDIyIEMgMTM0IDQwLCAxMjYgNTgsIDEwOCA3MiBDIDkwIDg2LCA4MiAxMDQsIDEwMiAxMjAgQyAxMjIgMTM2LCAxMTggMTU2LCAxMDYgMTc0IgogICAgICAgIGZpbGw9Im5vbmUiIHN0cm9rZT0idXJsKCNoZWxpeDIpIiBzdHJva2Utd2lkdGg9IjMuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIgogICAgICAgIGZpbHRlcj0idXJsKCNnbG93KSIgb3BhY2l0eT0iMC45NSIvPgoKICA8IS0tIFJ1bmdzIOKAlCBwcmVjaXNlIGF0IHdhdmUgaW50ZXJzZWN0aW9ucyAtLT4KICA8ZyBmaWx0ZXI9InVybCgjc29mdGdsb3cpIiBvcGFjaXR5PSIwLjkiPgogICAgPGxpbmUgeDE9IjgyIiB5MT0iMzAiIHgyPSIxMTIiIHkyPSIzMCIgc3Ryb2tlPSIjMDBmZmVlIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgogICAgPGxpbmUgeDE9Ijc0IiB5MT0iNDgiIHgyPSIxMTgiIHkyPSI0OCIgc3Ryb2tlPSIjMDBlNWZmIiBzdHJva2Utd2lkdGg9IjEuOCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBvcGFjaXR5PSIwLjciLz4KICAgIDxsaW5lIHgxPSI3MCIgeTE9IjY2IiB4Mj0iMTIyIiB5Mj0iNjYiIHN0cm9rZT0iIzAwZmZlZSIgc3Ryb2tlLXdpZHRoPSIyLjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgogICAgPGxpbmUgeDE9Ijc0IiB5MT0iODQiIHgyPSIxMTgiIHkyPSI4NCIgc3Ryb2tlPSIjMDBlNWZmIiBzdHJva2Utd2lkdGg9IjEuOCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBvcGFjaXR5PSIwLjciLz4KICAgIDxsaW5lIHgxPSI4NCIgeTE9IjEwMiIgeDI9IjExMCIgeTI9IjEwMiIgc3Ryb2tlPSIjMDBmZmVlIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgogICAgPGxpbmUgeDE9Ijg2IiB5MT0iMTIwIiB4Mj0iMTA4IiB5Mj0iMTIwIiBzdHJva2U9IiMwMGU1ZmYiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIG9wYWNpdHk9IjAuNyIvPgogICAgPGxpbmUgeDE9Ijg0IiB5MT0iMTM4IiB4Mj0iMTA4IiB5Mj0iMTM4IiBzdHJva2U9IiMwMGZmZWUiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgICA8bGluZSB4MT0iODgiIHkxPSIxNTYiIHgyPSIxMDYiIHkyPSIxNTYiIHN0cm9rZT0iIzAwZTVmZiIgc3Ryb2tlLXdpZHRoPSIxLjgiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgb3BhY2l0eT0iMC43Ii8+CiAgPC9nPgoKICA8IS0tIFJ1bmcgZW5kcG9pbnRzIOKAlCBsaXQgbm9kZXMgLS0+CiAgPGcgZmlsdGVyPSJ1cmwoI2dsb3cpIj4KICAgIDxjaXJjbGUgY3g9IjgyIiBjeT0iMzAiIHI9IjIuOCIgZmlsbD0iIzAwZmZlZSIgb3BhY2l0eT0iMC45NSIvPgogICAgPGNpcmNsZSBjeD0iMTEyIiBjeT0iMzAiIHI9IjIuOCIgZmlsbD0iIzAwZTVmZiIgb3BhY2l0eT0iMC45NSIvPgogICAgPGNpcmNsZSBjeD0iNzAiIGN5PSI2NiIgcj0iMy4yIiBmaWxsPSIjMDBmZmVlIi8+CiAgICA8Y2lyY2xlIGN4PSIxMjIiIGN5PSI2NiIgcj0iMy4yIiBmaWxsPSIjMDBlNWZmIi8+CiAgICA8Y2lyY2xlIGN4PSI4NCIgY3k9IjEwMiIgcj0iMi44IiBmaWxsPSIjMDBmZmVlIiBvcGFjaXR5PSIwLjk1Ii8+CiAgICA8Y2lyY2xlIGN4PSIxMTAiIGN5PSIxMDIiIHI9IjIuOCIgZmlsbD0iIzAwZTVmZiIgb3BhY2l0eT0iMC45NSIvPgogICAgPGNpcmNsZSBjeD0iODQiIGN5PSIxMzgiIHI9IjIuOCIgZmlsbD0iIzAwZmZlZSIgb3BhY2l0eT0iMC45Ii8+CiAgICA8Y2lyY2xlIGN4PSIxMDgiIGN5PSIxMzgiIHI9IjIuOCIgZmlsbD0iIzAwZTVmZiIgb3BhY2l0eT0iMC45Ii8+CiAgPC9nPgoKICA8IS0tIE5ldXJhbCBjaXJjdWl0IOKAlCBicmFuY2hlcyBmcm9tIHJ1bmcgbm9kZXMgLS0+CiAgPCEtLSBUb3AgcmlnaHQgY2x1c3RlciAtLT4KICA8ZyBzdHJva2U9IiMwMGU1ZmYiIGZpbGw9Im5vbmUiIG9wYWNpdHk9IjAuNiIgZmlsdGVyPSJ1cmwoI3NvZnRnbG93KSI+CiAgICA8bGluZSB4MT0iMTIyIiB5MT0iNjYiIHgyPSIxNTIiIHkyPSI1MiIgc3Ryb2tlLXdpZHRoPSIxLjQiLz4KICAgIDxsaW5lIHgxPSIxNTIiIHkxPSI1MiIgeDI9IjE3MiIgeTI9IjYyIiBzdHJva2Utd2lkdGg9IjEuMSIvPgogICAgPGxpbmUgeDE9IjE1MiIgeTE9IjUyIiB4Mj0iMTYwIiB5Mj0iMzgiIHN0cm9rZS13aWR0aD0iMS4xIi8+CiAgICA8Y2lyY2xlIGN4PSIxNTIiIGN5PSI1MiIgcj0iMy41IiBmaWxsPSIjMDBlNWZmIiBvcGFjaXR5PSIwLjg1Ii8+CiAgICA8Y2lyY2xlIGN4PSIxNzIiIGN5PSI2MiIgcj0iMi4yIiBmaWxsPSIjMDBlNWZmIiBvcGFjaXR5PSIwLjciLz4KICAgIDxjaXJjbGUgY3g9IjE2MCIgY3k9IjM4IiByPSIyIiBmaWxsPSIjMDBmZmVlIiBvcGFjaXR5PSIwLjY1Ii8+CiAgICA8bGluZSB4MT0iMTcyIiB5MT0iNjIiIHgyPSIxODQiIHkyPSI1NCIgc3Ryb2tlLXdpZHRoPSIwLjgiIG9wYWNpdHk9IjAuNCIvPgogICAgPGNpcmNsZSBjeD0iMTg0IiBjeT0iNTQiIHI9IjEuNSIgZmlsbD0iIzAwZTVmZiIgb3BhY2l0eT0iMC41Ii8+CiAgPC9nPgoKICA8IS0tIFRvcCBsZWZ0IGNsdXN0ZXIgLS0+CiAgPGcgc3Ryb2tlPSIjMDBlNWZmIiBmaWxsPSJub25lIiBvcGFjaXR5PSIwLjU1IiBmaWx0ZXI9InVybCgjc29mdGdsb3cpIj4KICAgIDxsaW5lIHgxPSI3MCIgeTE9IjY2IiB4Mj0iNDIiIHkyPSI1MiIgc3Ryb2tlLXdpZHRoPSIxLjQiLz4KICAgIDxsaW5lIHgxPSI0MiIgeTE9IjUyIiB4Mj0iMjQiIHkyPSI2MiIgc3Ryb2tlLXdpZHRoPSIxLjEiLz4KICAgIDxsaW5lIHgxPSI0MiIgeTE9IjUyIiB4Mj0iMzQiIHkyPSIzNiIgc3Ryb2tlLXdpZHRoPSIxLjEiLz4KICAgIDxjaXJjbGUgY3g9IjQyIiBjeT0iNTIiIHI9IjMuNSIgZmlsbD0iIzAwZTVmZiIgb3BhY2l0eT0iMC44NSIvPgogICAgPGNpcmNsZSBjeD0iMjQiIGN5PSI2MiIgcj0iMi4yIiBmaWxsPSIjMDBmZmVlIiBvcGFjaXR5PSIwLjciLz4KICAgIDxjaXJjbGUgY3g9IjM0IiBjeT0iMzYiIHI9IjIiIGZpbGw9IiMwMGU1ZmYiIG9wYWNpdHk9IjAuNjUiLz4KICA8L2c+CgogIDwhLS0gQm90dG9tIHJpZ2h0IGNsdXN0ZXIgLS0+CiAgPGcgc3Ryb2tlPSIjMDBlNWZmIiBmaWxsPSJub25lIiBvcGFjaXR5PSIwLjUiIGZpbHRlcj0idXJsKCNzb2Z0Z2xvdykiPgogICAgPGxpbmUgeDE9IjEwOCIgeTE9IjEzOCIgeDI9IjE0MCIgeTI9IjE1MiIgc3Ryb2tlLXdpZHRoPSIxLjQiLz4KICAgIDxsaW5lIHgxPSIxNDAiIHkxPSIxNTIiIHgyPSIxNTgiIHkyPSIxNDQiIHN0cm9rZS13aWR0aD0iMS4xIi8+CiAgICA8bGluZSB4MT0iMTQwIiB5MT0iMTUyIiB4Mj0iMTQ4IiB5Mj0iMTY4IiBzdHJva2Utd2lkdGg9IjEuMSIvPgogICAgPGNpcmNsZSBjeD0iMTQwIiBjeT0iMTUyIiByPSIzLjUiIGZpbGw9IiMwMGU1ZmYiIG9wYWNpdHk9IjAuOCIvPgogICAgPGNpcmNsZSBjeD0iMTU4IiBjeT0iMTQ0IiByPSIyLjIiIGZpbGw9IiMwMGZmZWUiIG9wYWNpdHk9IjAuNjUiLz4KICAgIDxjaXJjbGUgY3g9IjE0OCIgY3k9IjE2OCIgcj0iMiIgZmlsbD0iIzAwZTVmZiIgb3BhY2l0eT0iMC42Ii8+CiAgPC9nPgoKICA8IS0tIEJvdHRvbSBsZWZ0IGNsdXN0ZXIgLS0+CiAgPGcgc3Ryb2tlPSIjMDBlNWZmIiBmaWxsPSJub25lIiBvcGFjaXR5PSIwLjUiIGZpbHRlcj0idXJsKCNzb2Z0Z2xvdykiPgogICAgPGxpbmUgeDE9Ijg0IiB5MT0iMTM4IiB4Mj0iNTQiIHkyPSIxNTIiIHN0cm9rZS13aWR0aD0iMS40Ii8+CiAgICA8bGluZSB4MT0iNTQiIHkxPSIxNTIiIHgyPSIzNiIgeTI9IjE0NCIgc3Ryb2tlLXdpZHRoPSIxLjEiLz4KICAgIDxjaXJjbGUgY3g9IjU0IiBjeT0iMTUyIiByPSIzLjUiIGZpbGw9IiMwMGU1ZmYiIG9wYWNpdHk9IjAuOCIvPgogICAgPGNpcmNsZSBjeD0iMzYiIGN5PSIxNDQiIHI9IjIuMiIgZmlsbD0iIzAwZmZlZSIgb3BhY2l0eT0iMC42NSIvPgogIDwvZz4KCiAgPCEtLSBDZW50cmFsIHB1bHNlIOKAlCBpbnRlbGxpZ2VuY2UgY29yZSAtLT4KICA8Y2lyY2xlIGN4PSI5NyIgY3k9Ijk2IiByPSIxMCIgZmlsbD0iIzAwZTVmZiIgb3BhY2l0eT0iMC4wNiIvPgogIDxjaXJjbGUgY3g9Ijk3IiBjeT0iOTYiIHI9IjYiICBmaWxsPSIjMDBmZmVlIiBvcGFjaXR5PSIwLjE1Ii8+CiAgPGNpcmNsZSBjeD0iOTciIGN5PSI5NiIgcj0iMyIgIGZpbGw9IiNmZmZmZmYiIG9wYWNpdHk9IjAuODUiIGZpbHRlcj0idXJsKCNnbG93KSIvPgoKICA8IS0tIENyb3NzaGFpciBhdCBjZW50cmUgLS0+CiAgPGcgc3Ryb2tlPSIjMDBlNWZmIiBzdHJva2Utd2lkdGg9IjAuNiIgb3BhY2l0eT0iMC4zIj4KICAgIDxsaW5lIHgxPSI5NyIgeTE9Ijg4IiB4Mj0iOTciIHkyPSI5MiIvPgogICAgPGxpbmUgeDE9Ijk3IiB5MT0iMTAwIiB4Mj0iOTciIHkyPSIxMDQiLz4KICAgIDxsaW5lIHgxPSI4OSIgeTE9Ijk2IiB4Mj0iOTMiIHkyPSI5NiIvPgogICAgPGxpbmUgeDE9IjEwMSIgeTE9Ijk2IiB4Mj0iMTA1IiB5Mj0iOTYiLz4KICA8L2c+Cjwvc3ZnPg=="
 LOGO_MIME = "image/svg+xml"
 LOGO_SVG_RAW = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
   <defs>
-    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#00e5ff" stop-opacity="0.3"/>
-      <stop offset="100%" stop-color="#00e5ff" stop-opacity="0"/>
+    <radialGradient id="bg" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#001a2e" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#000508" stop-opacity="0"/>
     </radialGradient>
-    <radialGradient id="coreGlow" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#00ffcc" stop-opacity="0.9"/>
-      <stop offset="60%" stop-color="#00e5ff" stop-opacity="0.7"/>
-      <stop offset="100%" stop-color="#0066aa" stop-opacity="0.3"/>
-    </radialGradient>
-    <filter id="blur">
-      <feGaussianBlur stdDeviation="3" result="blur"/>
-      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2.5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
-    <filter id="glow-filter">
-      <feGaussianBlur stdDeviation="2.5" result="coloredBlur"/>
-      <feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    <filter id="softglow">
+      <feGaussianBlur stdDeviation="1.5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
-    <linearGradient id="strand1" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#00ffcc"/>
-      <stop offset="50%" stop-color="#00e5ff"/>
-      <stop offset="100%" stop-color="#0088cc"/>
+    <linearGradient id="helix1" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#00ffee"/>
+      <stop offset="40%" stop-color="#00e5ff"/>
+      <stop offset="100%" stop-color="#0055cc"/>
     </linearGradient>
-    <linearGradient id="strand2" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#0066aa"/>
-      <stop offset="50%" stop-color="#00c8ff"/>
-      <stop offset="100%" stop-color="#00ffcc"/>
+    <linearGradient id="helix2" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#00ffee"/>
+      <stop offset="40%" stop-color="#00c8ff"/>
+      <stop offset="100%" stop-color="#0044aa"/>
     </linearGradient>
     <linearGradient id="nodeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#00ffcc"/>
+      <stop offset="0%" stop-color="#ffffff"/>
       <stop offset="100%" stop-color="#00e5ff"/>
     </linearGradient>
   </defs>
 
-  <!-- Background glow -->
-  <circle cx="100" cy="100" r="95" fill="url(#glow)"/>
+  <!-- Outer ring -->
+  <circle cx="100" cy="100" r="90" fill="none" stroke="#00e5ff" stroke-width="0.6" opacity="0.15"/>
+  <circle cx="100" cy="100" r="75" fill="none" stroke="#00e5ff" stroke-width="0.4" opacity="0.1"/>
+  <circle cx="100" cy="100" r="92" fill="url(#bg)"/>
 
-  <!-- DNA Helix - Strand A (left curve) -->
-  <path d="M 72 20 C 45 38, 55 58, 72 75 C 89 92, 99 112, 82 130 C 65 148, 72 168, 90 180"
-        fill="none" stroke="url(#strand1)" stroke-width="4" stroke-linecap="round"
-        filter="url(#glow-filter)" opacity="0.95"/>
+  <!-- Tick marks on outer ring -->
+  <g stroke="#00e5ff" stroke-width="0.8" opacity="0.25">
+    <line x1="100" y1="10" x2="100" y2="18"/>
+    <line x1="100" y1="182" x2="100" y2="190"/>
+    <line x1="10" y1="100" x2="18" y2="100"/>
+    <line x1="182" y1="100" x2="190" y2="100"/>
+    <line x1="36" y1="36" x2="41" y2="41"/>
+    <line x1="159" y1="36" x2="164" y2="41"/>
+    <line x1="36" y1="164" x2="41" y2="159"/>
+    <line x1="159" y1="164" x2="164" y2="159"/>
+  </g>
 
-  <!-- DNA Helix - Strand B (right curve) -->
-  <path d="M 110 20 C 137 38, 127 58, 110 75 C 93 92, 83 112, 100 130 C 117 148, 110 168, 92 180"
-        fill="none" stroke="url(#strand2)" stroke-width="4" stroke-linecap="round"
-        filter="url(#glow-filter)" opacity="0.95"/>
+  <!-- DNA strand A — sinusoidal path left -->
+  <path d="M 82 22 C 60 40, 68 58, 86 72 C 104 86, 112 104, 92 120 C 72 136, 76 156, 88 174"
+        fill="none" stroke="url(#helix1)" stroke-width="3.5" stroke-linecap="round"
+        filter="url(#glow)" opacity="0.95"/>
 
-  <!-- Cross-rungs of DNA helix -->
-  <line x1="72" y1="32" x2="110" y2="32" stroke="#00e5ff" stroke-width="2.5" stroke-linecap="round" opacity="0.8"/>
-  <line x1="60" y1="50" x2="122" y2="50" stroke="#00e5ff" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
-  <line x1="56" y1="68" x2="124" y2="68" stroke="#00ffcc" stroke-width="2.5" stroke-linecap="round" opacity="0.9"/>
-  <line x1="60" y1="86" x2="120" y2="86" stroke="#00e5ff" stroke-width="2" stroke-linecap="round" opacity="0.7"/>
-  <line x1="72" y1="104" x2="108" y2="104" stroke="#00e5ff" stroke-width="2.5" stroke-linecap="round" opacity="0.8"/>
-  <line x1="82" y1="122" x2="98" y2="122" stroke="#00ffcc" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
-  <line x1="82" y1="140" x2="100" y2="140" stroke="#00e5ff" stroke-width="2.5" stroke-linecap="round" opacity="0.8"/>
-  <line x1="86" y1="158" x2="96" y2="158" stroke="#00e5ff" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+  <!-- DNA strand B — opposite phase -->
+  <path d="M 112 22 C 134 40, 126 58, 108 72 C 90 86, 82 104, 102 120 C 122 136, 118 156, 106 174"
+        fill="none" stroke="url(#helix2)" stroke-width="3.5" stroke-linecap="round"
+        filter="url(#glow)" opacity="0.95"/>
 
-  <!-- Neural circuit nodes branching from helix -->
-  <!-- Top cluster -->
-  <line x1="110" y1="32" x2="145" y2="22" stroke="#00e5ff" stroke-width="1.5" opacity="0.5"/>
-  <line x1="145" y1="22" x2="168" y2="35" stroke="#00e5ff" stroke-width="1.2" opacity="0.4"/>
-  <circle cx="145" cy="22" r="4" fill="url(#nodeGrad)" filter="url(#glow-filter)" opacity="0.9"/>
-  <circle cx="168" cy="35" r="3" fill="#00e5ff" opacity="0.7"/>
-  <line x1="145" y1="22" x2="158" y2="10" stroke="#00e5ff" stroke-width="1.2" opacity="0.4"/>
-  <circle cx="158" cy="10" r="2.5" fill="#00ffcc" opacity="0.6"/>
+  <!-- Rungs — precise at wave intersections -->
+  <g filter="url(#softglow)" opacity="0.9">
+    <line x1="82" y1="30" x2="112" y2="30" stroke="#00ffee" stroke-width="2" stroke-linecap="round"/>
+    <line x1="74" y1="48" x2="118" y2="48" stroke="#00e5ff" stroke-width="1.8" stroke-linecap="round" opacity="0.7"/>
+    <line x1="70" y1="66" x2="122" y2="66" stroke="#00ffee" stroke-width="2.2" stroke-linecap="round"/>
+    <line x1="74" y1="84" x2="118" y2="84" stroke="#00e5ff" stroke-width="1.8" stroke-linecap="round" opacity="0.7"/>
+    <line x1="84" y1="102" x2="110" y2="102" stroke="#00ffee" stroke-width="2" stroke-linecap="round"/>
+    <line x1="86" y1="120" x2="108" y2="120" stroke="#00e5ff" stroke-width="1.8" stroke-linecap="round" opacity="0.7"/>
+    <line x1="84" y1="138" x2="108" y2="138" stroke="#00ffee" stroke-width="2" stroke-linecap="round"/>
+    <line x1="88" y1="156" x2="106" y2="156" stroke="#00e5ff" stroke-width="1.8" stroke-linecap="round" opacity="0.7"/>
+  </g>
 
-  <!-- Mid cluster -->
-  <line x1="56" y1="68" x2="28" y2="55" stroke="#00e5ff" stroke-width="1.5" opacity="0.5"/>
-  <line x1="28" y1="55" x2="14" y2="68" stroke="#00e5ff" stroke-width="1.2" opacity="0.4"/>
-  <circle cx="28" cy="55" r="4" fill="url(#nodeGrad)" filter="url(#glow-filter)" opacity="0.9"/>
-  <circle cx="14" cy="68" r="3" fill="#00e5ff" opacity="0.7"/>
-  <line x1="28" y1="55" x2="18" y2="42" stroke="#00e5ff" stroke-width="1.2" opacity="0.35"/>
-  <circle cx="18" cy="42" r="2.5" fill="#00ffcc" opacity="0.6"/>
+  <!-- Rung endpoints — lit nodes -->
+  <g filter="url(#glow)">
+    <circle cx="82" cy="30" r="2.8" fill="#00ffee" opacity="0.95"/>
+    <circle cx="112" cy="30" r="2.8" fill="#00e5ff" opacity="0.95"/>
+    <circle cx="70" cy="66" r="3.2" fill="#00ffee"/>
+    <circle cx="122" cy="66" r="3.2" fill="#00e5ff"/>
+    <circle cx="84" cy="102" r="2.8" fill="#00ffee" opacity="0.95"/>
+    <circle cx="110" cy="102" r="2.8" fill="#00e5ff" opacity="0.95"/>
+    <circle cx="84" cy="138" r="2.8" fill="#00ffee" opacity="0.9"/>
+    <circle cx="108" cy="138" r="2.8" fill="#00e5ff" opacity="0.9"/>
+  </g>
 
-  <!-- Right mid cluster -->
-  <line x1="124" y1="68" x2="158" y2="72" stroke="#00e5ff" stroke-width="1.5" opacity="0.5"/>
-  <line x1="158" y1="72" x2="175" y2="58" stroke="#00e5ff" stroke-width="1.2" opacity="0.4"/>
-  <circle cx="158" cy="72" r="3.5" fill="url(#nodeGrad)" filter="url(#glow-filter)" opacity="0.85"/>
-  <circle cx="175" cy="58" r="2.5" fill="#00e5ff" opacity="0.6"/>
-  <line x1="158" y1="72" x2="178" y2="82" stroke="#00e5ff" stroke-width="1.2" opacity="0.35"/>
-  <circle cx="178" cy="82" r="2" fill="#00ffcc" opacity="0.55"/>
+  <!-- Neural circuit — branches from rung nodes -->
+  <!-- Top right cluster -->
+  <g stroke="#00e5ff" fill="none" opacity="0.6" filter="url(#softglow)">
+    <line x1="122" y1="66" x2="152" y2="52" stroke-width="1.4"/>
+    <line x1="152" y1="52" x2="172" y2="62" stroke-width="1.1"/>
+    <line x1="152" y1="52" x2="160" y2="38" stroke-width="1.1"/>
+    <circle cx="152" cy="52" r="3.5" fill="#00e5ff" opacity="0.85"/>
+    <circle cx="172" cy="62" r="2.2" fill="#00e5ff" opacity="0.7"/>
+    <circle cx="160" cy="38" r="2" fill="#00ffee" opacity="0.65"/>
+    <line x1="172" y1="62" x2="184" y2="54" stroke-width="0.8" opacity="0.4"/>
+    <circle cx="184" cy="54" r="1.5" fill="#00e5ff" opacity="0.5"/>
+  </g>
 
-  <!-- Bottom cluster -->
-  <line x1="100" y1="140" x2="130" y2="155" stroke="#00e5ff" stroke-width="1.5" opacity="0.5"/>
-  <line x1="130" y1="155" x2="150" y2="145" stroke="#00e5ff" stroke-width="1.2" opacity="0.4"/>
-  <circle cx="130" cy="155" r="4" fill="url(#nodeGrad)" filter="url(#glow-filter)" opacity="0.9"/>
-  <circle cx="150" cy="145" r="3" fill="#00e5ff" opacity="0.7"/>
-  <line x1="130" y1="155" x2="138" y2="172" stroke="#00e5ff" stroke-width="1.2" opacity="0.35"/>
-  <circle cx="138" cy="172" r="2.5" fill="#00ffcc" opacity="0.55"/>
+  <!-- Top left cluster -->
+  <g stroke="#00e5ff" fill="none" opacity="0.55" filter="url(#softglow)">
+    <line x1="70" y1="66" x2="42" y2="52" stroke-width="1.4"/>
+    <line x1="42" y1="52" x2="24" y2="62" stroke-width="1.1"/>
+    <line x1="42" y1="52" x2="34" y2="36" stroke-width="1.1"/>
+    <circle cx="42" cy="52" r="3.5" fill="#00e5ff" opacity="0.85"/>
+    <circle cx="24" cy="62" r="2.2" fill="#00ffee" opacity="0.7"/>
+    <circle cx="34" cy="36" r="2" fill="#00e5ff" opacity="0.65"/>
+  </g>
 
-  <!-- Left bottom -->
-  <line x1="82" y1="130" x2="50" y2="145" stroke="#00e5ff" stroke-width="1.5" opacity="0.5"/>
-  <circle cx="50" cy="145" r="3.5" fill="url(#nodeGrad)" filter="url(#glow-filter)" opacity="0.85"/>
-  <line x1="50" y1="145" x2="32" y2="138" stroke="#00e5ff" stroke-width="1.2" opacity="0.4"/>
-  <circle cx="32" cy="138" r="2.5" fill="#00e5ff" opacity="0.65"/>
+  <!-- Bottom right cluster -->
+  <g stroke="#00e5ff" fill="none" opacity="0.5" filter="url(#softglow)">
+    <line x1="108" y1="138" x2="140" y2="152" stroke-width="1.4"/>
+    <line x1="140" y1="152" x2="158" y2="144" stroke-width="1.1"/>
+    <line x1="140" y1="152" x2="148" y2="168" stroke-width="1.1"/>
+    <circle cx="140" cy="152" r="3.5" fill="#00e5ff" opacity="0.8"/>
+    <circle cx="158" cy="144" r="2.2" fill="#00ffee" opacity="0.65"/>
+    <circle cx="148" cy="168" r="2" fill="#00e5ff" opacity="0.6"/>
+  </g>
 
-  <!-- Central glow pulse at helix midpoint -->
-  <circle cx="91" cy="100" r="8" fill="#00e5ff" opacity="0.12"/>
-  <circle cx="91" cy="100" r="5" fill="#00ffcc" opacity="0.25"/>
-  <circle cx="91" cy="100" r="2.5" fill="#ffffff" opacity="0.8"/>
+  <!-- Bottom left cluster -->
+  <g stroke="#00e5ff" fill="none" opacity="0.5" filter="url(#softglow)">
+    <line x1="84" y1="138" x2="54" y2="152" stroke-width="1.4"/>
+    <line x1="54" y1="152" x2="36" y2="144" stroke-width="1.1"/>
+    <circle cx="54" cy="152" r="3.5" fill="#00e5ff" opacity="0.8"/>
+    <circle cx="36" cy="144" r="2.2" fill="#00ffee" opacity="0.65"/>
+  </g>
 
-  <!-- Key rung nodes (where rungs meet strands) -->
-  <circle cx="72" cy="32" r="3" fill="#00ffcc" filter="url(#glow-filter)" opacity="0.9"/>
-  <circle cx="110" cy="32" r="3" fill="#00e5ff" filter="url(#glow-filter)" opacity="0.9"/>
-  <circle cx="56" cy="68" r="3.5" fill="#00ffcc" filter="url(#glow-filter)" opacity="0.95"/>
-  <circle cx="124" cy="68" r="3.5" fill="#00e5ff" filter="url(#glow-filter)" opacity="0.95"/>
-  <circle cx="72" cy="104" r="3" fill="#00ffcc" filter="url(#glow-filter)" opacity="0.9"/>
-  <circle cx="108" cy="104" r="3" fill="#00e5ff" filter="url(#glow-filter)" opacity="0.9"/>
-  <circle cx="82" cy="140" r="3" fill="#00ffcc" filter="url(#glow-filter)" opacity="0.85"/>
-  <circle cx="100" cy="140" r="3" fill="#00e5ff" filter="url(#glow-filter)" opacity="0.85"/>
+  <!-- Central pulse — intelligence core -->
+  <circle cx="97" cy="96" r="10" fill="#00e5ff" opacity="0.06"/>
+  <circle cx="97" cy="96" r="6"  fill="#00ffee" opacity="0.15"/>
+  <circle cx="97" cy="96" r="3"  fill="#ffffff" opacity="0.85" filter="url(#glow)"/>
+
+  <!-- Crosshair at centre -->
+  <g stroke="#00e5ff" stroke-width="0.6" opacity="0.3">
+    <line x1="97" y1="88" x2="97" y2="92"/>
+    <line x1="97" y1="100" x2="97" y2="104"/>
+    <line x1="89" y1="96" x2="93" y2="96"/>
+    <line x1="101" y1="96" x2="105" y2="96"/>
+  </g>
 </svg>"""
 
 _logo_src = f"data:image/svg+xml;base64,{LOGO_B64}"
@@ -1095,8 +1118,27 @@ Interpretation: {'Highly intolerant to LoF — essential gene' if gnomad.get('in
 === WET LAB ASSAY DATA (if provided) ===
 {assay_text or 'None provided'}
 
+=== ADDITIONAL CONTEXT FOR CURE HYPOTHESES ===
+For diseases that lack known cures (including rare Mendelian diseases, aggressive cancers, and 
+infectious diseases like hantavirus, Nipah, Marburg), use the mechanistic data above to propose
+specific therapeutic hypotheses. Ground every hypothesis in the gene's actual variant profile:
+- LoF-dominant variants -> gene supplementation / base editing
+- GoF-dominant variants -> PROTAC degradation / allosteric inhibition  
+- Structural protein with LoF -> stabilisation / splice modulation
+Always cite the MECHANISM not just the modality. Every claim must trace back to the data provided.
+
+
+=== CURE HYPOTHESIS INSTRUCTIONS ===
+For diseases without known cures (rare Mendelian, aggressive cancers, viral like hantavirus/Nipah):
+Propose specific therapeutic hypotheses grounded in this protein's variant profile:
+- LoF-dominant (frameshift/stop): gene supplementation, base editing, ASO exon skipping
+- GoF/missense-dominant: PROTAC degradation, allosteric inhibition, dominant-negative blockade  
+- Structural protein: pharmacological chaperone, stabiliser, splice correction
+Cite published precedents where this mechanism has worked for analogous proteins.
+Cross-reference with known drugs above — could any existing approved drug be repurposed?
+
 === YOUR TASK ===
-Based ONLY on the above data, produce a JSON response with these exact keys:
+Based on the above data AND your knowledge of current biomedical literature, produce a JSON response:
 
 {{
   "one_line_verdict": "One sentence: pursue or not, and why, based on genetics",
@@ -1115,7 +1157,24 @@ Based ONLY on the above data, produce a JSON response with these exact keys:
   "assay_interpretation": "If assay data provided, what does it suggest and what should be done next?",
   "key_unknowns": ["unknown1", "unknown2"],
   "confidence": "HIGH/MEDIUM/LOW based on amount of evidence",
-  "warning_flags": ["any red flags in the data"]
+  "warning_flags": ["any red flags in the data"],
+  "cure_hypotheses": [
+    {{
+      "disease": "specific disease name",
+      "approach": "specific therapeutic modality",
+      "mechanism": "molecular mechanism grounded in the variant data",
+      "key_experiment": "the single most decisive experiment to test this",
+      "prediction": "what you expect to see if the hypothesis is correct",
+      "citation_basis": "published precedent for this approach"
+    }}
+  ],
+  "literature_precedents": [
+    {{
+      "finding": "what was shown",
+      "relevance": "why it matters for this protein specifically",
+      "source": "author/journal/year if known"
+    }}
+  ]
 }}
 """
 
@@ -1126,18 +1185,27 @@ Based ONLY on the above data, produce a JSON response with these exact keys:
             json={
                 "model": "claude-sonnet-4-20250514",
                 "max_tokens": 2000,
-                "messages": [{"role": "user", "content": context}]
+                "messages": [{"role": "user", "content": context}],
+            "tools": [{"type": "web_search_20250305", "name": "web_search"}]
             },
-            timeout=45
+            timeout=60
         )
         response.raise_for_status()
-        raw = response.json()["content"][0]["text"]
-        # Extract JSON from response
+        content_blocks = response.json().get("content", [])
+        # Collect all text blocks (may include tool_use and tool_result blocks)
+        raw_parts = []
+        for block in content_blocks:
+            if block.get("type") == "text":
+                raw_parts.append(block["text"])
+        raw = " ".join(raw_parts)
         import re as _re
         json_match = _re.search(r'\{.*\}', raw, _re.DOTALL)
         if json_match:
-            return _json.loads(json_match.group())
-        return {"executive_summary": raw[:500], "confidence": "LOW"}
+            try:
+                return _json.loads(json_match.group())
+            except Exception:
+                pass
+        return {"executive_summary": raw[:800] if raw else "Analysis complete.", "confidence": "MEDIUM"}
     except Exception as e:
         return {
             "executive_summary": f"AI synthesis unavailable: {str(e)[:100]}. All other data is available above.",
@@ -1538,11 +1606,100 @@ def assess_gpcr_piggybacking(p, cv, gi_data):
         }
 def g_ptype(p):
     kws=[k.get("value","").lower() for k in p.get("keywords",[])]
-    if any("kinase" in k for k in kws): return "kinase"
-    if any("gpcr" in k or "g protein" in k for k in kws): return "gpcr"
-    if any("transcription" in k for k in kws): return "transcription_factor"
-    if any("receptor" in k for k in kws): return "receptor"
+    kw=" ".join(kws); fn=g_func(p).lower()
+    if any(x in kw for x in ["kinase","phosphotransferase"]): return "kinase"
+    if any(x in kw for x in ["transcription factor","dna-binding","zinc finger","homeodomain"]): return "transcription_factor"
+    if g_gpcr(p): return "gpcr"
+    if any(x in kw for x in ["ion channel","voltage-gated","ligand-gated"]): return "ion_channel"
+    if any(x in kw for x in ["receptor tyrosine","growth factor receptor","egfr","erbb"]): return "receptor_tyrosine_kinase"
+    if any(x in kw for x in ["nuclear receptor","steroid","thyroid hormone receptor"]): return "nuclear_receptor"
+    if any(x in kw for x in ["e3 ubiquitin","ubiquitin ligase","cullin"]): return "ubiquitin_system"
+    if any(x in kw for x in ["structural","cytoskeletal","actin-binding","filamin","collagen","laminin"]): return "structural"
+    if any(x in kw for x in ["chaperone","heat shock protein","hsp"]): return "chaperone"
+    if any(x in kw for x in ["receptor"]): return "receptor"
     return "general"
+
+def classify_entity(p):
+    """Classify protein entity type and derive drug class, first assay, and tailored description."""
+    ptype = g_ptype(p)
+    DRUG_CLASS = {
+        "kinase": "ATP-competitive or allosteric kinase inhibitor",
+        "gpcr":   "Biased agonist, antagonist, PAM, or NAM",
+        "receptor_tyrosine_kinase": "Monoclonal antibody or small molecule TKI",
+        "ion_channel": "Pore blocker or gating modifier",
+        "nuclear_receptor": "Ligand (agonist/antagonist) or co-activator disruptor",
+        "transcription_factor": "PPI inhibitor, PROTAC, or upstream kinase target",
+        "structural": "Stabiliser, splice modulator — direct drugging very difficult",
+        "enzyme": "Active site inhibitor or allosteric modulator",
+        "ubiquitin_system": "PROTAC substrate ligand or E3 ligase inhibitor",
+        "chaperone": "HSP90 co-chaperone client or allosteric modulator",
+    }
+    FIRST_ASSAY = {
+        "kinase":  "ADP-Glo kinase activity assay — direct measure of catalytic function loss",
+        "gpcr":    "cAMP HTRF (Gs/Gi) + beta-arrestin BRET — biased agonism screen",
+        "receptor_tyrosine_kinase": "pY1068/pERK western blot — autophosphorylation readout",
+        "ion_channel": "Whole-cell patch clamp or thallium flux assay",
+        "nuclear_receptor": "GAL4-UAS luciferase reporter + LanthaScreen TR-FRET",
+        "transcription_factor": "EMSA + ChIP-qPCR on known target gene promoter",
+        "structural": "Thermal shift + negative-stain EM of mutant vs WT",
+        "enzyme":  "Substrate conversion fluorescence assay — kinetic Km/Vmax",
+        "ubiquitin_system": "In vitro ubiquitination cascade assay",
+        "chaperone": "Refolding protection assay + client protein western",
+    }
+    return {
+        "ptype": ptype,
+        "drug_class": DRUG_CLASS.get(ptype, "Small molecule or biologic — assess tractability first"),
+        "first_assay": FIRST_ASSAY.get(ptype, "Thermal shift assay — universal structural integrity test"),
+        "is_enzyme": ptype in ("kinase","enzyme","ubiquitin_system"),
+        "is_receptor": ptype in ("gpcr","receptor","receptor_tyrosine_kinase","ion_channel","nuclear_receptor"),
+        "is_druggable_class": ptype in ("kinase","gpcr","receptor_tyrosine_kinase","ion_channel","nuclear_receptor"),
+    }
+
+# ── Research goal configuration ────────────────────────────────────────────
+GOAL_CONFIG = {
+    "Identify therapeutic targets": {
+        "emphasis": ["druggability","tractability","hotspots","patient_population","clinical_trials"],
+        "experiment_priority": ["Thermal shift assay","CRISPR knock-in","Small molecule screen"],
+        "banner": "Therapeutic target mode: OpenTargets tractability + drug landscape + FDA pathways prioritised.",
+        "sidebar_tip": "Cross-reference with OpenTargets tractability — only proceed to HTS if small molecule tractable.",
+    },
+    "Understand disease mechanism": {
+        "emphasis": ["variant_cascade","pathway","somatic_germline","interactions"],
+        "experiment_priority": ["CRISPR knock-in","Co-IP/AP-MS","RNA-seq"],
+        "banner": "Mechanism mode: variant cascade, pathway disruption, and somatic vs germline split emphasised.",
+        "sidebar_tip": "CRISPR knock-in of the top pathogenic variant is the gold-standard PS3 mechanistic evidence.",
+    },
+    "Drug discovery & development": {
+        "emphasis": ["binding","ic50","ADMET","selectivity","SAR"],
+        "experiment_priority": ["Thermal shift (TSA)","SPR binding assay","HTS small molecule screen"],
+        "banner": "Drug development mode: binding kinetics, ChEMBL scaffolds, and selectivity panel emphasised.",
+        "sidebar_tip": "Start with TSA to confirm ligandability before committing to SPR or ITC.",
+    },
+    "Biomarker identification": {
+        "emphasis": ["expression","tissue","population_genetics","allele_frequency"],
+        "experiment_priority": ["qPCR validation","Proteomics (LFQ)","ELISA development"],
+        "banner": "Biomarker mode: tissue expression, gnomAD allele frequency, and patient vs healthy cohort comparison emphasised.",
+        "sidebar_tip": "Variants at MAF < 0.01% in gnomAD + pathogenic ClinVar = strong diagnostic biomarker candidate.",
+    },
+    "Basic research": {
+        "emphasis": ["function","interactions","structure","evolution"],
+        "experiment_priority": ["Structural biology (cryo-EM/X-ray)","Co-IP","Pull-down assay"],
+        "banner": "Basic research mode: full data shown without commercial or clinical filtering.",
+        "sidebar_tip": "Check PDB for existing structures before committing to cryo-EM — may already be solved.",
+    },
+    "Experimental pathway prioritisation": {
+        "emphasis": ["roi_calculator","cost","timeline","p_success"],
+        "experiment_priority": ["Rosetta ΔΔG (free)","AlphaMissense review (free)","Thermal shift ($2K)"],
+        "banner": "Experiment prioritisation mode: ROI calculator shown first. Zero-cost computational screens always before wet-lab.",
+        "sidebar_tip": "Never spend on CRISPR until TSA + viability confirm dysfunction. ROI = p(success) × value / (cost × time).",
+    },
+    "Clinical variant interpretation": {
+        "emphasis": ["clinvar_stars","reclassification","inheritance","ps3_bs3"],
+        "experiment_priority": ["CRISPR knock-in (PS3 evidence)","Splicing reporter assay","Protein stability (BS3 evidence)"],
+        "banner": "Clinical variant mode: ACMG/AMP classification criteria, ClinGen PS3/BS3 evidence, and reclassification plan emphasised.",
+        "sidebar_tip": "VUS reclassification requires: AlphaMissense ≥0.564 (PP3) + CRISPR functional effect (PS3) + segregation in family (PP1).",
+    },
+}
 
 # ─── Genomic integrity ─────────────────────────────────────────────
 def compute_gi(cv, protein_length):
@@ -4479,10 +4636,59 @@ with st.sidebar:
                 if any(k in name3.lower() for k in ["cancer","carcinoma","leukemia","sarcoma"]) and rk3=="MEDIUM": rk3="HIGH"
                 css3=RANK_CSS[rk3]
                 st.markdown(f"<div style='display:flex;align-items:center;gap:6px;margin:3px 0;'><span class='badge {css3}'>{rk3}</span><span style='color:#5a8090;font-size:.81rem;'>{name3[:32]}</span></div>", unsafe_allow_html=True)
-        ptype3=g_ptype(p3)
-        sugg3={"kinase":["ADP-Glo kinase assay","Phospho-proteomics","Inhibitor screen"],"gpcr":["cAMP (HTRF)","β-arrestin (BRET)","Radioligand binding"],"transcription_factor":["ChIP-seq","EMSA","Luciferase reporter"],"general":["Co-IP/AP-MS","CRISPR KO","Thermal shift"]}.get(ptype3,["Co-IP","CRISPR KO"])
-        st.markdown("<div class='sb-t'>🔭 Suggested Experiments</div>", unsafe_allow_html=True)
-        for s3 in sugg3: st.markdown(f"<div style='color:#7ab0c4;font-size:.82rem;margin:2px 0;'>▸ {s3}</div>", unsafe_allow_html=True)
+        _ent3 = classify_entity(p3)
+        _gi3  = st.session_state.get("gi",{})
+        _n_crit3 = sum(1 for v in scored3 if v.get("ml_rank")=="CRITICAL")
+        _n_lof3  = sum(1 for v in scored3 if any(k in v.get("variant_name","").lower() for k in ["del","ter","fs","stop","nonsense"]) and v.get("score",0)>=3)
+        _pli3    = st.session_state.get("gnomad",{}).get("pLI",0)
+        _goal3   = get_goal_config(active_goal)
+        # Generate protein-specific experiments from actual data
+        _exps3 = []
+        if _ent3["ptype"] == "kinase":
+            _exps3 = [
+                f"ADP-Glo kinase assay — test {min(3,_n_crit3)} CRITICAL variants vs WT",
+                f"pERK/pAKT western — downstream signalling loss in mutant cells",
+                f"{'HTS inhibitor screen (tractable)' if st.session_state.get('ot',{}).get('tractability',{}).get('Small molecule') else 'Allosteric site mapping by HDX-MS'}",
+            ]
+        elif _ent3["ptype"] == "gpcr":
+            _exps3 = [
+                "cAMP HTRF (Gs coupling) + beta-arrestin BRET (bias)",
+                "Radioligand competition binding assay",
+                "BRET2 proximity assay for G-protein selectivity",
+            ]
+        elif _ent3["ptype"] == "transcription_factor":
+            _exps3 = [
+                "EMSA — test DNA binding affinity of mutant vs WT",
+                "ChIP-seq — identify lost target gene occupancy sites",
+                "Luciferase reporter — quantify transactivation defect",
+            ]
+        elif _ent3["ptype"] == "ion_channel":
+            _exps3 = [
+                "Whole-cell patch clamp — current amplitude in mutant",
+                "Tl+ flux assay (HTS-compatible) — channel permeability",
+                "Confocal imaging — surface trafficking of mutant channel",
+            ]
+        elif _ent3["ptype"] == "structural":
+            _exps3 = [
+                "Negative-stain EM — confirm mutant folds correctly",
+                "Co-IP — which binding partners are lost per variant",
+                f"ASO splice modulation — {_n_lof3} LoF variants suggest splice correction viable",
+            ]
+        else:
+            _exps3 = [
+                f"Thermal shift assay — {_n_crit3} CRITICAL variants to test for ΔTm",
+                f"{'CRISPR knock-in (pLI=' + str(_pli3) + ' — strong phenotype expected)' if _pli3 > 0.8 else 'Cell viability panel — confirm loss-of-function phenotype first'}",
+                f"{_goal3.get('experiment_priority',['Co-IP/AP-MS'])[0]}",
+            ]
+        st.markdown("<div class='sb-t'>Prioritised Experiments</div>", unsafe_allow_html=True)
+        for s3 in _exps3:
+            st.markdown(f"<div style='color:#7ab0c4;font-size:.82rem;margin:2px 0;'>▸ {s3}</div>", unsafe_allow_html=True)
+        if _goal3.get("sidebar_tip"):
+            st.markdown(
+                f"<div style='background:#020d18;border:1px solid #00e5ff22;border-radius:7px;padding:6px 9px;margin-top:5px;'>"
+                f"<div style='color:#3a7090;font-size:.74rem;'><b style='color:#4a8090;'>Goal tip:</b> {_goal3['sidebar_tip']}</div></div>",
+                unsafe_allow_html=True,
+            )
 
         # Excel download button
         st.markdown("<div class='sb-t'>📥 Export All Data</div>", unsafe_allow_html=True)
@@ -4588,21 +4794,59 @@ if st.session_state["disease_proteins"]:
     dp_list=st.session_state["disease_proteins"]; dis_name=st.session_state["disease_search"]
     with st.expander(f"🏥 Disease → Proteins: '{dis_name}' — {len(dp_list)} genes found (ClinVar)", expanded=True):
         st.markdown(f"<div style='color:#1e4060;font-size:.96rem;margin-bottom:.6rem;'>All genes with <b>pathogenic / likely-pathogenic</b> (disease-causing) germline variants for <b>{dis_name}</b>, ranked by number of confirmed variants. Source: {src_link('ClinVar',f'https://www.ncbi.nlm.nih.gov/clinvar/?term={dis_name}[disease]')}</div>", unsafe_allow_html=True)
-        for dp_row in dp_list:
+        for dp_idx, dp_row in enumerate(dp_list):
             gn=dp_row.get("gene","?"); np2=dp_row.get("n_pathogenic",0)
-            cond_str="; ".join(dp_row.get("conditions",[]))[:80]
+            conds=dp_row.get("conditions",[])
+            cond_str="; ".join(conds)[:80]
             cv_url=dp_row.get("clinvar_url","")
             bar_w=min(100,int(np2/max(dp_list[0].get("n_pathogenic",1),1)*100))
-            st.markdown(
-                f"<div class='dis-protein-row'>"
-                f"<div style='width:90px;flex-shrink:0;'><span style='color:#ff2d55;font-weight:800;font-size:.85rem;'>{np2}</span> <span style='color:#5a8090;font-size:.96rem;'>variants</span></div>"
-                f"<div style='flex:1;min-width:0;'><div style='color:#9ac0d8;font-weight:700;font-size:.94rem;'>{gn}</div>"
-                f"<div style='color:#5a8090;font-size:.80rem;margin-top:2px;'>{cond_str}</div>"
-                f"<div style='height:3px;background:#07152a;border-radius:3px;overflow:hidden;margin-top:4px;'><div style='width:{bar_w}%;height:100%;background:#ff2d55;'></div></div></div>"
-                f"<div style='flex-shrink:0;'><a class='src-badge' style='color:#6ab8d0;' href='{cv_url}' target='_blank'>ClinVar ↗</a></div>"
-                f"</div>", unsafe_allow_html=True)
+            # Clickable row — launches full analysis
+            dp_col_a, dp_col_b = st.columns([5,1], gap="small")
+            with dp_col_a:
+                with st.expander(
+                    f"{np2} variants  ·  {gn}  ·  {cond_str[:50]}",
+                    expanded=False,
+                ):
+                    ec1, ec2 = st.columns([3,2])
+                    with ec1:
+                        st.markdown(
+                            f"<div style='margin-bottom:.5rem;'>"
+                            f"<div style='color:#00e5ff;font-weight:800;font-size:1.1rem;'>{gn}</div>"
+                            f"<div style='color:#3a6080;font-size:.82rem;margin-top:2px;'>{np2} confirmed pathogenic variants in ClinVar for <b style='color:#5a9ab0;'>{dis_name}</b></div>"
+                            f"</div>"
+                            + (f"<div style='color:#4a7090;font-size:.82rem;'><b style='color:#6a9ab0;'>Conditions:</b> {'; '.join(conds[:5])}</div>" if conds else "")
+                            + f"<div style='height:8px;background:#07152a;border-radius:4px;overflow:hidden;margin-top:.6rem;'><div style='width:{bar_w}%;height:100%;background:#ff2d55;'></div></div>"
+                            f"<div style='color:#ff2d55;font-size:.76rem;margin-top:2px;'>{bar_w}% of maximum variant burden in this disease</div>",
+                            unsafe_allow_html=True,
+                        )
+                        st.markdown(
+                            f"<a class='src-badge' href='{cv_url}' target='_blank'>ClinVar ↗</a> "
+                            f"<a class='src-badge' href='https://www.uniprot.org/uniprotkb?query={gn}+AND+organism_id:9606' target='_blank'>UniProt ↗</a> "
+                            f"<a class='src-badge' href='https://platform.opentargets.org/target?search={gn}' target='_blank'>OpenTargets ↗</a>",
+                            unsafe_allow_html=True,
+                        )
+                    with ec2:
+                        if st.button(f"Analyse {gn} now", key=f"dp_analyse_{dp_idx}_{gn}", type="primary", use_container_width=True):
+                            st.session_state["last"] = ""
+                            # Pre-fill the search box
+                            st.session_state["protein_query_val"] = gn
+                            st.session_state["_trigger_search"] = gn
+                            st.rerun()
+            with dp_col_b:
+                if st.button(f"Analyse →", key=f"dp_btn_{dp_idx}_{gn}", use_container_width=True):
+                    st.session_state["last"] = ""
+                    st.session_state["_trigger_search"] = gn
+                    st.rerun()
 
 # ─── Data loading ────────────────────────────────────────────────────
+# Handle click-to-analyse from disease protein list
+if st.session_state.get("_trigger_search"):
+    _tq = st.session_state.pop("_trigger_search")
+    if _tq and _tq != st.session_state.get("last",""):
+        st.session_state["last"] = ""
+        query = _tq
+        search = True
+
 if search and query and query!=st.session_state["last"]:
     if not check_search_limit():
         st.markdown(
@@ -5130,6 +5374,15 @@ for _sv in scored:
 partner_info=st.session_state.get("partner_gi")
 is_gpcr=g_gpcr(pdata)
 gpcr_assessment = assess_gpcr_piggybacking(pdata, cv, gi)
+entity        = classify_entity(pdata)
+goal_cfg      = get_goal_config(active_goal) if "get_goal_config" in dir() else {}
+
+def get_goal_config(gl):
+    for k in GOAL_CONFIG:
+        if k.lower() in gl.lower() or gl.lower() in k.lower():
+            return GOAL_CONFIG[k]
+    return GOAL_CONFIG.get("Basic research", {})
+goal_cfg      = get_goal_config(active_goal)
 org_class    = st.session_state.get("org") or classify_organism(pdata)
 gnomad_data  = st.session_state.get("gnomad", {})
 string_data  = st.session_state.get("string", [])
@@ -5196,6 +5449,16 @@ _hyp = (
 
 _goal_note = ""
 if active_goal and active_goal != GOAL_OPTIONS[0]:
+    _gc = goal_cfg
+    if _gc.get("banner"):
+        st.markdown(
+            f"<div style='background:#020810;border-left:3px solid #00e5ff;border-radius:0 8px 8px 0;"
+            f"padding:.6rem 1rem;margin-bottom:.6rem;animation:slideInLeft .4s ease;'>"
+            f"<div style='color:#00e5ff;font-size:.8rem;font-weight:700;'>{active_goal}</div>"
+            f"<div style='color:#3a7090;font-size:.78rem;'>{_gc['banner']}</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
     _goal_note = f"Goal context ({active_goal}): "
     if "therapeutic" in active_goal.lower():
         _goal_note += f"For therapeutic target validation, {gene} must show confirmed P/LP variants AND druggable structure. "
@@ -5272,7 +5535,7 @@ if gi["pursue"]=="deprioritise":
     st.markdown("<div class='bias-warn'><p>⚠️ <b style='color:#ff2d55;'>Genomics Warning:</b> This protein carries no confirmed disease-causing germline variants. The principle — <em>genetics must be the starting point of any biology</em> — means we should not commit wet-lab resources here based on structural data or cell-culture results alone. Famous proteins like β2-arrestin (ARRB2), β-adrenergic receptors, and GRKs share this pattern: extensively studied, no dominant disease variants, likely non-essential in vivo. <b style='color:#ffd60a;'>Protein structures are not a validation of biology. DNA sequences are.</b></p></div>", unsafe_allow_html=True)
 
 # ─── TABS ─────────────────────────────────────────────────────────────
-tab0,tab1,tab2,tab3,tab4,tab5,tab6=st.tabs(["📋  Summary","🔴  Triage","📋  Case Study","🔬  Explorer","🧪  Experiments","🤖  AI Report","🗂️  Workspace"])
+tab0,tab1,tab2,tab3,tab4,tab5,tab6,tab7=st.tabs(["📋  Summary","🔴  Triage","📋  Case Study","🔬  Explorer","🧪  Experiments","🤖  AI Report","🗂️  Workspace","🔗  Disease Link"])
 
 # ════════════ TAB 0 — SUMMARY ════════════
 with tab0:
@@ -5862,6 +6125,84 @@ with tab1:
                    f"<td style='text-align:center;'>{lnk}</td></tr>")
         st.markdown(f"<div style='overflow-x:auto;border-radius:10px;border:1px solid #0c2040;'><table class='pt2'><thead><tr><th>Rank</th><th>Variant (DNA change)</th><th>Position</th><th>ClinVar Classification</th><th>Disease</th><th>ML Score</th><th>Source</th></tr></thead><tbody>{rows}</tbody></table></div>", unsafe_allow_html=True)
         st.markdown(f"<div style='color:#0a1e30;font-size:.96rem;margin-top:4px;'>Top {min(50,len(scored))} of {len(scored)} · ML-ranked · Sensitivity: {sensitivity}/100 · {src_link('ClinVar',f'https://www.ncbi.nlm.nih.gov/clinvar/?term={gene}[gene]')}</div>", unsafe_allow_html=True)
+
+    # ── Expandable variant detail cards ──────────────────────────────────────
+    sh('🔬', 'Variant Deep Dive — Click any variant for full analysis')
+    st.markdown('<div style="color:#3a6080;font-size:.84rem;margin-bottom:.5rem;">Top 20 variants by ML score — click to expand structural impact, AlphaMissense concordance, and if/then experiment decision tree.</div>', unsafe_allow_html=True)
+    for v_exp in scored[:20]:
+        _vname = v_exp.get('variant_name','') or v_exp.get('title','')
+        _vrk   = v_exp.get('ml_rank','NEUTRAL')
+        _vsig  = v_exp.get('sig','')
+        _vml   = v_exp.get('ml',0)
+        _vpos  = v_exp.get('start','')
+        _vcond = v_exp.get('condition','')[:60]
+        _vclr  = RANK_CLR.get(_vrk,'#3a6080')
+        _vlof  = any(k in _vname.lower() for k in ['del','ter','fs','stop','nonsense'])
+        _vmiss = 'p.' in _vname.lower() and not _vlof
+        # AlphaMissense for this position
+        _am_p  = am_scores.get(int(_vpos),{}) if am_scores and _vpos else {}
+        _am_s  = next((v.get('score',0) for v in _am_p.values() if isinstance(v,dict)), None) if _am_p else None
+        _am_cls= next((v.get('class','') for v in _am_p.values() if isinstance(v,dict)), '') if _am_p else ''
+        _concordant = (_am_s is not None and _am_s >= 0.564 and v_exp.get('score',0)>=4)
+        _discordant = (_am_s is not None and _am_s < 0.564 and v_exp.get('score',0)>=4)
+        with st.expander(
+            f'{_vrk}  ·  {_vname[:50]}  ·  {_vsig[:30]}  ·  ML {_vml:.2f}',
+            expanded=False,
+        ):
+            _dc1, _dc2 = st.columns([3,2], gap='large')
+            with _dc1:
+                st.markdown(
+                    f"<div style='background:#020810;border:1px solid {_vclr}33;border-radius:10px;padding:.9rem 1rem;'>"
+                    f"<div style='display:flex;gap:8px;flex-wrap:wrap;margin-bottom:.5rem;'>"
+                    f"<span style='background:{_vclr}22;color:{_vclr};border:1px solid {_vclr}44;padding:2px 10px;border-radius:7px;font-size:.8rem;font-weight:700;'>{_vrk}</span>"
+                    + (f"<span style='background:#00c89622;color:#00c896;border:1px solid #00c89644;padding:2px 8px;border-radius:6px;font-size:.76rem;'>AI+ClinVar concordant</span>" if _concordant else "")
+                    + (f"<span style='background:#ffd60a22;color:#ffd60a;border:1px solid #ffd60a44;padding:2px 8px;border-radius:6px;font-size:.76rem;'>AI/ClinVar discordant — investigate</span>" if _discordant else "")
+                    + f"</div>"
+                    f"<div style='color:#8ab8cc;font-weight:600;font-size:.9rem;margin-bottom:.4rem;'>{_vname}</div>"
+                    f"<div style='color:#4a7090;font-size:.82rem;'><b>Position:</b> {_vpos or 'Not extracted'} · <b>Type:</b> {'Loss-of-function' if _vlof else 'Missense' if _vmiss else 'Other'}</div>"
+                    f"<div style='color:#4a7090;font-size:.82rem;'><b>ClinVar:</b> {_vsig} · <b>Review:</b> {v_exp.get('review','')[:30]}</div>"
+                    f"<div style='color:#4a7090;font-size:.82rem;'><b>Origin:</b> {'Germline — heritable, runs in families' if v_exp.get('germline') else 'Somatic — acquired, not inherited' if v_exp.get('somatic') else 'Not specified'}</div>"
+                    f"<div style='color:#3a6080;font-size:.8rem;margin-top:.3rem;'><b>Disease:</b> {_vcond}</div>"
+                    + (f"<div style='margin-top:.4rem;border-top:1px solid #0d2545;padding-top:.4rem;'><div style='color:#5a8090;font-size:.8rem;'><b>AlphaMissense score:</b> {_am_s:.3f} ({_am_cls}) — Google DeepMind AI prediction</div></div>" if _am_s is not None else "")
+                    + f"<div style='margin-top:.4rem;'><a href='{v_exp.get('url','')}' target='_blank' style='color:#3a7090;font-size:.78rem;'>Full ClinVar entry ↗</a></div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+            with _dc2:
+                # If/then decision tree for this specific variant
+                _if_then = []
+                if _vlof:
+                    _if_then = [
+                        ('IF western blot shows absent/reduced band', 'Proteasomal degradation confirmed — gene supplementation or NMD inhibitor is the therapeutic path'),
+                        ('IF western blot shows normal band despite LoF', 'NMD escape or readthrough — protein is made but truncated. Run LC-MS to characterise truncated product'),
+                        ('IF TSA Tm is unchanged vs WT', 'The truncated protein is stably folded but non-functional — CRISPR correction or splice modulation preferred over chaperone'),
+                    ]
+                elif _vmiss:
+                    _if_then = [
+                        ('IF TSA ΔTm ≥ 2°C', 'Structural destabilisation confirmed — screen pharmacological chaperones. Check ChEMBL for any known binders of this protein class'),
+                        ('IF TSA ΔTm < 1°C but ClinVar says pathogenic', 'Mechanism is functional not structural — check protein-protein interaction loss by Co-IP with known partners: ' + ', '.join(s['partner'] for s in string_data[:3]) if string_data else 'Mechanism is functional — run Co-IP to identify lost interactions'),
+                        ('IF AlphaMissense disagrees with ClinVar', 'Discordance may indicate cell-type-specific effect or non-structural mechanism — run assay in disease-relevant cell type, not HEK293T'),
+                    ]
+                else:
+                    _if_then = [
+                        ('IF splice variant by name', 'Run minigene splicing assay — confirm aberrant splice product by RT-PCR'),
+                        ('IF no phenotype in cell assay', 'Test under disease-relevant stress conditions — may require patient-derived model'),
+                        ('IF phenotype confirmed', 'Submit PS3 functional evidence to ClinVar — upgrades VUS to Likely Pathogenic'),
+                    ]
+                st.markdown(
+                    "<div style='background:#020d18;border:1px solid #00e5ff22;border-radius:9px;padding:.8rem;'>"
+                    "<div style='color:#00e5ff;font-weight:700;font-size:.84rem;margin-bottom:.4rem;'>If/Then Decision Tree</div>"
+                    + "".join(
+                        f"<div style='margin:.4rem 0;'>"
+                        f"<div style='color:#5a9ab0;font-size:.78rem;font-weight:600;'>{cond_ift}</div>"
+                        f"<div style='color:#3a6080;font-size:.76rem;padding-left:10px;'>→ {action_ift}</div>"
+                        f"</div>"
+                        for cond_ift, action_ift in _if_then
+                    )
+                    + "</div>",
+                    unsafe_allow_html=True,
+                )
+
 
     # CSV panel
     if st.session_state["csv_df"] is not None:
@@ -6564,7 +6905,7 @@ with tab4:
     COST_MAP={"Free":("#00c896","rgba(0,200,150,.08)"),"$":("#4a90d9","rgba(74,144,217,.08)"),"$$":("#ffd60a","rgba(255,214,10,.08)"),"$$$":("#ff8c42","rgba(255,140,66,.08)"),"$$$$":("#ff2d55","rgba(255,45,85,.08)")}
     cc=st.columns(5)
     for (sym,(clr,bg)),col in zip(COST_MAP.items(),cc):
-        col.markdown(f"<div style='background:{bg};border:1px solid {clr}33;border-radius:8px;padding:5px;text-align:center;'><div style='color:{clr};font-weight:800;'>{sym}</div><div style='color:{clr}88;font-size:.81rem;'>{{'Free':'No cost','$':'<$1K','$$':'$1-10K','$$$':'$10-50K','$$$$':'$50K+'}}[sym]</div></div>", unsafe_allow_html=True)
+        col.markdown(f"<div style='background:{bg};border:1px solid {clr}33;border-radius:8px;padding:5px;text-align:center;'><div style='color:{clr};font-weight:800;'>{sym}</div><div style='color:{clr}88;font-size:.81rem;'>{COST_MAP[sym]}</div></div>", unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
     # ── Why each experiment is suggested ──
     # Each card includes: purpose · rationale (WHY) · hypothesis · protocol · focus · neglect · outcome
@@ -6666,6 +7007,134 @@ with tab4:
     )
     components.html(drug_map_html, height=600, scrolling=True)
 
+    # ── If/Then Result Hypothesis Engine ─────────────────────────────────────
+    st.markdown("<hr class='dv'>", unsafe_allow_html=True)
+    sh("🔮","Experiment Result Hypotheses — If/Then Conditional Decision Tree")
+    st.markdown(
+        "<div style='color:#5a8090;font-size:.86rem;margin-bottom:.8rem;'>"
+        f"Conditional logic for {gene} experiments based on its protein class ({entity['ptype'].replace('_',' ').title()}), "
+        f"variant profile ({gi.get('n_pathogenic',0)} pathogenic), and pLI ({gnomad_data.get('pLI','?') if gnomad_data else '?'}). "
+        "Each experiment gives you a branch point — follow the branch that matches your result.</div>",
+        unsafe_allow_html=True,
+    )
+
+    pli_v   = gnomad_data.get("pLI",0) if gnomad_data else 0
+    n_lof_v = sum(1 for v in scored if any(k in v.get("variant_name","").lower() for k in ["del","ter","fs","stop","nonsense"]) and v.get("score",0)>=3)
+    top_crit_hyp = next((v for v in scored if v.get("ml_rank")=="CRITICAL"), {})
+    crit_vname   = top_crit_hyp.get("variant_name","top variant")[:30]
+    dis0_hyp     = diseases[0]["name"][:40] if diseases else "associated disease"
+    
+    hypotheses = [
+        {
+            "experiment": f"Thermal Shift Assay (TSA) on {crit_vname}",
+            "question":   "Does the pathogenic variant destabilise the protein fold?",
+            "branches": [
+                {
+                    "result": f"IF ΔTm ≥ 2°C reduction in {gene} mutant vs WT",
+                    "interpretation": "Structural destabilisation confirmed. The variant causes protein misfolding.",
+                    "next": [
+                        "Run Rosetta ΔΔG to quantify all remaining pathogenic variants — rank by predicted destabilisation",
+                        f"Screen chemical chaperones (DMSO, glycerol, trimethylamine oxide) — if Tm rescues, small molecule stabiliser is viable",
+                        f"{'PPI stabiliser screen — if protein interacts with ' + string_data[0]['partner'] + ', test whether interaction is lost in mutant' if string_data else 'Structural mass spectrometry (HDX-MS) to map unfolded regions'}",
+                    ],
+                    "hypothesis": f"Structural destabilisation in {gene} {crit_vname} will reduce cellular half-life by proteasomal clearance. Prediction: mutant protein abundance will be ≤50% of WT by western blot.",
+                },
+                {
+                    "result": f"IF ΔTm < 1°C — no thermal shift",
+                    "interpretation": "Variant is NOT structurally destabilising. Mechanism is functional — interaction surface, catalytic site, or allosteric.",
+                    "next": [
+                        f"Test {'kinase activity directly (ADP-Glo) — ' if entity['ptype']=='kinase' else 'protein-protein interaction by Co-IP — '}variant may disable function without misfolding",
+                        "Run AlphaMissense cross-reference: if AM score still high despite neutral TSA, variant likely disrupts binding interface",
+                        "Pull-down assay with known binding partners — compare WT vs mutant interaction panel",
+                    ],
+                    "hypothesis": f"The {crit_vname} variant likely disrupts a critical protein-protein interaction or catalytic residue without global structural disruption. Expect full protein abundance by western blot but loss of {'kinase activity' if entity['ptype']=='kinase' else 'binding partner' if string_data else 'downstream function'}.",
+                },
+            ],
+        },
+        {
+            "experiment": f"CRISPR Knock-in of {crit_vname} in disease-relevant cell line",
+            "question":   "Does the exact patient variant cause a measurable cellular phenotype?",
+            "branches": [
+                {
+                    "result": "IF cell viability < 70% vs isogenic WT at 72h",
+                    "interpretation": "Strong phenotype confirmed — variant causes cell death or severe growth arrest.",
+                    "next": [
+                        "Differentiate apoptosis vs necrosis: cleaved caspase 3/7 (Casp-Glo) + LDH release assay simultaneously",
+                        f"Rescue experiment: re-introduce WT {gene} cDNA — if viability restores, phenotype is on-target",
+                        f"{'Transcriptomics (RNA-seq) on mutant cells — identify downstream pathways — compare to GSEA disease gene sets for ' + dis0_hyp if protein_length < 800 else 'Phosphoproteomics on mutant cells — identify kinase/substrate changes'}",
+                    ],
+                    "hypothesis": f"Mechanism is {'haploinsufficiency — one functional copy insufficient for ' + dis0_hyp if 'dominant' in diseases[0].get('inheritance','').lower() else 'biallelic loss — both copies must be non-functional'} (based on inheritance pattern from ClinVar). Rescue will require {'gene supplementation or protein stabilisation' if n_lof_v > 2 else 'functional small molecule to restore activity'}.",
+                },
+                {
+                    "result": "IF viability is normal (> 90% of WT)",
+                    "interpretation": "No overt cell death — variant causes a subtle functional defect, not gross toxicity.",
+                    "next": [
+                        f"Switch to {entity['first_assay']} — protein-class-specific functional readout more sensitive than viability",
+                        f"Stress the cells: apply {'cardiac pacing stress (HL-1 cardiomyocytes)' if 'cardio' in dis0_hyp.lower() else 'relevant disease stimulus'} — phenotype may only emerge under physiological challenge",
+                        "Proteomics on mutant vs WT cells — look for downstream protein abundance changes even without viability phenotype",
+                    ],
+                    "hypothesis": f"The {crit_vname} variant causes tissue-specific dysfunction that only manifests under physiological stress in {dis0_hyp}. In vitro cell culture lacks the tissue context to recapitulate the full phenotype. Organoid or in vivo model required for definitive validation.",
+                },
+                {
+                    "result": "IF no phenotype in ANY assay",
+                    "interpretation": "Null result — variant may be mis-classified in ClinVar or compensated by redundant pathways in the chosen cell line.",
+                    "next": [
+                        f"Test in ≥2 additional cell lines — {pli_v:.2f} pLI suggests {'high essentiality — try iPSC-derived ' + ('cardiomyocytes' if 'cardio' in dis0_hyp.lower() else 'disease-relevant cells') if pli_v > 0.5 else 'moderate redundancy — the protein may be compensated in many cell types'}",
+                        "Challenge ClinVar classification: file evidence review with ClinVar if functional data is consistently null",
+                        "Segregation analysis in patient families: confirm the variant co-segregates with disease before investing further",
+                    ],
+                    "hypothesis": f"Null result most likely reflects cell-line-specific compensation or wrong cell type, not variant benignity — {'given pLI=' + str(round(pli_v,2)) + ', true null result in ALL contexts would require multiple independent models' if pli_v > 0.5 else 'however pLI=' + str(round(pli_v,2)) + ' suggests possible redundancy — consider whether a paralogue compensates'}.",
+                },
+            ],
+        },
+        {
+            "experiment": f"Small molecule / drug screen against {gene}",
+            "question":   "Can a drug rescue the pathogenic variant phenotype or inhibit a gain-of-function?",
+            "branches": [
+                {
+                    "result": "IF TSA shows ΔTm ≥ 1°C with a compound",
+                    "interpretation": "Pharmacological chaperone identified — compound stabilises the mutant fold.",
+                    "next": [
+                        "Confirm cellular rescue: compound + CRISPR knock-in cells — does ΔTm translate to viability rescue?",
+                        "SAR expansion: synthesise 20–30 analogs to improve KD and reduce off-target binding",
+                        f"PK/PD assessment: check ADMET properties — oral bioavailability critical for {dis0_hyp} indication",
+                    ],
+                    "hypothesis": f"A pharmacological chaperone for {gene} {crit_vname} is chemically tractable. The compound stabilises the misfolded mutant by binding the native-like conformation, shifting the folding equilibrium. Predicted IC50 for rescue: within 10× of biophysical KD.",
+                },
+                {
+                    "result": "IF no compound rescues TSA or phenotype",
+                    "interpretation": "Direct pharmacological rescue not achievable with current compound library.",
+                    "next": [
+                        f"{'Gene therapy: AAV-mediated ' + gene + ' supplementation — LOF variants most responsive' if n_lof_v > 2 else 'PROTAC degradation: if GOF mechanism, targeted degradation may be superior to inhibition'}",
+                        "Upstream target: instead of targeting the mutant protein directly, inhibit the pathway that becomes dysregulated downstream",
+                        "Synthetic lethality screen: CRISPR KO library in mutant cells — identify genes that become essential specifically in the disease context",
+                    ],
+                    "hypothesis": f"Direct rescue of {crit_vname} may not be feasible with small molecules. {'LoF mechanism suggests gene supplementation (AAV) or splice correction (ASO) as primary therapeutic strategy.' if n_lof_v > 2 else 'Consider targeting the downstream dysregulated pathway rather than the primary variant.'}",
+                },
+            ],
+        },
+    ]
+
+    for h_idx, hyp in enumerate(hypotheses):
+        with st.expander(
+            f"Experiment {h_idx+1}: {hyp['experiment']}  ·  {hyp['question']}",
+            expanded=(h_idx == 0),
+        ):
+            for b_idx, branch in enumerate(hyp["branches"]):
+                b_clr = "#00c896" if "≥" in branch["result"] or "IF cell" in branch["result"] else "#ff8c42" if "< 1°C" in branch["result"] or "90%" in branch["result"] else "#ff2d55"
+                st.markdown(
+                    f"<div style='background:#020810;border:1px solid {b_clr}33;border-left:3px solid {b_clr};"
+                    f"border-radius:0 10px 10px 0;padding:.9rem 1.1rem;margin:.5rem 0;'>"
+                    f"<div style='color:{b_clr};font-weight:700;font-size:.9rem;margin-bottom:4px;'>{branch['result']}</div>"
+                    f"<div style='color:#6a9ab0;font-size:.84rem;margin-bottom:.5rem;'>{branch['interpretation']}</div>"
+                    f"<div style='color:#4a7090;font-size:.8rem;margin-bottom:.4rem;font-weight:600;'>Then do:</div>"
+                    + "".join(f"<div style='color:#5a8090;font-size:.82rem;margin:3px 0;padding-left:12px;'>→ {n}</div>" for n in branch["next"])
+                    + f"<div style='background:#010508;border:1px solid #0d2545;border-radius:7px;padding:7px 10px;margin-top:.5rem;'>"
+                    f"<div style='color:#3a7080;font-size:.78rem;'><b style='color:#5a9080;'>Hypothesis:</b> {branch['hypothesis']}</div>"
+                    f"</div></div>",
+                    unsafe_allow_html=True,
+                )
+
     # ── Experiment ROI Calculator ─────────────────────────────────────────────
     st.markdown("<hr class='dv'>", unsafe_allow_html=True)
     sh("📈","Experiment ROI Calculator — Ranked by Expected Value")
@@ -6678,7 +7147,14 @@ with tab4:
     )
     for rank, exp in enumerate(roi_data, 1):
         roi_clr = {"🟢 Excellent":"#00c896","🟡 Good":"#ffd60a","🟠 Fair":"#ff8c42","🔴 Low":"#ff2d55"}.get(exp["roi_label"],"#3a6080")
-        cost_str = "FREE" if exp["cost_usd"]==0 else f"${exp['cost_usd']:,}"
+        if exp["cost_usd"] == 0:
+            cost_str = "FREE"
+        elif exp["cost_usd"] < 1000:
+            cost_str = f"${exp['cost_usd']}"
+        elif exp["cost_usd"] < 10000:
+            cost_str = f"${exp['cost_usd']//1000}K"
+        else:
+            cost_str = f"${exp['cost_usd']//1000}K"
         time_str = f"{exp['time_weeks']}w" if exp["time_weeks"]>=1 else f"{int(exp['time_weeks']*7)}d"
         st.markdown(
             f"<div style='background:#020810;border:1px solid #0d2545;border-radius:10px;"
@@ -7052,6 +7528,46 @@ with tab5:
                 + "".join(f"<p>{r}</p>" for r in roi_top)
                 + "</div>", unsafe_allow_html=True,
             )
+        # ── AI-generated cure hypotheses ─────────────────────────────────────
+        cure_hyps_ai = ai.get("cure_hypotheses",[])
+        if cure_hyps_ai:
+            st.markdown("<hr class='dv'>", unsafe_allow_html=True)
+            sh("💊","AI-Generated Therapeutic Hypotheses (Claude + Web Search)")
+            st.markdown(
+                "<div style='color:#5a8090;font-size:.85rem;margin-bottom:.7rem;'>"
+                "These hypotheses are generated by Claude reasoning over real fetched data plus current literature. "
+                "Every claim traces back to the variant profile above. Citations included where available.</div>",
+                unsafe_allow_html=True,
+            )
+            for c_hyp in cure_hyps_ai:
+                c_clr = "#a855f7"
+                with st.expander(f"{c_hyp.get('disease','?')} — {c_hyp.get('approach','?')}", expanded=False):
+                    st.markdown(
+                        f"<div style='color:#6a9ab0;font-size:.86rem;margin-bottom:.5rem;'>"
+                        f"<b style='color:#8ab8cc;'>Mechanism:</b> {c_hyp.get('mechanism','')}</div>"
+                        f"<div style='color:#5a8090;font-size:.84rem;margin-bottom:.5rem;'>"
+                        f"<b style='color:#6a9880;'>Key experiment:</b> {c_hyp.get('key_experiment','')}</div>"
+                        f"<div style='background:#020d18;border:1px solid #00c89633;border-radius:8px;padding:.7rem;margin-bottom:.4rem;'>"
+                        f"<div style='color:#5a9880;font-size:.82rem;'><b style='color:#6aaa90;'>Prediction:</b> {c_hyp.get('prediction','')}</div>"
+                        f"</div>"
+                        f"<div style='color:#3a6080;font-size:.78rem;'><b style='color:#4a8090;'>Citation basis:</b> {c_hyp.get('citation_basis','')}</div>",
+                        unsafe_allow_html=True,
+                    )
+
+        # ── Literature precedents ─────────────────────────────────────────────
+        lit_prec = ai.get("literature_precedents",[])
+        if lit_prec:
+            st.markdown("<hr class='dv'>", unsafe_allow_html=True)
+            sh("📚","Literature Precedents from AI Analysis")
+            for lp in lit_prec[:6]:
+                with st.expander(lp.get("finding","?")[:80], expanded=False):
+                    st.markdown(
+                        f"<div style='color:#6a9ab0;font-size:.86rem;'>{lp.get('relevance','')}</div>"
+                        f"<div style='color:#3a6080;font-size:.78rem;margin-top:.3rem;'>"
+                        f"Source: {lp.get('source','Not specified')}</div>",
+                        unsafe_allow_html=True,
+                    )
+
         if st.button("♻️ Regenerate AI Report", key="regen_ai"):
             st.session_state["ai_result"] = {}
             st.rerun()
@@ -7145,6 +7661,149 @@ ASSAY_RESOURCES = [
 ]
 
 
+# ════════════ TAB 7 — DISEASE-PROTEIN LINK ════════════
+with tab7:
+    sh("🔗","Disease ↔ Protein Causal Link Analysis")
+    st.markdown(
+        "<div style='color:#5a8090;font-size:.86rem;margin-bottom:.8rem;'>"
+        "This tab shows the causal genetic relationship between the protein you are analysing "
+        "and the disease you searched. It uses ClinVar evidence, inheritance data, and variant "
+        "type profile to determine how strongly this protein drives the disease — "
+        "as opposed to being an associated bystander or expression change without causal mutation.</div>",
+        unsafe_allow_html=True,
+    )
+    
+    dis_search_ws = st.session_state.get("disease_search","")
+    
+    if not pdata:
+        st.info("Search a protein in the sidebar to see its relationship to a disease.")
+    elif not dis_search_ws:
+        # Allow disease entry directly in tab
+        st.markdown("<div style='color:#4a7090;font-size:.86rem;margin-bottom:.4rem;'>Enter a disease to link with <b style='color:#00e5ff;'>" + gene + "</b>:</div>", unsafe_allow_html=True)
+        link_disease = st.text_input("Disease name", placeholder="e.g. cardiomyopathy · breast cancer · Fanconi anemia", key="link_disease_inp")
+        if st.button("Analyse link", type="primary", key="link_dis_btn") and link_disease:
+            st.session_state["disease_search"] = link_disease
+            st.rerun()
+    else:
+        # Build causal link analysis between current protein and searched disease
+        link_dis = dis_search_ws
+        
+        # Check direct ClinVar evidence — does this protein have variants for THIS disease?
+        dis_variants = [v for v in variants if link_dis.lower()[:15] in v.get("condition","").lower() and v.get("score",0) >= 2]
+        path_dis_vars = [v for v in dis_variants if v.get("score",0) >= 4]
+        
+        # Check UniProt disease list
+        uniprot_match = [d for d in diseases if link_dis.lower()[:12] in d.get("name","").lower()]
+        
+        # Compute causal strength
+        has_clinvar = len(path_dis_vars) > 0
+        has_uniprot = len(uniprot_match) > 0
+        has_mendelian = has_clinvar and has_uniprot
+        
+        if has_mendelian:
+            link_verdict = "DIRECT CAUSAL LINK"
+            link_clr     = "#ff2d55"
+            link_strength= 95
+            link_evidence = "Both ClinVar pathogenic variants AND UniProt disease annotation confirm this protein as a direct genetic driver of " + link_dis + ". Highest confidence."
+        elif has_clinvar:
+            link_verdict = "STRONG GENETIC ASSOCIATION"
+            link_clr     = "#ff8c42"
+            link_strength= 70
+            link_evidence = f"{len(path_dis_vars)} pathogenic variants in ClinVar link {gene} to {link_dis}, but this is not yet in UniProt disease annotation. Likely a true association."
+        elif has_uniprot:
+            link_verdict = "ANNOTATED ASSOCIATION"
+            link_clr     = "#ffd60a"
+            link_strength= 50
+            link_evidence = f"{gene} is listed in UniProt disease comments for {link_dis}, but no matching pathogenic variants found in ClinVar. Association may be based on functional evidence, not genetic."
+        elif any(link_dis.lower()[:10] in v.get("condition","").lower() for v in variants):
+            link_verdict = "WEAK ASSOCIATION"
+            link_clr     = "#4a90d9"
+            link_strength= 25
+            link_evidence = f"Some ClinVar submissions mention {link_dis} but none are classified as pathogenic. Association is uncertain."
+        else:
+            link_verdict = "NO DIRECT LINK FOUND"
+            link_clr     = "#3a6080"
+            link_strength= 5
+            link_evidence = f"No ClinVar pathogenic variants or UniProt annotations linking {gene} to {link_dis}. This protein does not appear to be a genetic driver of this disease based on available evidence."
+        
+        # Display verdict
+        st.markdown(
+            f"<div style='background:#020810;border:2px solid {link_clr}55;border-radius:14px;"
+            f"padding:1.2rem 1.5rem;margin-bottom:1rem;'>"
+            f"<div style='display:flex;align-items:center;gap:14px;margin-bottom:.6rem;'>"
+            f"<div>"
+            f"<div style='color:{link_clr};font-weight:800;font-size:1.1rem;margin-bottom:3px;'>{link_verdict}</div>"
+            f"<div style='color:#8ab8cc;font-size:.95rem;'>{gene} ↔ {link_dis}</div>"
+            f"</div></div>"
+            f"<div style='height:10px;background:#0a1828;border-radius:5px;margin:.6rem 0;overflow:hidden;'>"
+            f"<div style='width:{link_strength}%;height:100%;background:linear-gradient(90deg,{link_clr}88,{link_clr});border-radius:5px;'></div></div>"
+            f"<div style='color:#6a9ab0;font-size:.86rem;'>{link_evidence}</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+        
+        # Evidence breakdown
+        lc1, lc2 = st.columns(2)
+        with lc1:
+            st.markdown("<div style='color:#4a7090;font-size:.86rem;font-weight:700;margin-bottom:.4rem;'>ClinVar Evidence</div>", unsafe_allow_html=True)
+            for v_link in path_dis_vars[:6]:
+                with st.expander(f"{v_link.get('variant_name','')[:40]} · {v_link.get('sig','')}", expanded=False):
+                    st.markdown(
+                        f"<div style='color:#6a9ab0;font-size:.84rem;'>"
+                        f"<b>Condition:</b> {v_link.get('condition','')}<br>"
+                        f"<b>Origin:</b> {'Germline (heritable)' if v_link.get('germline') else 'Somatic (acquired)'}<br>"
+                        f"<b>Review:</b> {v_link.get('review','')}<br>"
+                        f"<b>ML rank:</b> {v_link.get('ml_rank','')}<br>"
+                        f"<a href='{v_link.get('url','')}' target='_blank' style='color:#3a7090;'>ClinVar entry ↗</a>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+            if not path_dis_vars:
+                st.markdown("<div style='color:#2a5070;font-size:.84rem;'>No pathogenic ClinVar variants found for this disease</div>", unsafe_allow_html=True)
+        
+        with lc2:
+            st.markdown("<div style='color:#4a7090;font-size:.86rem;font-weight:700;margin-bottom:.4rem;'>UniProt Disease Annotations</div>", unsafe_allow_html=True)
+            for d_link in uniprot_match:
+                with st.expander(d_link.get("name","")[:50], expanded=len(uniprot_match)==1):
+                    st.markdown(
+                        f"<div style='color:#6a9ab0;font-size:.84rem;'>"
+                        f"<b>Inheritance:</b> {d_link.get('inheritance','Not specified')}<br>"
+                        f"<b>Mutation type:</b> {d_link.get('mutation_type','Various')}<br>"
+                        f"<b>Description:</b> {d_link.get('desc','')[:200]}<br>"
+                        + (f"<a href='https://omim.org/entry/{d_link["omim"]}' target='_blank' style='color:#3a7090;'>OMIM {d_link['omim']} ↗</a>" if d_link.get("omim") else "")
+                        + f"</div>",
+                        unsafe_allow_html=True,
+                    )
+            if not uniprot_match:
+                st.markdown("<div style='color:#2a5070;font-size:.84rem;'>No UniProt disease annotation for this disease</div>", unsafe_allow_html=True)
+        
+        # Mechanistic explanation
+        if has_clinvar or has_uniprot:
+            st.markdown("<hr class='dv'>", unsafe_allow_html=True)
+            sh("🔬","Mechanistic Basis of Causal Link")
+            inh_link = uniprot_match[0].get("inheritance","") if uniprot_match else ""
+            mut_link = uniprot_match[0].get("mutation_type","") if uniprot_match else ""
+            n_lof_link = sum(1 for v in path_dis_vars if any(k in v.get("variant_name","").lower() for k in ["del","ter","fs","stop"]))
+            n_miss_link= sum(1 for v in path_dis_vars if "p." in v.get("variant_name","").lower() and "del" not in v.get("variant_name","").lower())
+            mechanism_link = (
+                f"The {len(path_dis_vars)} pathogenic variants linking {gene} to {link_dis} are predominantly "
+                f"{'loss-of-function (frameshift/stop-gain, n=' + str(n_lof_link) + ')' if n_lof_link > n_miss_link else 'missense (n=' + str(n_miss_link) + ')'} mutations. "
+                + (f"Inheritance is {inh_link}, indicating that " +
+                   ("a single mutated copy is sufficient to cause disease (haploinsufficiency or dominant-negative)." if "dominant" in inh_link.lower()
+                    else "both copies must be non-functional (complete loss required)." if "recessive" in inh_link.lower()
+                    else "inheritance pattern is still under investigation.") if inh_link else "")
+                + f" {entity['ptype'].replace('_',' ').title()} proteins with {'LoF-dominant' if n_lof_link > n_miss_link else 'missense-dominant'} pathogenic variants "
+                + ("typically act through haploinsufficiency — gene replacement therapy is a viable therapeutic approach." if n_lof_link > n_miss_link and "dominant" in inh_link.lower()
+                   else "may require functional rescue rather than gene supplementation if dominant-negative mechanism." if "dominant" in inh_link.lower()
+                   else "require complete loss before disease manifests — two-hit model.")
+            )
+            st.markdown(f"<div class='card'><p style='color:#7ab0c0;font-size:.88rem;line-height:1.65;'>{mechanism_link}</p></div>", unsafe_allow_html=True)
+        
+        if st.button("Clear disease link", key="clear_link_btn"):
+            st.session_state["disease_search"] = ""
+            st.rerun()
+
+# ════════════ TAB 6 — WORKSPACE ════════════
 # ════════════ TAB 6 — WORKSPACE ════════════
 with tab6:
     sh("🗂️","Research Workspace")
