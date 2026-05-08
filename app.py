@@ -589,6 +589,16 @@ def fetch_uniprot(query):
         "green fluorescent protein":"jellyfish (Aequorea victoria)",
         "gfp":"jellyfish (Aequorea victoria) — use human fluorescent reporters",
         "luciferase":"firefly (Photinus pyralis)",
+        "gelatin":"hydrolysed collagen — not a specific gene product. Search COL1A1 or COL3A1 for human collagen genes",
+        "collagen extract":"not a specific gene. Search COL1A1, COL2A1, COL3A1 for specific human collagen",
+        "casein":"milk protein — bovine. No direct human equivalent",
+        "trypsin":"search PRSS1 for human trypsinogen",
+        "pepsin":"search PGA3 or PGA4 for human pepsinogen",
+        "albumin":"search ALB for human serum albumin",
+        "fibrin":"search FGA, FGB, or FGG for human fibrinogen chains",
+        "keratin":"too generic — search KRT5, KRT14 etc. for specific human keratin",
+        "actin":"too generic — search ACTB, ACTA1, ACTA2 for specific human actin isoform",
+        "myosin":"too generic — search MYH7, MYH6, MYH9 for specific human myosin heavy chain",
     }
     q_lower = query.lower().strip()
     for term, species in NON_HUMAN_TERMS.items():
@@ -695,17 +705,32 @@ def fetch_clinvar(gene, max_v=150):
                 if not prot_pos:  # Try cDNA position as fallback
                     cm = _re.search(r"c\.(\d+)", var_name)
                     if cm: prot_pos = str(int(cm.group(1))//3 + 1)
-                # Origin parsing - ClinVar uses multiple formats
-                origin_raw = e.get("origin",{})
+                # Origin parsing — ClinVar ESUMMARY uses multiple formats
+                origin_raw   = e.get("origin", e.get("germline_classifications", {}))
+                origin_str   = ""
                 if isinstance(origin_raw, dict):
-                    origin_str = origin_raw.get("origin", "")
+                    origin_str = origin_raw.get("origin", origin_raw.get("description",""))
                 elif isinstance(origin_raw, str):
                     origin_str = origin_raw
-                else:
-                    origin_str = str(origin_raw)
-                # Determine somatic vs germline
-                is_somatic = bool(e.get("somatic_classifications",{})) or "somatic" in origin_str.lower()
-                is_germline = any(x in origin_str.lower() for x in ["germline","inherited","de novo","maternal","paternal","constitutional"]) or (not is_somatic and sc >= 3)
+                elif isinstance(origin_raw, list):
+                    origin_str = " ".join(str(x) for x in origin_raw)
+                
+                # Also check alternate ClinVar fields
+                germ_class   = e.get("germline_classifications",{})
+                somatic_class= e.get("somatic_classifications",{})
+                has_somatic_class  = bool(somatic_class and somatic_class.get("description","").strip())
+                has_germline_class = bool(germ_class and germ_class.get("description","").strip())
+                
+                # Pull description from whichever classification exists
+                if not origin_str and has_germline_class:
+                    origin_str = "germline"
+                if not origin_str and has_somatic_class:
+                    origin_str = "somatic"
+                
+                is_somatic  = has_somatic_class or "somatic" in origin_str.lower()
+                is_germline = (has_germline_class or
+                               any(x in origin_str.lower() for x in ["germline","inherited","de novo","maternal","paternal","constitutional"]) or
+                               (not is_somatic and sc >= 3))  # pathogenic with unknown origin → default germline
                 variants.append({
                     "uid":uid,"title":e.get("title",""),
                     "variant_name": var_name,
@@ -942,7 +967,7 @@ def fetch_gnomad(gene: str) -> dict:
         data = r.json()
         constraint = data.get("data",{}).get("gene",{}).get("gnomad_constraint",{}) or {}
         return {
-            "pLI":   round(constraint.get("pLI",0) or 0, 3),
+            "pLI":   round(constraint.get("pLI",0) or 0, 3) if constraint.get("pLI") is not None else None,
             "oe_lof": round(constraint.get("oe_lof",1) or 1, 3),
             "oe_mis": round(constraint.get("oe_mis",1) or 1, 3),
             "url": f"https://gnomad.broadinstitute.org/gene/{gene}?dataset=gnomad_r4",
@@ -1069,7 +1094,7 @@ def ai_synthesize(
     ) if string_data else "No interaction data"
 
     context = f"""
-You are a biomedical research intelligence engine. You have been given ALL of the following factual data about the protein {gene}. Your job is to reason about this data and produce structured insights. You MUST NOT invent any information not present in the data below. If something is unknown, say so explicitly.
+You are a biomedical research intelligence engine. You have been given ALL of the following factual data about the protein {gene}. Your job is to reason about this data and produce structured insights. You MUST NOT invent any information not present in the data below. If data is absent, make the best mechanistic inference you can from what IS present — a good scientist uses available evidence to reason toward a conclusion, not to say 'unknown'. Only say a fact is unknown if there is genuinely zero data anywhere to infer from.
 
 === PROTEIN DATA ===
 Gene: {gene}
@@ -1128,6 +1153,31 @@ specific therapeutic hypotheses. Ground every hypothesis in the gene's actual va
 Always cite the MECHANISM not just the modality. Every claim must trace back to the data provided.
 
 
+=== FBM (FILAMIN BINDING MOTIF) RESEARCH CONTEXT ===
+Two key papers directly relevant to GPCR and Filamin proteins in this analysis:
+
+PAPER 1 — Nakamura et al. 2015 (Filamin Binding Motif discovery):
+- >20% of human GPCRs (116+ receptors) have a Filamin Binding Motif (FBM) in their 
+  intracellular C-tail or ICL3 loop.
+- FBM binds directly to Filamin A Ig domain 21 with 50-100x higher affinity than other 
+  cytoskeletal linkers — this is a HIGH-AFFINITY DIRECT interaction, not a piggyback.
+- AT1R (AGTR1) binding is agonist-dependent (angiotensin II required).
+- MAS receptor binding is constitutive (always active).
+- This directly couples GPCR activation to cytoskeletal remodelling, cell migration, and shape change.
+- Equation: L + R → R_active · F_bound → [PKA] → F-Ser2152-Phosphorylated → cytoskeletal remodelling
+
+PAPER 2 — JBC 2015 (PKA conformational gating of Filamin):
+- PKA phosphorylation of Filamin A Ser2152 requires the OPEN conformation.
+- Autoinhibited (closed) Filamin presents steric hindrance — PKA cannot phosphorylate Ser2152 
+  even though the site is surface-exposed.
+- Opening is triggered by: (1) GPCR-FBM binding, (2) integrin binding, (3) migfilin binding.
+- Implications: Pathogenic Filamin variants in Ig19-21 may lock it in closed state → 
+  unable to be phosphorylated → defective cytoskeletal remodelling even with normal GPCR signalling.
+- "Global shape-dependent recognition" model: protein CONFORMATION (not just sequence) gates kinase access.
+
+USE THIS CONTEXT: If the protein being analysed is a Filamin (FLNA/FLNB/FLNC) or a GPCR with FBM context,
+incorporate these mechanisms into your experimental recommendations and cure hypotheses.
+
 === CURE HYPOTHESIS INSTRUCTIONS ===
 For diseases without known cures (rare Mendelian, aggressive cancers, viral like hantavirus/Nipah):
 Propose specific therapeutic hypotheses grounded in this protein's variant profile:
@@ -1155,7 +1205,7 @@ Based on the above data AND your knowledge of current biomedical literature, pro
   "drug_opportunity": "Based on DGIdb and disease data, what is the therapeutic opportunity?",
   "clinical_translation": "What do clinical trials suggest about where this protein sits in the translational pipeline?",
   "assay_interpretation": "If assay data provided, what does it suggest and what should be done next?",
-  "key_unknowns": ["unknown1", "unknown2"],
+  "key_unknowns": ["specific gap 1 — what experiment would resolve it", "specific gap 2"],
   "confidence": "HIGH/MEDIUM/LOW based on amount of evidence",
   "warning_flags": ["any red flags in the data"],
   "cure_hypotheses": [
@@ -1285,15 +1335,51 @@ def g_diseases(p):
         inh_text = " ".join([note, desc, name])
         inheritance = _extract_inheritance(inh_text)
         
-        # If still empty, try to infer from disease name conventions
+        # Evidence-based inheritance inference from disease name — no "Unknown" fallbacks
         if not inheritance:
             name_lower = name.lower()
-            if any(x in name_lower for x in ["type 1","type i","i,","syndrome 1"]):
+            # Cardiomyopathies
+            if any(x in name_lower for x in ["hypertrophic cardiomyopathy","dilated cardiomyopathy","hcm","dcm"]):
+                inheritance = "Autosomal Dominant (AD)"
+            elif "restrictive cardiomyopathy" in name_lower:
                 inheritance = "Autosomal Dominant (AD)"
             elif "cardiomyopathy" in name_lower:
-                inheritance = "Autosomal Dominant (AD)"  # Most cardiomyopathies are AD
-            elif "deficiency" in name_lower:
+                inheritance = "Autosomal Dominant (AD)"
+            # Cancers — somatic or AD
+            elif any(x in name_lower for x in ["cancer","carcinoma","tumor","sarcoma","leukemia","lymphoma","glioma"]):
+                inheritance = "Somatic (acquired) or Autosomal Dominant (AD) predisposition"
+            # Deficiency diseases — typically AR
+            elif any(x in name_lower for x in ["deficiency","storage disease","lysosomal","gaucher","fabry","pompe"]):
                 inheritance = "Autosomal Recessive (AR)"
+            # Skeletal/connective tissue — typically AD
+            elif any(x in name_lower for x in ["marfan","ehlers-danlos","osteogenesis","achondroplasia"]):
+                inheritance = "Autosomal Dominant (AD)"
+            # Muscular dystrophies
+            elif "muscular dystrophy" in name_lower or "myopathy" in name_lower:
+                inheritance = "X-linked or Autosomal Dominant (AD) — check gene-specific OMIM entry"
+            # Fanconi / DNA repair
+            elif "fanconi" in name_lower or "xeroderma" in name_lower or "ataxia telangiectasia" in name_lower:
+                inheritance = "Autosomal Recessive (AR)"
+            # Haemoglobin disorders
+            elif any(x in name_lower for x in ["sickle","thalassemia","haemoglobin"]):
+                inheritance = "Autosomal Recessive (AR)"
+            # Bleeding disorders
+            elif any(x in name_lower for x in ["haemophilia","hemophilia","thrombasthenia","glanzmann"]):
+                inheritance = "X-linked Recessive (XLR) or Autosomal Recessive (AR)"
+            # Epilepsy
+            elif "epilepsy" in name_lower or "epileptic" in name_lower:
+                inheritance = "Autosomal Dominant (AD) — most epileptic encephalopathies"
+            # Intellectual disability / autism
+            elif any(x in name_lower for x in ["intellectual disability","autism","neurodevelopmental"]):
+                inheritance = "Autosomal Dominant (AD) or X-linked — de novo variants common"
+            # Type 1/dominant patterns
+            elif any(x in name_lower for x in [",  type 1"," 1 "," i,"," ia "," ib "]):
+                inheritance = "Autosomal Dominant (AD)"
+            # Recessive patterns
+            elif any(x in name_lower for x in ["recessive","complementation"]):
+                inheritance = "Autosomal Recessive (AR)"
+            else:
+                inheritance = "See ClinVar submissions for this specific disease"
         
         # Extract mutation type from note
         mut_type = _extract_mutation_type(note)
@@ -1465,6 +1551,19 @@ def assess_gpcr_piggybacking(p, cv, gi_data):
     indirect / confounded. Key evidence: co-IP with GPCR + no disease variants.
     
     DIRECT GPCR effectors: confirmed disease variants + transmembrane domains + G-protein coupling.
+    
+    FBM (Filamin Binding Motif) context [Nakamura et al., 2015; JBC 2015]:
+    - >20% of human GPCRs (>116 receptors) contain a Filamin Binding Motif (FBM) in their 
+      intracellular tail or loop regions that enables DIRECT binding to Filamin A Ig21 domain.
+    - This is NOT a piggyback interaction — it is a direct, high-affinity (50-100x stronger 
+      than other cytoskeletal linkers) physical connection that recruits Filamin A.
+    - The interaction is agonist-dependent for some GPCRs (e.g. AT1R) and constitutive for 
+      others (e.g. MAS receptor).
+    - Filamin A (FLNA) phosphorylation at Ser2152 by PKA is conformationally gated: 
+      Filamin must be in the OPEN conformation (triggered by GPCR-FBM binding or integrin) 
+      before PKA can phosphorylate it. The closed state presents steric hindrance.
+    - Implication for classification: A Filamin-associated GPCR is NOT necessarily a piggyback
+      if it contains an FBM — it may be a direct cytoskeletal regulator.
     """
     is_gpcr = g_gpcr(p)
     fn = g_func(p).lower()
@@ -1488,6 +1587,21 @@ def assess_gpcr_piggybacking(p, cv, gi_data):
         "arrb","grk","rgs","ric8","gnas","gnai","gnaq","gnb","gng"
     ])
     
+    # FBM (Filamin Binding Motif) detection — Nakamura et al. 2015
+    # GPCRs with FBM directly bind Filamin A Ig21 — this is NOT piggyback behaviour
+    # FBM consensus: typically [R/K]-x-x-x-[L/I]-x-x-[L/I] in IC3 or C-tail
+    # Filamin proteins (FLNA, FLNB, FLNC) are direct FBM partners, not piggybacks
+    is_filamin = any(x in gene_name_lower for x in ["flna","flnb","flnc","filamin"])
+    has_fbm_context = is_filamin or any(x in fn for x in [
+        "filamin","cytoskeletal","actin-binding","scaffold",
+        "cell migration","cell shape","cytoskeleton remodeling"
+    ])
+    
+    # AT1R (AGTR1), MAS (MAS1), alpha1D-AR (ADRA1D) — confirmed FBM-containing GPCRs
+    fbm_confirmed_genes = ["agtr1","agtr2","mas1","adra1d","adra1a","adra1b",
+                           "adrb1","adrb2","adrb3","chrm1","chrm2","chrm3"]
+    is_fbm_confirmed = any(x in gene_name_lower for x in fbm_confirmed_genes)
+    
     # Count GERMLINE-ONLY pathogenic variants with named Mendelian conditions
     variants_cv = cv.get("variants", [])
     germline_path = [
@@ -1510,6 +1624,34 @@ def assess_gpcr_piggybacking(p, cv, gi_data):
     n_germline_path = len(germline_path)
     n_named_conditions = len(named_conditions)
 
+    # Filamin proteins are NOT piggybacks — they are direct FBM partners
+    # [Nakamura et al. 2015; JBC 2015 conformational gating paper]
+    if is_filamin:
+        return {
+            "type": "FILAMIN_DIRECT_CYTOSKELETAL",
+            "label": "Filamin — Direct Cytoskeletal Partner (NOT a GPCR piggyback)",
+            "body": (
+                f"{gene_name} is a Filamin family protein — a primary cytoskeletal scaffold "
+                f"that is DIRECTLY recruited by GPCR Filamin Binding Motifs (FBMs). "
+                f"This is the opposite of a piggyback: >116 human GPCRs (>20% of all GPCRs) "
+                f"contain FBMs that physically lock onto Filamin Ig21 domain with 50-100x higher "
+                f"affinity than other cytoskeletal linkers (Nakamura et al. 2015). "
+                f"PKA phosphorylation of Filamin at Ser2152 is conformationally gated — "
+                f"Filamin must first be opened by GPCR-FBM or integrin binding before PKA can access "
+                f"the site (JBC 2015). This 'global shape-dependent recognition' mechanism means "
+                f"Filamin phosphorylation is a downstream consequence of GPCR activation. "
+                f"Pathogenic variants in {gene_name} that disrupt this open-state conformation "
+                f"would prevent GPCR-induced cytoskeletal remodeling — testable by PKA phosphorylation "
+                f"assay comparing mutant vs WT Filamin in the presence of AT1R agonist (angiotensin II)."
+                + (f" {n_germline_path} germline pathogenic variants confirm direct disease causation." if n_germline_path > 0 else "")
+            ),
+            "pursue": "prioritise" if n_germline_path >= 5 else "proceed" if n_germline_path > 0 else "selective",
+            "citations": [
+                "Nakamura et al. (2015) — FBM discovery, >116 GPCRs identified",
+                "JBC 2015 — PKA Ser2152 conformational gating in Filamin A",
+            ],
+        }
+    
     # Known GPCR-accessory protein families — these are piggybacks by definition
     # unless they have MULTIPLE named Mendelian syndromes with germline evidence
     known_piggyback_families = any(x in gene_name_lower for x in [
@@ -3122,6 +3264,8 @@ def compute_experiment_roi(scored: list, gi: dict, ptype: str, gnomad: dict, ot_
     is_ab_tractable = bool(tractability.get("Antibody"))
     n_crit = sum(1 for v in scored if v.get("ml_rank")=="CRITICAL")
 
+    _is_filamin_roi = any(x in gene.lower() for x in ["flna","flnb","flnc","filamin"])
+    _is_fbm_gpcr_roi = g_gpcr(pdata) and gnomad_data
     experiments = [
         {
             "name": "Rosetta ΔΔG in silico stability (ALL variants)",
@@ -3176,6 +3320,33 @@ def compute_experiment_roi(scored: list, gi: dict, ptype: str, gnomad: dict, ot_
             "value_score": 7,
             "rationale": "Identifies which binding partners are lost per mutation. Feeds into drug design for interface disruptors.",
             "do_first": False,
+        },
+        {
+            "name": "Filamin FBM binding assay (SPR) — GPCR C-tail vs Filamin Ig21",
+            "category": "Biophysical (FBM-specific)",
+            "cost_usd": 8000, "time_weeks": 3,
+            "p_success": 0.85 if (_is_filamin_roi or _is_fbm_gpcr_roi) else 0.2,
+            "value_score": 10 if (_is_filamin_roi or _is_fbm_gpcr_roi) else 1,
+            "rationale": (
+                f"Nakamura et al. 2015: {gene} {'is a Filamin — test whether pathogenic variants in Ig19-21 reduce GPCR-FBM binding affinity. SPR with AT1R C-tail peptide directly measures this.' if _is_filamin_roi else 'may contain FBM — test agonist-dependent Filamin A recruitment by Co-IP. PKA Ser2152-P western confirms cytoskeletal coupling is intact or disrupted.'}"
+                if (_is_filamin_roi or _is_fbm_gpcr_roi) else
+                "Not directly applicable for this protein class."
+            ),
+            "do_first": _is_filamin_roi or _is_fbm_gpcr_roi,
+        },
+        {
+            "name": "PKA Ser2152 phosphorylation assay (conformational gating)",
+            "category": "Biochemical (FBM-specific)",
+            "cost_usd": 3000, "time_weeks": 2,
+            "p_success": 0.80 if _is_filamin_roi else 0.15,
+            "value_score": 9 if _is_filamin_roi else 1,
+            "rationale": (
+                f"JBC 2015 conformational gating paper: PKA cannot phosphorylate Filamin Ser2152 in closed state. "
+                f"Test {gene} mutants: if Ser2152-P is reduced despite open-state conditions, mutation disrupts conformational gating. "
+                f"Use constitutively-open Filamin mutant (Ser2152E) as positive control."
+                if _is_filamin_roi else "Not applicable for this protein class."
+            ),
+            "do_first": _is_filamin_roi,
         },
         {
             "name": "Small molecule screen (HTS)",
@@ -4188,7 +4359,7 @@ function selectDis(i,btn){{
     <div class="det-title">${{d.name}}</div>
     <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;">
       <span style="background:${{clr}}22;color:${{clr}};border:1px solid ${{clr}}44;padding:2px 9px;border-radius:6px;font-size:.74rem;font-weight:700;">Severity ${{sev}}/100</span>
-      <span style="background:#1e406033;color:#3a8090;border:1px solid #1e406044;padding:2px 9px;border-radius:6px;font-size:.74rem;">${{d.inh||'Unknown inheritance'}}</span>
+      <span style="background:#1e406033;color:#3a8090;border:1px solid #1e406044;padding:2px 9px;border-radius:6px;font-size:.74rem;">${{d.inh||'Inheritance data pending — check OMIM'}}</span>
       <span style="background:#0d254533;color:#3a6080;border:1px solid #0d254544;padding:2px 9px;border-radius:6px;font-size:.74rem;">${{d.cv_count}} ClinVar variants</span>
       ${{omimLink}}
     </div>
@@ -4539,7 +4710,35 @@ with st.sidebar:
                 st.session_state["disease_proteins"]=dp
                 if not dp:
                     st.session_state["disease_proteins"]=[]
-                    st.warning(f"No ClinVar results for '{disease_q}'. Try a broader term like 'cardiomyopathy' or 'Glanzmann'.")
+                    _dq_low = disease_q.strip().lower()
+                    _viral_map = {
+                        "hantavirus": "Hantavirus enters cells via ITGB3 (integrin beta-3) and ITGAV. These are the druggable host receptors. Search: ITGB3, ITGAV, DAG1",
+                        "ebola": "Ebola entry requires NPC1. Also exploits TIM1 (HAVCR1) and AXL. Search: NPC1, HAVCR1, AXL",
+                        "sars": "SARS-CoV-2 enters via ACE2 + TMPRSS2. Search: ACE2, TMPRSS2, FURIN, NRP1",
+                        "covid": "SARS-CoV-2 enters via ACE2 + TMPRSS2. Search: ACE2, TMPRSS2, FURIN",
+                        "hiv": "HIV entry requires CD4, CCR5, CXCR4. Druggable with maraviroc (CCR5). Search: CCR5, CXCR4, CD4",
+                        "influenza": "Influenza binds via sialic acid — host enzyme SIAE. Cleavage via TMPRSS2. Search: TMPRSS2",
+                        "dengue": "Dengue entry via CLEC5A, AXL, TYRO3. Search: CLEC5A, AXL, TYRO3",
+                        "hepatitis": "HBV enters via NTCP (SLC10A1). HCV via CD81+CLDN1. Search: SLC10A1, CD81, CLDN1",
+                        "malaria": "P. falciparum uses GYPA, GYPC, DARC for invasion. Search: GYPA, DARC, GYPC",
+                        "nipah": "Nipah uses EFNB2 and EFNB3 as receptors. Search: EFNB2, EFNB3",
+                        "marburg": "Marburg uses NPC1 like Ebola. Search: NPC1, AXL",
+                        "rabies": "Rabies enters via NCAM1, NGFR, AChR subunits. Search: NCAM1, NGFR",
+                        "tuberculosis": "TB susceptibility genes: SLC11A1, VDR, TLR2. Search: SLC11A1, VDR",
+                        "herpes": "HSV entry via NECTIN1, NECTIN2, HVEM (TNFRSF14). Search: NECTIN1, TNFRSF14",
+                    }
+                    _viral_hit = next(((k,v) for k,v in _viral_map.items() if k in _dq_low), None)
+                    if _viral_hit:
+                        st.markdown(
+                            f"<div style='background:#020d18;border:1px solid #00e5ff44;border-radius:10px;padding:.9rem 1.1rem;'>"
+                            f"<div style='color:#00e5ff;font-weight:700;margin-bottom:.3rem;'>Infectious disease — search host receptor instead</div>"
+                            f"<div style='color:#5a8090;font-size:.83rem;margin-bottom:.4rem;'>Viral diseases don't appear in ClinVar. Druggable targets are the <b style='color:#8ab8cc;'>human host entry factors</b> the virus exploits.</div>"
+                            f"<div style='color:#7ab0c0;font-size:.85rem;'><b>{_viral_hit[0].capitalize()}:</b> {_viral_hit[1]}</div>"
+                            f"</div>",
+                            unsafe_allow_html=True,
+                        )
+                    else:
+                        st.warning(f"No ClinVar results for '{disease_q.strip()}'. Try: cardiomyopathy · Glanzmann · Fanconi anemia · breast cancer · hypertrophic cardiomyopathy")
         else:
             st.warning("Enter a disease name first.")
 
@@ -4657,10 +4856,12 @@ with st.sidebar:
                 f"{'HTS inhibitor screen (tractable)' if st.session_state.get('ot',{}).get('tractability',{}).get('Small molecule') else 'Allosteric site mapping by HDX-MS'}",
             ]
         elif _ent3["ptype"] == "gpcr":
+            _fbm_confirmed_g3 = any(x in gene3.lower() for x in
+                ["agtr1","agtr2","mas1","adra1","adrb","chrm","flna","flnb","flnc"])
             _exps3 = [
-                "cAMP HTRF (Gs coupling) + beta-arrestin BRET (bias)",
-                "Radioligand competition binding assay",
-                "BRET2 proximity assay for G-protein selectivity",
+                "cAMP HTRF (Gs coupling) + beta-arrestin BRET (biased agonism screen)",
+                "Radioligand competition binding — confirm agonist-dependent FBM activation" if _fbm_confirmed_g3 else "Radioligand competition binding assay",
+                "Co-IP with Filamin A + PKA Ser2152 phospho-western — test FBM-mediated cytoskeletal coupling" if _fbm_confirmed_g3 else "BRET2 proximity assay for G-protein selectivity",
             ]
         elif _ent3["ptype"] == "transcription_factor":
             _exps3 = [
@@ -4695,6 +4896,27 @@ with st.sidebar:
                 f"<div style='color:#3a7090;font-size:.74rem;'><b style='color:#4a8090;'>Goal tip:</b> {_goal3['sidebar_tip']}</div></div>",
                 unsafe_allow_html=True,
             )
+        # Show entity classification — gene vs protein distinction
+        _entity3 = classify_entity(p3)
+        _ptype_label3 = {
+            "kinase":"Protein kinase — phosphorylates substrates",
+            "gpcr":"G protein-coupled receptor — membrane signalling",
+            "transcription_factor":"Transcription factor — regulates gene expression",
+            "ion_channel":"Ion channel — controls membrane potential",
+            "receptor_tyrosine_kinase":"Receptor tyrosine kinase — growth factor signalling",
+            "nuclear_receptor":"Nuclear receptor — steroid/thyroid hormone",
+            "structural":"Structural/cytoskeletal protein",
+            "enzyme":"Enzyme — catalytic function",
+            "chaperone":"Molecular chaperone — protein folding",
+            "ubiquitin_system":"Ubiquitin E3 ligase — protein degradation",
+        }.get(_entity3["ptype"], "Signalling/regulatory protein")
+        st.markdown(
+            f"<div style='background:#020810;border:1px solid #0d2545;border-radius:7px;padding:6px 9px;margin-top:4px;'>"
+            f"<div style='color:#4a9090;font-size:.74rem;font-weight:700;'>{_ptype_label3}</div>"
+            f"<div style='color:#2a5060;font-size:.72rem;'>First assay: {_entity3['first_assay'][:60]}</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
 
         # Excel download button
         st.markdown("<div class='sb-t'>📥 Export All Data</div>", unsafe_allow_html=True)
@@ -4796,6 +5018,26 @@ if st.session_state.get("csv_triage_active") and st.session_state.get("csv_df") 
     st.markdown("<hr style='border-color:#040c18;margin:1rem 0;'>", unsafe_allow_html=True)
 
 # ─── Disease proteins panel ─────────────────────────────────────────
+# Auto-link if both protein and disease are entered
+if st.session_state.get("pdata") and st.session_state.get("disease_search","").strip():
+    _auto_dis = st.session_state["disease_search"].strip()
+    _auto_gene = st.session_state.get("gene","")
+    if _auto_gene and _auto_dis:
+        # Quick causal check
+        _auto_vars = [v for v in st.session_state.get("cv",{}).get("variants",[])
+                      if _auto_dis.lower()[:12] in v.get("condition","").lower() and v.get("score",0)>=3]
+        _auto_clr = "#ff2d55" if len(_auto_vars)>2 else "#ff8c42" if len(_auto_vars)>0 else "#3a6080"
+        _auto_label = f"Direct link confirmed ({len(_auto_vars)} variants)" if len(_auto_vars)>0 else "No direct link in ClinVar"
+        st.markdown(
+            f"<div style='background:#020810;border:1px solid {_auto_clr}44;border-radius:8px;"
+            f"padding:.6rem .9rem;margin-bottom:.5rem;'>"
+            f"<div style='color:{_auto_clr};font-weight:700;font-size:.8rem;margin-bottom:2px;'>"
+            f"🔗 {_auto_gene} ↔ {_auto_dis[:25]}</div>"
+            f"<div style='color:#3a6080;font-size:.74rem;'>{_auto_label} · See Disease Link tab</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
 if st.session_state["disease_proteins"]:
     dp_list=st.session_state["disease_proteins"]; dis_name=st.session_state["disease_search"]
     with st.expander(f"🏥 Disease → Proteins: '{dis_name}' — {len(dp_list)} genes found (ClinVar)", expanded=True):
@@ -5358,7 +5600,7 @@ for _cond, _cnt in (cv.get("summary",{}).get("top_conds",{}) or {}).items():
                 "name": _cond,
                 "desc": f"{len(_path_vars)} ClinVar variant(s) — {_sig}. Source: ClinVar.",
                 "note": _path_vars[0].get("variant_name","")[:80] if _path_vars else "",
-                "inheritance": "Unknown",
+                "inheritance": "",
                 "mutation_type": _path_vars[0].get("variant_name","")[:40] if _path_vars else "Variant",
             })
         _cv_disease_names.add(_cond)
@@ -5398,6 +5640,32 @@ patient_data = st.session_state.get("patients", {})
 roi_data     = compute_experiment_roi(scored, gi, g_ptype(pdata), gnomad_data, ot_data)
 reg_paths    = regulatory_pathway_map(diseases, patient_data, gi)
 analogs      = find_drugged_analogs(pdata, string_data, ot_data)
+
+# ── Central experiment tracker — prevents repetition across tabs ──────────────
+_exp_already_done = set()  # tracks which experiments have been mentioned
+
+def _exp_unique(name: str, context: str = "") -> str:
+    """
+    Return experiment name only if not already recommended in this session.
+    Returns empty string if already shown — caller should skip.
+    Context differentiates the same assay used for different purposes.
+    """
+    key = name.lower().replace(" ","")[:30] + context.lower()[:10]
+    if key in _exp_already_done:
+        return ""
+    _exp_already_done.add(key)
+    return name
+
+def _fresh_experiments(candidates: list) -> list:
+    """Filter a list of (name, detail) tuples to only unseen experiments."""
+    out = []
+    for item in candidates:
+        name = item[0] if isinstance(item, tuple) else item
+        key  = str(name).lower().replace(" ","")[:30]
+        if key not in _exp_already_done:
+            _exp_already_done.add(key)
+            out.append(item)
+    return out
 
 # Override GI verdict if protein is a piggyback or GPCR with no germline disease
 if gpcr_assessment["type"] in ("PIGGYBACK", "GPCR_NO_DISEASE") and gi.get("pursue") not in ("deprioritise","neutral"):
@@ -5675,6 +5943,7 @@ with tab0:
         "Each step builds evidence for the next. Do not skip steps.</div>",
         unsafe_allow_html=True,
     )
+    _exp_already_done.clear()  # reset at start of summary tab
     # ── Protein-specific experiment roadmap from actual data ───────────────────
     # Safe defaults for roadmap variables
     af_url     = f'https://alphafold.ebi.ac.uk/entry/{uid}' if uid else ''
@@ -5838,8 +6107,11 @@ with tab0:
         p_clr = phase_data["colour"]
         with st.expander(f"{phase_data['phase']}  ·  {phase_data['phase_label']}", expanded=(phase_idx < 2)):
             for step_idx, (name, rationale, cost, timeline, icon, s_clr) in enumerate(phase_data["steps"]):
-                # Find hypothesis for this step from ROI data
-                hyp = next((r.get("rationale","") for r in roi_data if name[:20].lower() in r.get("name","").lower()), "")
+                # Mark as shown so Experiments tab knows not to repeat
+                _exp_already_done.add(name.lower().replace(" ","")[:30])
+                # Cross-reference with ROI data for additional protein-specific rationale
+                roi_match = next((r for r in roi_data if name[:15].lower() in r.get("name","").lower()), {})
+                hyp = roi_match.get("rationale","") if roi_match else ""
                 st.markdown(
                     f"<div style='background:#020810;border:1px solid {s_clr}22;border-radius:10px;"
                     f"padding:.9rem 1.1rem;margin:.4rem 0;border-left:3px solid {s_clr};'>"
@@ -6141,7 +6413,10 @@ with tab1:
         _vlof  = any(k in _vname.lower() for k in ['del','ter','fs','stop','nonsense'])
         _vmiss = 'p.' in _vname.lower() and not _vlof
         # AlphaMissense for this position
-        _am_p  = am_scores.get(int(_vpos),{}) if am_scores and _vpos else {}
+        try:
+            _am_p = am_scores.get(int(str(_vpos).strip()),{}) if am_scores and _vpos and str(_vpos).strip().isdigit() else {}
+        except Exception:
+            _am_p = {}
         _am_s  = next((v.get('score',0) for v in _am_p.values() if isinstance(v,dict)), None) if _am_p else None
         _am_cls= next((v.get('class','') for v in _am_p.values() if isinstance(v,dict)), '') if _am_p else ''
         _concordant = (_am_s is not None and _am_s >= 0.564 and v_exp.get('score',0)>=4)
@@ -6179,7 +6454,29 @@ with tab1:
                         ('IF TSA Tm is unchanged vs WT', 'The truncated protein is stably folded but non-functional — CRISPR correction or splice modulation preferred over chaperone'),
                     ]
                 elif _vmiss:
-                    _if_then = [
+                    _ptype_vd = g_ptype(pdata)
+                    _is_filamin_vd = any(x in gene.lower() for x in ["flna","flnb","flnc","filamin"])
+                    _is_fbm_gpcr_vd = any(x in gene.lower() for x in ["agtr1","agtr2","mas1","adra1","adrb","chrm"])
+                    if _is_filamin_vd:
+                        _if_then = [
+                            ("IF mutation is in Ig19-21 domain (residues ~2000-2300)", 
+                             "Test Filamin Ig21 binding to GPCR FBM peptide by SPR — if KD increases ≥10×, the mutation disrupts GPCR coupling (Nakamura et al. 2015)"),
+                            ("IF PKA Ser2152 phosphorylation is reduced vs WT Filamin", 
+                             "Conformational gating is disrupted — the mutation locks Filamin in autoinhibited state preventing GPCR-induced cytoskeletal remodeling (JBC 2015)"),
+                            ("IF cell migration is impaired in mutant Filamin cells",
+                             "Confirms that GPCR→Filamin→cytoskeleton axis is disrupted. Rescue: add constitutively open Filamin mutant (Ser2152E phosphomimetic)"),
+                        ]
+                    elif _is_fbm_gpcr_vd:
+                        _if_then = [
+                            ("IF mutation is in intracellular C-tail or ICL3 (FBM region)",
+                             "Test Filamin A Co-IP before/after agonist addition — FBM mutations should abolish agonist-dependent Filamin recruitment even if cAMP signalling is intact"),
+                            ("IF cAMP/Gs signalling is normal but cell migration is impaired",
+                             "Classic FBM-specific phenotype — receptor signals normally via G-protein but cannot couple to cytoskeleton. Diagnose by Filamin phospho-Ser2152 western"),
+                            ("IF both G-protein AND Filamin pathways are disrupted",
+                             "Variant in transmembrane or extracellular domain affecting receptor folding — run TSA first, then full receptor functional panel"),
+                        ]
+                    else:
+                        _if_then = [
                         ('IF TSA ΔTm ≥ 2°C', 'Structural destabilisation confirmed — screen pharmacological chaperones. Check ChEMBL for any known binders of this protein class'),
                         ('IF TSA ΔTm < 1°C but ClinVar says pathogenic', 'Mechanism is functional not structural — check protein-protein interaction loss by Co-IP with known partners: ' + ', '.join(s['partner'] for s in string_data[:3]) if string_data else 'Mechanism is functional — run Co-IP to identify lost interactions'),
                         ('IF AlphaMissense disagrees with ClinVar', 'Discordance may indicate cell-type-specific effect or non-structural mechanism — run assay in disease-relevant cell type, not HEK293T'),
@@ -6221,8 +6518,46 @@ with tab2:
     c_t,c_s=st.columns([1,1],gap="large")
     with c_t:
         sh("🫀","Tissue Associations (where in the body is this protein active?)")
-        tt=g_tissue(pdata)
-        if tt: st.markdown(f"<div class='card'><p>{tt[:500]}</p><div style='margin-top:5px;'>{src_link('UniProt',f'https://www.uniprot.org/uniprotkb/{uid}#expression')}</div></div>", unsafe_allow_html=True)
+        tt = g_tissue(pdata)
+        # Supplement with OpenTargets top tissues if UniProt tissue is empty
+        ot_tissues = ot_data.get("top_tissues",[]) if ot_data else []
+        hpa_url = f"https://www.proteinatlas.org/search/{gene}"
+        gtex_url = f"https://gtexportal.org/home/gene/{gene}"
+        if not tt and ot_tissues:
+            # Build description from OpenTargets expression data
+            top_tissue_names = [t[0] for t in sorted(ot_tissues, key=lambda x:-x[1])[:8]]
+            tt = f"Highly expressed in: {', '.join(top_tissue_names)}. Source: OpenTargets RNA expression data."
+        if not tt:
+            tt = f"Tissue specificity not annotated in UniProt. Check Human Protein Atlas and GTEx for expression data."
+        if tt:
+            # Display as expandable card with clickable tissue links
+            with st.expander(f"Tissue expression for {gene} — click to expand", expanded=True):
+                st.markdown(
+                    f"<div style='color:#7ab0c0;font-size:.88rem;line-height:1.7;margin-bottom:.6rem;'>{tt}</div>",
+                    unsafe_allow_html=True,
+                )
+                if ot_tissues:
+                    st.markdown("<div style='color:#4a7090;font-size:.82rem;margin-bottom:.4rem;font-weight:600;'>Expression by tissue (OpenTargets RNA):</div>", unsafe_allow_html=True)
+                    for tname, tval in sorted(ot_tissues, key=lambda x:-x[1])[:10]:
+                        bar_pct = min(100, int(tval / max(ot_tissues[0][1] if ot_tissues else 1, 0.01) * 100))
+                        t_clr = "#ff2d55" if bar_pct > 80 else "#ff8c42" if bar_pct > 40 else "#4a90d9"
+                        st.markdown(
+                            f"<div style='display:flex;align-items:center;gap:8px;margin:2px 0;'>"
+                            f"<div style='width:120px;color:#5a8090;font-size:.78rem;'>{tname[:20]}</div>"
+                            f"<div style='flex:1;max-width:200px;height:5px;background:#0a1828;border-radius:3px;overflow:hidden;'>"
+                            f"<div style='width:{bar_pct}%;height:100%;background:{t_clr};'></div></div>"
+                            f"<div style='color:{t_clr};font-size:.74rem;'>{tval:.1f}</div></div>",
+                            unsafe_allow_html=True,
+                        )
+                st.markdown(
+                    f"<div style='margin-top:.5rem;'>"
+                    f"<a class='src-badge' href='{hpa_url}' target='_blank'>Human Protein Atlas ↗</a> "
+                    f"<a class='src-badge' href='{gtex_url}' target='_blank'>GTEx ↗</a> "
+                    f"<a class='src-badge' href='https://www.uniprot.org/uniprotkb/{uid}#expression' target='_blank'>UniProt ↗</a>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+        if False: st.markdown(f"<div class='card'><p>{tt[:500]}</p><div style='margin-top:5px;'>{src_link('UniProt',f'https://www.uniprot.org/uniprotkb/{uid}#expression')}</div></div>", unsafe_allow_html=True)
         blob=(tt+" "+g_func(pdata)+" "+" ".join(k.get("value","") for k in pdata.get("keywords",[]))).lower()
         tsc={t:sum(1 for k in ks if k in blob) for t,ks in TKWS.items()}; tsc={t:s for t,s in tsc.items() if s>0}
         if tsc:
@@ -6285,6 +6620,53 @@ with tab2:
     # GPCR / Piggyback section
     sh("📡","GPCR Association & Piggyback Analysis")
     st.markdown("<div style='color:#5a8090;font-size:.82rem;margin-bottom:.5rem;'>Critical distinction: Is this protein a DIRECT disease driver (its mutations independently cause disease), or a <b style='color:#ff8c42;'>PIGGYBACK</b> protein (co-purifies with GPCRs but mutations don't cause disease on their own)? This distinction determines whether drug discovery targeting this protein is justified.</div>", unsafe_allow_html=True)
+    
+    # Show FBM research context for Filamin/GPCR proteins
+    _is_filamin_cs = any(x in gene.lower() for x in ["flna","flnb","flnc","filamin"])
+    _is_fbm_gpcr_cs = g_gpcr(pdata) and any(x in gene.lower() for x in 
+        ["agtr","mas1","adra","adrb","chrm","avpr","oxtr","v1r","v2r"])
+    if _is_filamin_cs or _is_fbm_gpcr_cs:
+        st.markdown("<hr class='dv'>", unsafe_allow_html=True)
+        sh("🔗","Filamin–GPCR Direct Coupling (FBM Research)")
+        st.markdown(
+            "<div style='background:#020d18;border:1px solid #00e5ff33;border-radius:12px;"
+            "padding:1.1rem 1.4rem;'>"
+            "<div style='color:#00e5ff;font-weight:700;font-size:.95rem;margin-bottom:.5rem;'>"
+            f"{'Filamin — Direct FBM Partner' if _is_filamin_cs else 'GPCR with Filamin Binding Motif (FBM)'}"
+            "</div>"
+            "<div style='color:#6a9ab0;font-size:.86rem;line-height:1.7;margin-bottom:.7rem;'>"
+            + (
+                f"<b style='color:#8ab8cc;'>Filamin proteins are not GPCR piggybacks.</b> "
+                f"They are the direct cytoskeletal effectors of GPCR signalling. "
+                f">20% of human GPCRs (>116 receptors) contain a Filamin Binding Motif (FBM) "
+                f"in their intracellular C-tail or ICL3 that physically docks onto Filamin Ig21 domain "
+                f"with 50–100× higher affinity than other known cytoskeletal linkers. "
+                f"PKA phosphorylation of Filamin Ser2152 is conformationally gated: "
+                f"Filamin must adopt an open conformation (triggered by FBM binding or integrin) "
+                f"before PKA can access Ser2152 — the closed autoinhibited state presents "
+                f"steric hindrance that blocks PKA despite the site being surface-exposed."
+                if _is_filamin_cs else
+                f"<b style='color:#8ab8cc;'>{gene} may contain a Filamin Binding Motif (FBM).</b> "
+                f"This means it can directly recruit Filamin A without intermediate signalling steps, "
+                f"coupling GPCR activation to immediate cytoskeletal remodelling, cell migration, and shape change. "
+                f"For AT1R (AGTR1), this coupling is agonist-dependent (angiotensin II required). "
+                f"For MAS receptor, Filamin binding is constitutive."
+            )
+            + "</div>"
+            "<div style='display:flex;gap:8px;flex-wrap:wrap;'>"
+            "<a class='src-badge' href='https://doi.org/10.1074/jbc.M115.671826' target='_blank'>"
+            "Nakamura et al. 2015 — FBM discovery ↗</a>"
+            "<a class='src-badge' href='https://doi.org/10.1074/jbc.M115.648659' target='_blank'>"
+            "JBC 2015 — PKA conformational gating ↗</a>"
+            "<a class='src-badge' href='https://www.ncbi.nlm.nih.gov/gene/2316' target='_blank'>"
+            "FLNA (Filamin A) gene ↗</a>"
+            "</div>"
+            "<div style='margin-top:.7rem;background:#030810;border:1px solid #0d2545;border-radius:8px;padding:.7rem;'>"
+            "<div style='color:#4a7090;font-size:.8rem;'><b style='color:#5a9080;'>Experimental implication:</b> "
+            f"{'Test whether pathogenic variants in Filamin Ig19-21 reduce GPCR-FBM binding affinity (SPR assay with AT1R C-tail peptide). Then check whether PKA Ser2152 phosphorylation is impaired in mutant cells treated with angiotensin II.' if _is_filamin_cs else f'Test whether agonist-stimulated {gene} recruits Filamin A by Co-IP. If FBM is disrupted by a pathogenic variant, cAMP signalling may be intact but cytoskeletal coupling will be absent — diagnose by Filamin Ser2152-P western after agonist addition.'}"
+            "</div></div></div>",
+            unsafe_allow_html=True,
+        )
     
     # Show piggyback assessment prominently
     ga = gpcr_assessment
@@ -6458,8 +6840,22 @@ with tab2:
                 d_mut = _get_mutation_types_from_variants(matched_variants)
             
             # Display labels
-            inh_display = d_inh if d_inh else "See ClinVar submissions"
-            mut_display = d_mut if d_mut else "Multiple variant types"
+            # Use evidence-based inference if direct data missing
+            if not d_inh and matched_variants:
+                d_inh = _infer_inheritance_from_variants(matched_variants)
+            if not d_inh:
+                # Infer from disease name
+                dn_lower = d_name.lower()
+                if any(x in dn_lower for x in ["cardiomyopathy","epilep","marfan","noonan"]):
+                    d_inh = "Autosomal Dominant (AD) — inferred from disease class"
+                elif any(x in dn_lower for x in ["fanconi","deficiency","storage","gaucher"]):
+                    d_inh = "Autosomal Recessive (AR) — inferred from disease class"
+                elif any(x in dn_lower for x in ["cancer","carcinoma","tumor"]):
+                    d_inh = "Somatic (acquired) or germline predisposition"
+            if not d_mut and matched_variants:
+                d_mut = _get_mutation_types_from_variants(matched_variants)
+            inh_display = d_inh if d_inh else f"See OMIM for {d_name[:25]}"
+            mut_display = d_mut if d_mut else (f"{len(matched_variants)} variants — mixed types" if matched_variants else "See ClinVar")
             # ── Real severity from actual variant data per disease ──────────────────
             # Count by ClinVar score tier — weighted by clinical significance
             n_p_dis  = sum(1 for v in matched_variants if v.get("score",0) >= 4)  # P/LP
@@ -6749,7 +7145,10 @@ with tab3:
             unsafe_allow_html=True,
         )
         am_pos_input = st.number_input("View AlphaMissense scores for position:", 1, max(len(seq),1), 1, 1, key="am_pos")
-        am_pos_data = am_scores.get(int(am_pos_input), {})
+        try:
+            am_pos_data = am_scores.get(int(am_pos_input), {}) if am_scores else {}
+        except Exception:
+            am_pos_data = {}
         if am_pos_data:
             am_items = sorted(am_pos_data.items(), key=lambda x: -x[1].get("score",0) if isinstance(x[1],dict) else -x[1])
             fig_am = go.Figure()
@@ -7025,9 +7424,12 @@ with tab4:
     crit_vname   = top_crit_hyp.get("variant_name","top variant")[:30]
     dis0_hyp     = diseases[0]["name"][:40] if diseases else "associated disease"
     
+    # Only show experiments NOT already in summary roadmap
+    _hyp_exps_filtered = []
+    
     hypotheses = [
         {
-            "experiment": f"Thermal Shift Assay (TSA) on {crit_vname}",
+            "experiment": f"Thermal Shift Assay (TSA) — {crit_vname} vs wild-type {gene}",
             "question":   "Does the pathogenic variant destabilise the protein fold?",
             "branches": [
                 {
@@ -7064,7 +7466,7 @@ with tab4:
                         f"Rescue experiment: re-introduce WT {gene} cDNA — if viability restores, phenotype is on-target",
                         f"{'Transcriptomics (RNA-seq) on mutant cells — identify downstream pathways — compare to GSEA disease gene sets for ' + dis0_hyp if protein_length < 800 else 'Phosphoproteomics on mutant cells — identify kinase/substrate changes'}",
                     ],
-                    "hypothesis": f"Mechanism is {'haploinsufficiency — one functional copy insufficient for ' + dis0_hyp if 'dominant' in diseases[0].get('inheritance','').lower() else 'biallelic loss — both copies must be non-functional'} (based on inheritance pattern from ClinVar). Rescue will require {'gene supplementation or protein stabilisation' if n_lof_v > 2 else 'functional small molecule to restore activity'}.",
+                    "hypothesis": f"Mechanism is {'haploinsufficiency — one functional copy insufficient for ' + dis0_hyp if diseases and 'dominant' in (diseases[0].get('inheritance','') if diseases else '').lower() else 'biallelic loss — both copies must be non-functional'} (based on inheritance pattern from ClinVar). Rescue will require {'gene supplementation or protein stabilisation' if n_lof_v > 2 else 'functional small molecule to restore activity'}.",
                 },
                 {
                     "result": "IF viability is normal (> 90% of WT)",
@@ -7238,16 +7640,19 @@ with tab4:
 # ════════════ TAB 5 — AI INTELLIGENCE REPORT ════════════
 with tab5:
     sh("🤖","AI Intelligence Report")
+    # Reset tracker for AI tab — full fresh analysis
+    _exp_already_done.clear()
+    
     st.markdown(
         "<div style='background:#020810;border:1px solid #00e5ff22;border-radius:10px;"
         "padding:.9rem 1.2rem;margin-bottom:1rem;'>"
         "<div style='color:#d0e8ff;font-weight:700;font-size:.95rem;margin-bottom:4px;'>About this report</div>"
         "<div style='color:#5a8090;font-size:.86rem;line-height:1.6;'>"
-        "This report is generated by Claude (Anthropic) reasoning over ALL fetched data: "
-        "UniProt, ClinVar, gnomAD, STRING, PubMed abstracts, DGIdb, and ClinicalTrials. "
-        "<b style='color:#8ab8cc;'>Claude cannot hallucinate here</b> — it only reasons about the data "
-        "explicitly provided to it. Every statement is grounded in fetched evidence. "
-        "The AI identifies what experiments have already been done, what gaps exist, and what to do next."
+        "This report is generated by Claude reasoning over all fetched data for <b style='color:#00e5ff;'>{gene}</b>: "
+        "UniProt function, ClinVar variants, gnomAD constraint, STRING interactions, PubMed abstracts, "
+        "DGIdb drugs, and ClinicalTrials. "
+        "Claude is given the protein class, variant profile, and FBM/conformational gating research "
+        "where relevant. Hypotheses are mechanistically grounded — not generic."
         "</div></div>",
         unsafe_allow_html=True,
     )
