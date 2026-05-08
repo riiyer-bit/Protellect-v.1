@@ -16,6 +16,175 @@ import plotly.graph_objects as go
 import streamlit as st
 import streamlit.components.v1 as components
 
+# ─── Authentication & Workspace Configuration ──────────────────────────────────
+import hashlib, json, time
+from datetime import datetime
+
+# Simple built-in auth (no external library needed — avoids import errors)
+def _hash(pw):
+    return hashlib.sha256(pw.encode()).hexdigest()
+
+# Default credentials — in production, move to st.secrets
+CREDENTIALS = {
+    "users": {
+        "demo@protellect.com":    {"name":"Demo User",    "pw":_hash("protellect2024"), "plan":"free",    "searches_left":5},
+        "pro@protellect.com":     {"name":"Pro User",     "pw":_hash("pro2024"),        "plan":"pro",     "searches_left":999},
+        "enterprise@protellect.com":{"name":"Enterprise", "pw":_hash("ent2024"),        "plan":"enterprise","searches_left":9999},
+    }
+}
+
+PLAN_LIMITS = {
+    "free":       {"searches": 5,    "history": 5,   "excel": False, "ai_report": False, "price_id": None},
+    "pro":        {"searches": 200,  "history": 100, "excel": True,  "ai_report": True,  "price_id": "price_pro_monthly"},
+    "enterprise": {"searches": 9999, "history": 999, "excel": True,  "ai_report": True,  "price_id": "price_ent_monthly"},
+}
+
+STRIPE_LINKS = {
+    "pro":        "https://buy.stripe.com/test_pro_placeholder",  # Replace with real Stripe payment link
+    "enterprise": "https://buy.stripe.com/test_ent_placeholder",  # Replace with real Stripe payment link
+}
+
+def auth_init():
+    if "auth_user" not in st.session_state:
+        st.session_state["auth_user"] = None
+    if "auth_plan" not in st.session_state:
+        st.session_state["auth_plan"] = None
+    if "workspace" not in st.session_state:
+        st.session_state["workspace"] = []  # list of {gene, uid, timestamp, gi, diseases, verdict}
+
+def login_page():
+    """Full-page login/signup UI."""
+    st.markdown("""
+    <style>
+    .login-wrap{max-width:420px;margin:60px auto 0;padding:2rem 2.5rem;
+      background:#020810;border:1px solid #0d2545;border-radius:16px;}
+    .login-logo{text-align:center;margin-bottom:1.4rem;}
+    .login-title{color:#00e5ff;font-size:1.6rem;font-weight:800;text-align:center;margin-bottom:.3rem;}
+    .login-sub{color:#3a6080;font-size:.88rem;text-align:center;margin-bottom:1.4rem;}
+    .plan-card{background:#030d1a;border:1px solid #0d2545;border-radius:10px;padding:.9rem;margin:.5rem 0;cursor:pointer;transition:all .2s;}
+    .plan-card:hover{border-color:#00e5ff44;}
+    .plan-free{border-left:3px solid #3a6080;}
+    .plan-pro{border-left:3px solid #00e5ff;}
+    .plan-ent{border-left:3px solid #a855f7;}
+    </style>
+    """, unsafe_allow_html=True)
+
+    col_l, col_m, col_r = st.columns([1,2,1])
+    with col_m:
+        st.markdown("<div class='login-title'>Protellect</div>", unsafe_allow_html=True)
+        st.markdown("<div class='login-sub'>Genetics-first protein intelligence</div>", unsafe_allow_html=True)
+
+        tab_in, tab_up, tab_plans = st.tabs(["Sign in", "Register", "Plans & Pricing"])
+
+        with tab_in:
+            email    = st.text_input("Email", placeholder="you@lab.com", key="li_email")
+            password = st.text_input("Password", type="password", key="li_pw")
+            if st.button("Sign in", use_container_width=True, type="primary", key="li_btn"):
+                user = CREDENTIALS["users"].get(email)
+                if user and user["pw"] == _hash(password):
+                    st.session_state["auth_user"] = email
+                    st.session_state["auth_name"] = user["name"]
+                    st.session_state["auth_plan"] = user["plan"]
+                    st.session_state["auth_searches_left"] = user["searches_left"]
+                    st.success(f"Welcome back, {user['name']}!")
+                    st.rerun()
+                else:
+                    st.error("Invalid credentials. Use demo@protellect.com / protellect2024 to try.")
+            st.markdown(
+                "<div style='color:#2a5060;font-size:.8rem;margin-top:.5rem;'>Demo: demo@protellect.com / protellect2024</div>",
+                unsafe_allow_html=True,
+            )
+
+        with tab_up:
+            st.markdown("<div style='color:#5a8090;font-size:.86rem;margin-bottom:.6rem;'>Create an account to get 5 free protein analyses. Upgrade anytime.</div>", unsafe_allow_html=True)
+            new_name  = st.text_input("Full name", key="reg_name")
+            new_email = st.text_input("Email", key="reg_email")
+            new_pw    = st.text_input("Password", type="password", key="reg_pw")
+            new_pw2   = st.text_input("Confirm password", type="password", key="reg_pw2")
+            if st.button("Create free account", use_container_width=True, type="primary", key="reg_btn"):
+                if not new_name or not new_email or not new_pw:
+                    st.error("All fields required.")
+                elif new_pw != new_pw2:
+                    st.error("Passwords do not match.")
+                elif "@" not in new_email:
+                    st.error("Enter a valid email address.")
+                else:
+                    # In production: write to database. Here: add to session.
+                    CREDENTIALS["users"][new_email] = {
+                        "name": new_name, "pw": _hash(new_pw),
+                        "plan": "free", "searches_left": 5,
+                    }
+                    st.session_state["auth_user"]  = new_email
+                    st.session_state["auth_name"]  = new_name
+                    st.session_state["auth_plan"]  = "free"
+                    st.session_state["auth_searches_left"] = 5
+                    st.success("Account created! 5 free analyses included.")
+                    st.rerun()
+
+        with tab_plans:
+            st.markdown(
+                "<div style='background:#030d1a;border:1px solid #0d2545;border-radius:10px;padding:.9rem;margin:.4rem 0;border-left:3px solid #3a6080;'>"
+                "<div style='color:#8ab8cc;font-weight:700;'>Free</div>"
+                "<div style='color:#00e5ff;font-size:1.4rem;font-weight:800;'>$0</div>"
+                "<div style='color:#3a6080;font-size:.82rem;'>5 protein analyses · 5 saved · Basic triage · ClinVar + UniProt</div>"
+                "</div>"
+                "<div style='background:#030d1a;border:1px solid #00e5ff33;border-radius:10px;padding:.9rem;margin:.4rem 0;border-left:3px solid #00e5ff;'>"
+                "<div style='color:#00e5ff;font-weight:700;'>Pro <span style='color:#ffd60a;font-size:.72rem;'>MOST POPULAR</span></div>"
+                "<div style='color:#00e5ff;font-size:1.4rem;font-weight:800;'>$49<span style='color:#3a6080;font-size:.9rem;'>/month</span></div>"
+                "<div style='color:#3a6080;font-size:.82rem;'>200 analyses/month · Full history · Excel export · AI report · gnomAD + OpenTargets + AlphaMissense + STRING</div>"
+                f"<a href='{STRIPE_LINKS['pro']}' target='_blank' style='display:inline-block;margin-top:.5rem;background:#00e5ff;color:#000;font-weight:700;padding:4px 18px;border-radius:8px;font-size:.82rem;text-decoration:none;'>Upgrade to Pro</a>"
+                "</div>"
+                "<div style='background:#030d1a;border:1px solid #a855f733;border-radius:10px;padding:.9rem;margin:.4rem 0;border-left:3px solid #a855f7;'>"
+                "<div style='color:#a855f7;font-weight:700;'>Enterprise</div>"
+                "<div style='color:#a855f7;font-size:1.4rem;font-weight:800;'>$299<span style='color:#3a6080;font-size:.9rem;'>/month</span></div>"
+                "<div style='color:#3a6080;font-size:.82rem;'>Unlimited analyses · Team workspace · Private deployment · API access · Dedicated support</div>"
+                f"<a href='{STRIPE_LINKS['enterprise']}' target='_blank' style='display:inline-block;margin-top:.5rem;background:#a855f7;color:#fff;font-weight:700;padding:4px 18px;border-radius:8px;font-size:.82rem;text-decoration:none;'>Upgrade to Enterprise</a>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
+
+    st.stop()
+
+def save_to_workspace(gene, pdata, gi, diseases, scored):
+    """Save current analysis to workspace history."""
+    if not st.session_state.get("auth_user"):
+        return
+    plan = st.session_state.get("auth_plan","free")
+    limit = PLAN_LIMITS[plan]["history"]
+    ws = st.session_state.get("workspace",[])
+    # Avoid duplicates
+    existing = [i for i,w in enumerate(ws) if w.get("gene") == gene]
+    if existing:
+        ws.pop(existing[0])
+    ws.insert(0, {
+        "gene":        gene,
+        "uid":         pdata.get("primaryAccession",""),
+        "name":        pdata.get("protein",{}).get("recommendedName",{}).get("fullName",{}).get("value","") or gene,
+        "timestamp":   datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "verdict":     gi.get("pursue",""),
+        "n_path":      gi.get("n_pathogenic",0),
+        "n_total":     gi.get("n_total",0),
+        "density":     round(gi.get("density",0)*100,2),
+        "diseases":    [d["name"] for d in diseases[:4]],
+        "scored_top":  [(v.get("variant_name","")[:30], v.get("ml_rank","")) for v in scored[:5]],
+    })
+    st.session_state["workspace"] = ws[:limit]
+
+def check_search_limit():
+    """Returns True if user can search, False if limit exceeded."""
+    plan = st.session_state.get("auth_plan","free")
+    if plan in ("pro","enterprise"):
+        return True
+    left = st.session_state.get("auth_searches_left", 0)
+    return left > 0
+
+def decrement_search():
+    """Use one search credit."""
+    plan = st.session_state.get("auth_plan","free")
+    if plan == "free":
+        st.session_state["auth_searches_left"] = max(0, st.session_state.get("auth_searches_left",0) - 1)
+
+
 st.set_page_config(page_title="Protellect", page_icon="🧬",
                    layout="wide", initial_sidebar_state="expanded")
 
@@ -4235,12 +4404,34 @@ with st.sidebar:
     st.markdown("<div class='sb-t'>🧫 Assay Notes</div>", unsafe_allow_html=True)
     assay_txt=st.text_area("Assay description",height=70,placeholder="e.g. Western blot shows 3× expression increase…",label_visibility="collapsed")
 
-    st.markdown("<div class='sb-t'>🎚️ Triage Sensitivity (how strict the filter is)</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='sb-t'>Variant Triage Threshold</div>"
+        "<div style='color:#3a6080;font-size:.75rem;margin-bottom:4px;'>Disease variants / total variants per 100 residues</div>",
+        unsafe_allow_html=True,
+    )
     sensitivity=st.slider("",0,100,st.session_state["sensitivity"],5,label_visibility="collapsed",
-                          help="High = more variants flagged. Low = only the most certain variants elevated.")
+                          help="Controls how many variants per 100 residues are required before a variant is elevated to CRITICAL or HIGH. "
+                               "Low (strict) = only variants with strong multi-submitter ClinVar evidence + structural disruption. "
+                               "High (sensitive) = surfaces more candidates including single-submitter and moderate structural impact.")
     st.session_state["sensitivity"]=sensitivity
-    sens_lbl="🔬 Strict" if sensitivity<30 else "⚖️ Balanced" if sensitivity<70 else "🔓 Sensitive"
-    st.markdown(f"<div style='display:flex;justify-content:space-between;margin-top:1px;'><span style='color:#5a8090;font-size:.81rem;'>Strict</span><span style='color:#00e5ff;font-size:.96rem;font-weight:700;'>{sens_lbl}</span><span style='color:#5a8090;font-size:.81rem;'>Sensitive</span></div>", unsafe_allow_html=True)
+    # Compute real density label from current protein if loaded
+    _gi_now = st.session_state.get("gi",{})
+    _density_now = _gi_now.get("density",0)*100 if _gi_now else 0
+    _plen_now = st.session_state.get("pdata",{}).get("sequence",{}).get("length",1) if st.session_state.get("pdata") else 1
+    _path_now = _gi_now.get("n_pathogenic",0) if _gi_now else 0
+    _total_now = _gi_now.get("n_total",1) if _gi_now else 1
+    if _gi_now and _path_now > 0:
+        _density_per100 = round(_path_now / max(_plen_now,1) * 100, 2)
+        _ratio_pct = round(_path_now / max(_total_now,1) * 100, 1)
+        sens_lbl = f"{_path_now} disease / {_total_now} total = {_density_per100}/100 residues"
+        sens_clr = "#ff2d55" if _density_per100 > 5 else "#ff8c42" if _density_per100 > 1 else "#ffd60a"
+    else:
+        sens_lbl = "Strict  <————>  Sensitive"
+        sens_clr = "#3a6080"
+    st.markdown(
+        f"<div style='color:{sens_clr};font-size:.78rem;margin-top:2px;font-weight:600;'>{sens_lbl}</div>",
+        unsafe_allow_html=True,
+    )
 
     st.markdown("<div class='sb-t'>🔗 Compare Interaction Partner</div>", unsafe_allow_html=True)
     partner_q=st.text_input("Partner gene / UniProt ID",placeholder="e.g. ITGAL · FLNC · ARRB2",label_visibility="collapsed",key="partner_inp")
@@ -4404,6 +4595,19 @@ if st.session_state["disease_proteins"]:
 
 # ─── Data loading ────────────────────────────────────────────────────
 if search and query and query!=st.session_state["last"]:
+    if not check_search_limit():
+        st.markdown(
+            "<div style='background:#0a0300;border:2px solid #ffd60a;border-radius:10px;"
+            "padding:.9rem 1.2rem;margin:.5rem 0;'>"
+            "<div style='color:#ffd60a;font-weight:800;'>Search limit reached</div>"
+            "<div style='color:#8a7040;font-size:.86rem;margin:.3rem 0;'>Free plan: 5 analyses included. Upgrade to Pro for 200/month.</div>"
+            f"<a href='{STRIPE_LINKS['pro']}' target='_blank' style='background:#00e5ff;color:#000;font-weight:700;"
+            "padding:4px 18px;border-radius:8px;font-size:.82rem;text-decoration:none;display:inline-block;margin-top:.3rem;'>"
+            "Upgrade to Pro — $49/month</a></div>",
+            unsafe_allow_html=True,
+        )
+        st.stop()
+    decrement_search()
     # Clear any previously cached non-human result
     fetch_uniprot.clear()
     with st.spinner("🔬 Fetching UniProt · ClinVar · AlphaFold · PubMed…"):
@@ -4429,6 +4633,8 @@ if search and query and query!=st.session_state["last"]:
             st.session_state["scored"]=scored
             protein_len=pdata.get("sequence",{}).get("length",1)
             gi=compute_gi(cv,protein_len); st.session_state["gi"]=gi
+            # Save to workspace history
+            save_to_workspace(g_gene(pdata), pdata, gi, g_diseases(pdata), [])
             st.session_state["assay"]=assay_txt; st.session_state["last"]=query
             # Extended data fetches
             with st.spinner("🔗 Fetching interactions, population genetics & drug data..."):
@@ -5057,7 +5263,7 @@ if gi["pursue"]=="deprioritise":
     st.markdown("<div class='bias-warn'><p>⚠️ <b style='color:#ff2d55;'>Genomics Warning:</b> This protein carries no confirmed disease-causing germline variants. The principle — <em>genetics must be the starting point of any biology</em> — means we should not commit wet-lab resources here based on structural data or cell-culture results alone. Famous proteins like β2-arrestin (ARRB2), β-adrenergic receptors, and GRKs share this pattern: extensively studied, no dominant disease variants, likely non-essential in vivo. <b style='color:#ffd60a;'>Protein structures are not a validation of biology. DNA sequences are.</b></p></div>", unsafe_allow_html=True)
 
 # ─── TABS ─────────────────────────────────────────────────────────────
-tab0,tab1,tab2,tab3,tab4,tab5=st.tabs(["📋  Summary","🔴  Triage","📋  Case Study","🔬  Explorer","🧪  Experiments","🤖  AI Report"])
+tab0,tab1,tab2,tab3,tab4,tab5,tab6=st.tabs(["📋  Summary","🔴  Triage","📋  Case Study","🔬  Explorer","🧪  Experiments","🤖  AI Report","🗂️  Workspace"])
 
 # ════════════ TAB 0 — SUMMARY ════════════
 with tab0:
@@ -5196,53 +5402,162 @@ with tab0:
         "Each step builds evidence for the next. Do not skip steps.</div>",
         unsafe_allow_html=True,
     )
+    # ── Protein-specific experiment roadmap from actual data ───────────────────
+    n_crit_s   = sum(1 for v in scored if v.get("ml_rank")=="CRITICAL")
+    n_high_s   = sum(1 for v in scored if v.get("ml_rank")=="HIGH")
+    n_lof_s    = sum(1 for v in scored if any(k in (v.get("variant_name","")).lower()
+                    for k in ["del","ter","frameshift","fs","stop","nonsense"]) and v.get("score",0)>=3)
+    top_crit   = [v for v in scored if v.get("ml_rank")=="CRITICAL"][:3]
+    top_crit_names = ", ".join(v.get("variant_name","")[:25] for v in top_crit) or "top ranked variants"
+    has_struct = bool(af_url)
+    is_tractable_sm = bool(ot_data.get("tractability",{}).get("Small molecule")) if ot_data else False
+    is_tractable_ab = bool(ot_data.get("tractability",{}).get("Antibody")) if ot_data else False
+    pli_val    = gnomad_data.get("pLI",0) if gnomad_data else 0
+    n_str_interactors = len(string_data)
+    top_drug   = drugs_data[0]["drug"] if drugs_data else None
+    dis0_name  = diseases[0]["name"][:40] if diseases else "associated condition"
+    
+    # Build each phase from real data — no generic filler
     roadmap_steps = [
         {
-            "phase":"Phase 0 · Computational (FREE, 1–3 days)",
-            "steps":[
-                ("Rosetta ΔΔG stability screen (all variants)","Rank ALL pathogenic variants by predicted structural damage. Eliminates ~50% of candidates before spending a dollar. Focus on ΔΔG ≥2 REU.","$0","1–3 days","🧫","#00c896"),
-                ("AlphaMissense cross-reference","For every pathogenic ClinVar variant, check AlphaMissense AI score. Variants where ClinVar AND AlphaMissense both say pathogenic = highest confidence. Discordant cases need closer scrutiny.","$0","1 day","🤖","#00c896"),
-                ("GPCR / Piggyback classification","Confirm whether protein is a direct disease driver or piggyback. If piggyback — stop here and redirect to the GPCR partner.","$0","1 day","📡","#00c896"),
+            "phase": f"Phase 0 · Computational (FREE, 1–3 days)",
+            "steps": [
+                (
+                    f"Rosetta ΔΔG stability screen — {n_crit_s} CRITICAL variants prioritised",
+                    f"Run Rosetta ΔΔG on specifically: {top_crit_names}. "
+                    f"{'These variants have both ClinVar pathogenic classification AND ML CRITICAL rank — double confirmation. ' if n_crit_s>0 else 'No CRITICAL variants found — focus on HIGH-ranked variants. '}"
+                    f"Variants with ΔΔG ≥ 2 REU are structurally destabilising. This eliminates ~50% of candidates before any spend. "
+                    f"{'The protein is ' + str(pdata.get("sequence",{}).get("length",0)) + " aa — expect the screen to take ~2h on a standard compute node." if pdata else ''}",
+                    "$0", "1–2 days", "🖥️", "#00c896"
+                ),
+                (
+                    f"AlphaMissense cross-reference — {'data loaded' if am_scores else 'fetch required'}",
+                    f"{'AlphaMissense scores are loaded for this protein. ' if am_scores else 'Fetch AlphaMissense CSV from AlphaFold EBI for ' + uid + '. '}"
+                    f"Variants where BOTH ClinVar P/LP AND AlphaMissense ≥ 0.564 AND Rosetta ΔΔG ≥ 2 REU = Tier 1. "
+                    f"Discordant variants (ClinVar pathogenic but AlphaMissense benign) require closer inspection — "
+                    f"may act through a non-structural mechanism such as aberrant splicing or protein interaction disruption.",
+                    "$0", "1 day", "🤖", "#00c896"
+                ),
+                (
+                    f"GPCR/piggyback classification — {gpcr_assessment.get('label','review required')}",
+                    f"Current classification: {gpcr_assessment.get('type','UNCLASSIFIED')}. "
+                    + (f"Protein is classified as a {gpcr_assessment.get('type','')} — "
+                       f"{'this means it is not an independent disease driver. Redirect to the GPCR partner before investing wet-lab resources. ' if 'PIGGYBACK' in gpcr_assessment.get('type','') else 'protein is a direct disease driver. Proceed to validation. '}")
+                    if gpcr_assessment else "Confirm protein is a direct disease driver before proceeding.",
+                    "$0", "0.5 days", "📡", "#00c896"
+                ),
             ],
-            "colour":"#00c896","phase_label":"Start here. Always.",
+            "colour": "#00c896", "phase_label": "Always start here — free evidence before any spend.",
         },
         {
-            "phase":"Phase 1 · Low-cost validation ($1K–$5K, 2–4 weeks)",
-            "steps":[
-                ("Thermal shift assay (TSA)","Confirm whether top 5 ranked variants actually destabilise the protein fold. If ΔTm ≥1°C — structural damage confirmed. Feeds directly into drug screen design.","~$2K","1–2 wks","⚗️","#4a90d9"),
-                ("Cell viability panel (CellTiter-Glo)","Test whether variant overexpression changes cell viability in 2 cell lines. Establishes phenotypic relevance before costly CRISPR work.","~$2K","1–2 wks","🧫","#4a90d9"),
-                ("Western blot for expression level","Confirm mutant protein is expressed at expected level. Absent expression = NMD / instability. Present = functional deficit.","~$500","1 wk","🔬","#4a90d9"),
+            "phase": f"Phase 1 · Low-cost biochemical validation ($500–$5K, 2–4 weeks)",
+            "steps": [
+                (
+                    f"Recombinant protein expression + western blot",
+                    f"Express wild-type {gene} and top {min(3,n_crit_s+n_high_s)} variants in "
+                    f"{'bacteria (E. coli BL21) for soluble domain or HEK293T for full-length protein. ' if protein_length < 500 else 'HEK293T or baculovirus — protein length ' + str(protein_length) + ' aa suggests domains may not fold in bacteria. '}"
+                    f"Western blot: {'anti-' + gene + ' antibody (check HPA or Abcam for validated clones). ' if gene else 'validate with anti-His or anti-FLAG tag. '}"
+                    f"If mutant band is absent: protein is degraded → LoF via NMD or proteasomal clearance confirmed. "
+                    f"If present but lower: unstable. If same as WT: functional deficit, not stability.",
+                    "~$500", "1 wk", "🔬", "#4a90d9"
+                ),
+                (
+                    f"Thermal shift assay — test {min(5, n_crit_s+n_high_s+2)} variants",
+                    f"Measure Tm for WT vs each pathogenic variant using SYPRO Orange (TSA) or DSF. "
+                    f"{'Priority variants for TSA: ' + top_crit_names + '. ' if top_crit_names else ''}"
+                    f"ΔTm ≥ 1°C = structurally destabilising — directly actionable. "
+                    f"ΔTm < 1°C but variant is pathogenic = mechanism is functional, not structural "
+                    f"(test protein-protein interaction loss next). "
+                    f"Reagents: SYPRO Orange (Sigma S5692), qPCR machine with melt-curve capability.",
+                    "~$2K", "1–2 wks", "🌡️", "#4a90d9"
+                ),
+                (
+                    f"Cell viability — {dis0_name} disease-relevant line",
+                    f"Overexpress each variant in {'a cardiomyocyte line (AC16 or iPSC-CM) — ' if 'cardiomyopathy' in dis0_name.lower() else 'disease-relevant cell line — '}"
+                    f"CellTiter-Glo viability at 72h. "
+                    f"Rescue: co-express WT {gene} to confirm on-target effect. "
+                    f"{'pLI = ' + str(pli_val) + ' — high essentiality suggests strong viability phenotype likely.' if pli_val > 0.8 else 'pLI = ' + str(pli_val) + ' — moderate essentiality, phenotype may be subtle; consider functional readout specific to ' + dis0_name + '.'}",
+                    "~$3K", "2 wks", "🧫", "#4a90d9"
+                ),
             ],
-            "colour":"#4a90d9","phase_label":"Cheapest wet-lab validation.",
+            "colour": "#4a90d9", "phase_label": "Confirm destabilisation before spending on CRISPR.",
         },
         {
-            "phase":"Phase 2 · Mechanistic validation ($15K–$50K, 6–12 weeks)",
-            "steps":[
-                ("CRISPR knock-in (top 3 CRITICAL variants)","Introduce exact pathogenic variants into endogenous locus. Test phenotype in ≥2 independent cell lines. Negative result = reclassify variant. Positive = gold standard PS3 evidence (ClinGen framework).","~$25K","6–10 wks","✂️","#ffd60a"),
-                ("Co-IP / AP-MS interaction proteomics","Identify which binding partners are lost per mutation. Pinpoints the disrupted pathway and identifies secondary targets for combination therapy.","~$20K","4–8 wks","🔗","#ffd60a"),
-                ("Transcriptomics (RNA-seq)","Downstream transcriptome changes per variant. Identifies compensatory pathways that may cause resistance to therapeutic intervention.","~$8K","3–5 wks","🧬","#ffd60a"),
+            "phase": f"Phase 2 · Mechanistic validation ($15K–$50K, 6–12 weeks)",
+            "steps": [
+                (
+                    f"CRISPR knock-in — top {min(3,n_crit_s)} CRITICAL variants",
+                    f"{'Justified: ' + str(n_crit_s) + ' CRITICAL variants with ClinVar + ML + TSA agreement.' if n_crit_s >= 2 else 'Only proceed if Phase 1 TSA and viability confirmed dysfunction.'} "
+                    f"Introduce {', '.join(v.get('variant_name','')[:20] for v in top_crit[:2]) or 'top ranked variants'} via HDR in "
+                    f"{'iPSC-derived ' + ('cardiomyocytes' if 'cardiomyopathy' in dis0_name.lower() else 'disease-relevant cells') if 'myo' in dis0_name.lower() else 'HEK293T + disease cell line'}. "
+                    f"Screen ≥ 50 clones. Positive result = ClinGen PS3 functional evidence for ClinVar P/LP reclassification.",
+                    "~$25K", "6–10 wks", "✂️", "#ffd60a"
+                ),
+                (
+                    f"Co-IP/AP-MS — {gene} interactome in mutant vs WT",
+                    f"Pull down {gene}-{'FLAG' if protein_length < 800 else 'His-Strep'} tag in mutant and WT cells. "
+                    f"{'Top STRING interactors to look for: ' + ', '.join(s['partner'] for s in string_data[:4]) + '. ' if string_data else ''}"
+                    f"Lost interactions identify the disrupted pathway. "
+                    f"Gained interactions may identify dominant-negative or neomorphic mechanisms. "
+                    f"Submit raw MS data to MassIVE repository for reproducibility.",
+                    "~$20K", "4–8 wks", "🔗", "#ffd60a"
+                ),
+                (
+                    f"RNA-seq — transcriptome in {gene} mutant vs WT",
+                    f"Bulk RNA-seq (50M reads, paired-end) in mutant knock-in vs isogenic WT. "
+                    f"Identify downstream transcriptional changes. "
+                    f"Cross-reference DEGs with ENCODE ChIP-seq if {gene} is a transcription factor. "
+                    f"Compensatory upregulation in mutant = identifies resistance mechanisms to future therapeutic.",
+                    "~$8K", "3–5 wks", "🧬", "#ffd60a"
+                ),
             ],
-            "colour":"#ffd60a","phase_label":"Establish mechanism before animal studies.",
+            "colour": "#ffd60a", "phase_label": "Establish mechanism before animal work.",
         },
         {
-            "phase":"Phase 3 · In vivo validation ($50K–$200K, 3–6 months)",
-            "steps":[
-                ("Organoid / patient-derived model","If tissue is accessible, establish patient-derived organoids. Closest to human disease. Test variant-specific drug sensitivity.","~$80K","12–20 wks","🧫","#ff8c42"),
-                ("Mouse knock-in model","Introduce variant into mouse germline. Confirms in vivo phenotype and provides model for preclinical drug testing. Only justified if Phase 2 data is unambiguous.","~$150K","16–24 wks","🐭","#ff8c42"),
-                ("Preclinical pharmacology","Test lead compounds from drug screen in mouse model. Establish PK/PD, efficacy, and toxicology.","~$200K","12–20 wks","💊","#ff8c42"),
+            "phase": f"Phase 3 · In vivo / translational ($50K–$200K, 3–6 months)",
+            "steps": [
+                (
+                    f"Patient-derived model — {'iPSC or organoid' if any(k in dis0_name.lower() for k in ['cardio','neuro','liver']) else 'xenograft or PDX'}",
+                    f"{'iPSC reprogramming from a patient carrying confirmed ' + top_crit_names[:30] + ' variant — ' if top_crit else 'Patient sample required — '}"
+                    f"differentiate to {'cardiomyocytes' if 'cardio' in dis0_name.lower() else 'disease-relevant cell type'}. "
+                    f"Gold standard: patient-derived model recapitulates disease in a dish. "
+                    f"Test whether {'the drug ' + top_drug + ' rescues the phenotype.' if top_drug else 'a small molecule stabiliser rescues protein folding.'}",
+                    "~$80K", "12–20 wks", "🧫", "#ff8c42"
+                ),
+                (
+                    f"Preclinical pharmacology — {'small molecule' if is_tractable_sm else 'gene therapy / ASO' if not is_tractable_sm and n_lof_s > 0 else 'antibody'} approach",
+                    f"{'OpenTargets confirms small molecule tractability for ' + gene + '. Screen ChEMBL for existing scaffolds. ' if is_tractable_sm else ''}"
+                    f"{'OpenTargets confirms antibody tractability. Design epitope targeting extracellular domain. ' if is_tractable_ab else ''}"
+                    f"{'High LoF variant burden (' + str(n_lof_s) + ' frameshift/stop variants) — ASO or AAV gene supplementation may be preferred over small molecule for LoF mechanism. ' if n_lof_s > 3 and not is_tractable_sm else ''}"
+                    f"{'Known drug interactions in DGIdb: ' + top_drug + ' — test whether existing compound is active in patient model.' if top_drug else ''}",
+                    "~$200K", "12–20 wks", "💊", "#ff8c42"
+                ),
             ],
-            "colour":"#ff8c42","phase_label":"Only after Phase 2 confirms mechanism.",
+            "colour": "#ff8c42", "phase_label": "Only after Phase 2 data unambiguously confirms mechanism.",
         },
         {
-            "phase":"Phase 4 · Clinical translation ($1M+, years)",
-            "steps":[
-                ("IND application + Phase 1","File Investigational New Drug application. First-in-human safety study. Apply for Orphan Drug Designation if eligible — worth $100M+ in incentives.","$1M+","1–2 yrs","🏥","#ff2d55"),
-                ("Biomarker strategy","Define which patients to enrol based on variant profile. Precision medicine approach — only patients with confirmed pathogenic variant in CRITICAL tier.","$200K","Ongoing","📊","#ff2d55"),
-                ("Registrational trial (Phase 2/3)","Efficacy trial with predefined primary endpoint. Design as adaptive trial to allow interim analysis.","$5M–50M","2–5 yrs","🌍","#ff2d55"),
+            "phase": f"Phase 4 · Clinical translation ($1M+, years)",
+            "steps": [
+                (
+                    f"IND application {'+ Orphan Drug Designation' if patient_data.get('orphan_eligible') else ''}",
+                    f"{'Patient population estimate: ~' + str(patient_data.get('estimated_global_patients',0)//1000) + 'K globally. ' if patient_data else ''}"
+                    f"{'Orphan Drug Designation eligible — file with FDA before IND for 7-year exclusivity + 50% clinical trial tax credit + waived FDA fees. This is worth ~$100M in saved costs. ' if patient_data.get('orphan_eligible') else ''}"
+                    f"Precision enrolment: only patients with confirmed Tier 1 pathogenic variant in {gene} (ClinVar P/LP + functional evidence from Phase 2).",
+                    "$1M+", "1–2 yrs", "🏥", "#ff2d55"
+                ),
+                (
+                    f"Registrational trial (Phase 2/3)",
+                    f"Primary endpoint should reflect the disease mechanism confirmed in Phase 2: "
+                    f"{'cardiac function (echocardiography — LVEF, wall thickness) for ' + dis0_name if 'cardio' in dis0_name.lower() else 'disease-specific validated endpoint for ' + dis0_name}. "
+                    f"Design as adaptive trial with pre-specified interim analysis. "
+                    f"Biomarker stratification: enrol by variant genotype, not just clinical diagnosis.",
+                    "$5M–50M", "2–5 yrs", "🌍", "#ff2d55"
+                ),
             ],
-            "colour":"#ff2d55","phase_label":"Requires IND + regulatory strategy first.",
+            "colour": "#ff2d55", "phase_label": "IND + regulatory strategy must be planned from Phase 2.",
         },
     ]
+
     for phase_idx, phase_data in enumerate(roadmap_steps):
         p_clr = phase_data["colour"]
         with st.expander(f"{phase_data['phase']}  ·  {phase_data['phase_label']}", expanded=(phase_idx < 2)):
@@ -6817,6 +7132,115 @@ ASSAY_RESOURCES = [
     },
 ]
 
+
+# ════════════ TAB 6 — WORKSPACE ════════════
+with tab6:
+    sh("🗂️","Research Workspace")
+    user_plan_ws = st.session_state.get("auth_plan","free")
+    limit_ws     = PLAN_LIMITS[user_plan_ws]["history"]
+    ws           = st.session_state.get("workspace",[])
+
+    # Plan info + upgrade prompt
+    plan_clr_ws = {"free":"#3a6080","pro":"#00e5ff","enterprise":"#a855f7"}.get(user_plan_ws,"#3a6080")
+    st.markdown(
+        f"<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:.8rem;'>"
+        f"<div style='color:#5a8090;font-size:.86rem;'>{len(ws)} / {limit_ws} saved analyses · Plan: "
+        f"<b style='color:{plan_clr_ws};'>{user_plan_ws.upper()}</b></div>"
+        + (f"<a href='{STRIPE_LINKS['pro']}' target='_blank' style='background:#00e5ff;color:#000;font-weight:700;"
+           f"padding:3px 14px;border-radius:7px;font-size:.78rem;text-decoration:none;'>Upgrade for more history</a>"
+           if user_plan_ws == "free" else "")
+        + "</div>",
+        unsafe_allow_html=True,
+    )
+
+    if not ws:
+        st.markdown(
+            "<div style='background:#020810;border:1px solid #0d2545;border-radius:10px;"
+            "padding:2rem;text-align:center;color:#3a6080;'>"
+            "<div style='font-size:1.2rem;margin-bottom:.5rem;'>No analyses saved yet</div>"
+            "<div style='font-size:.86rem;'>Search a protein in the sidebar to begin. "
+            "Each analysis is automatically saved to your workspace.</div></div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        # Summary row
+        n_pursue   = sum(1 for w in ws if w.get("verdict") in ("prioritise","proceed"))
+        n_caution  = sum(1 for w in ws if w.get("verdict") in ("selective","caution"))
+        n_depri    = sum(1 for w in ws if w.get("verdict") == "deprioritise")
+        wsc1,wsc2,wsc3 = st.columns(3)
+        with wsc1: st.markdown(
+            f"<div class='mc' style='border-color:#ff2d5533;'><div class='mc-v' style='color:#ff2d55;'>{n_pursue}</div><div class='mc-l'>PURSUE</div></div>",
+            unsafe_allow_html=True)
+        with wsc2: st.markdown(
+            f"<div class='mc' style='border-color:#ffd60a33;'><div class='mc-v' style='color:#ffd60a;'>{n_caution}</div><div class='mc-l'>SELECTIVE / CAUTION</div></div>",
+            unsafe_allow_html=True)
+        with wsc3: st.markdown(
+            f"<div class='mc' style='border-color:#3a6080;'><div class='mc-v' style='color:#3a6080;'>{n_depri}</div><div class='mc-l'>DEPRIORITISE</div></div>",
+            unsafe_allow_html=True)
+
+        st.markdown("<hr class='dv'>", unsafe_allow_html=True)
+
+        # Filter
+        ws_filter = st.text_input("Filter workspace", placeholder="Search gene name or disease...",
+                                   label_visibility="collapsed", key="ws_filter")
+        
+        # Clear all button
+        if st.button("Clear all history", key="ws_clear"):
+            st.session_state["workspace"] = []
+            st.rerun()
+
+        st.markdown("<hr class='dv'>", unsafe_allow_html=True)
+
+        # History cards
+        for w_idx, w in enumerate(ws):
+            if ws_filter and ws_filter.lower() not in (w.get("gene","") + " ".join(w.get("diseases",[]))).lower():
+                continue
+            verdict_w = w.get("verdict","")
+            v_clr_w = {"prioritise":"#ff2d55","proceed":"#ff8c42","selective":"#ffd60a",
+                        "caution":"#ffd60a","deprioritise":"#3a5a7a","neutral":"#1e6080"}.get(verdict_w,"#3a6080")
+            v_label_w = {"prioritise":"PURSUE","proceed":"PROCEED","selective":"BE SELECTIVE",
+                          "caution":"CAUTION","deprioritise":"DEPRIORITISE","neutral":"INSUFFICIENT DATA"}.get(verdict_w, verdict_w.upper())
+            density_w = w.get("density",0)
+            
+            with st.expander(
+                f"{w.get('gene','')}  ·  {v_label_w}  ·  {density_w:.2f} disease variants/100 residues  ·  {w.get('timestamp','')}",
+                expanded=False,
+            ):
+                wca, wcb = st.columns([3,2], gap="large")
+                with wca:
+                    st.markdown(
+                        f"<div style='display:flex;gap:8px;flex-wrap:wrap;margin-bottom:.6rem;'>"
+                        f"<span style='background:{v_clr_w}22;color:{v_clr_w};border:1px solid {v_clr_w}44;"
+                        f"padding:2px 12px;border-radius:8px;font-size:.8rem;font-weight:700;'>{v_label_w}</span>"
+                        f"<span style='background:#0d254533;color:#3a6080;padding:2px 10px;border-radius:8px;font-size:.78rem;'>"
+                        f"UniProt: {w.get('uid','')}</span></div>"
+                        f"<div style='color:#4a7090;font-size:.84rem;margin-bottom:.4rem;'>"
+                        f"{w.get('n_pathogenic',0)} pathogenic / {w.get('n_total',0)} total ClinVar variants · "
+                        f"Density: {density_w}/100 residues</div>"
+                        f"<div style='color:#3a6080;font-size:.8rem;'><b style='color:#5a8090;'>Diseases:</b> "
+                        + ", ".join(w.get("diseases",[])[:4]) + "</div>",
+                        unsafe_allow_html=True,
+                    )
+                    if w.get("scored_top"):
+                        st.markdown("<div style='color:#3a6070;font-size:.78rem;margin-top:.4rem;'><b style='color:#4a8090;'>Top variants:</b> "
+                                    + " · ".join(f"{vn} ({vr})" for vn,vr in w["scored_top"][:3]) + "</div>",
+                                    unsafe_allow_html=True)
+                with wcb:
+                    st.markdown(
+                        f"<a href='#{w.get("gene","")}' style='display:block;text-align:center;"
+                        f"background:#030d1a;border:1px solid #00e5ff33;color:#00e5ff;"
+                        f"padding:5px 0;border-radius:8px;font-size:.82rem;text-decoration:none;margin-bottom:4px;'>"
+                        f"Reload analysis</a>",
+                        unsafe_allow_html=True,
+                    )
+                    # Reload button
+                    if st.button(f"Reload {w.get('gene','')}", key=f"ws_reload_{w_idx}"):
+                        st.session_state["last"] = ""
+                        st.session_state["query"] = w.get("gene","")
+                        st.rerun()
+                    if st.button(f"Remove", key=f"ws_remove_{w_idx}"):
+                        st.session_state["workspace"].pop(w_idx)
+                        st.rerun()
 
 # ─── Footer ────────────────────────────────────────────────────────
 st.markdown(

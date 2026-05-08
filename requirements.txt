@@ -5,3 +5,5 @@ numpy
 plotly
 openpyxl
 Pillow
+streamlit-authenticator
+stripe
