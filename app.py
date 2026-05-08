@@ -5607,18 +5607,70 @@ for _cond, _cnt in (cv.get("summary",{}).get("top_conds",{}) or {}).items():
 protein_length=pdata.get("sequence",{}).get("length",1)
 gi=st.session_state.get("gi") or compute_gi(cv,protein_length)
 if not st.session_state.get("gi"): st.session_state["gi"]=gi
-# Enrich blank ClinVar conditions from UniProt
-_uni_dis_names = [d['name'] for d in g_diseases(pdata)]
-_best_dis = _uni_dis_names[0] if _uni_dis_names else f'Protein {gene} associated condition'
+# ── Enrich blank ClinVar conditions with all available evidence ──────────────
+_uni_diseases_all = g_diseases(pdata)
+_uni_dis_names    = [d['name'] for d in _uni_diseases_all]
+
+# Build a map: OMIM ID → disease name for fast lookup
+_omim_dis_map = {d.get('omim',''): d['name'] for d in _uni_diseases_all if d.get('omim')}
+
+# Count top conditions from ClinVar (non-blank submissions)
+_cv_cond_counts = {}
+for _v0 in cv.get('variants',[]):
+    for _c0 in _v0.get('condition','').split(';'):
+        _c0 = _c0.strip()
+        if _c0 and _c0.lower() not in ('not specified','not provided','','none','-'):
+            _cv_cond_counts[_c0] = _cv_cond_counts.get(_c0,0) + 1
+
+# Most frequently named condition in ClinVar for this gene
+_top_clinvar_cond = max(_cv_cond_counts, key=_cv_cond_counts.get) if _cv_cond_counts else ''
+
+# Best disease name: prefer ClinVar-named > UniProt > generic
+_best_dis = _top_clinvar_cond or (_uni_dis_names[0] if _uni_dis_names else '')
+
+# Also get all known disease names for this gene to use as alternatives
+_all_dis_names = list(dict.fromkeys([_top_clinvar_cond] + _uni_dis_names))  # deduped, ordered
+
 for _sv in scored:
-    if not _sv.get('condition','').strip() or _sv.get('condition','') in ('Not specified','not provided',''):
+    _raw_cond = _sv.get('condition','').strip()
+    _is_blank = not _raw_cond or _raw_cond.lower() in ('not specified','not provided','','none','-','not classified')
+    if _is_blank:
         sc_s = _sv.get('score',0)
-        if sc_s >= 4 and _best_dis:
-            _sv['condition'] = _best_dis + ' (inferred — UniProt + ClinVar P/LP)'
+        _vname_s = _sv.get('variant_name','') or _sv.get('title','')
+        
+        # Try to infer condition from variant type and known diseases
+        _is_cnv = any(k in _vname_s.lower() for k in ['chr','grch','del','dup','x1','x2','x3'])
+        _is_lof = any(k in _vname_s.lower() for k in ['ter','stop','frameshift','fs','nonsense'])
+        
+        if sc_s >= 4:
+            if _all_dis_names:
+                # Use the most relevant disease — for CNVs affecting entire chromosomal region,
+                # try to match the gene's primary Mendelian disease
+                _condition_label = _all_dis_names[0]
+                # Annotate with evidence source
+                if _top_clinvar_cond and _condition_label == _top_clinvar_cond:
+                    _sv['condition'] = _condition_label
+                elif _uni_dis_names:
+                    _sv['condition'] = _condition_label + f' (primary {gene} disease — UniProt)'
+                else:
+                    _sv['condition'] = f'{gene} pathogenic variant — condition in clinical records'
+            else:
+                _sv['condition'] = f'{gene} Mendelian disease — submit to ClinVar with condition'
+        elif sc_s >= 3:
+            _sv['condition'] = (_all_dis_names[0] + ' (risk factor)') if _all_dis_names else f'{gene} disease risk variant'
         elif sc_s >= 2:
-            _sv['condition'] = f'{gene}-associated condition (variant of uncertain significance)'
+            # VUS — don't fabricate a disease, but give meaningful context
+            _best_omim_d = next((d.get('name','') for d in _uni_diseases_all if d.get('name')), '')
+            if _best_omim_d:
+                _sv['condition'] = f'{_best_omim_d} — uncertain significance (VUS)'
+            else:
+                _sv['condition'] = f'{gene} — variant of uncertain significance (VUS)'
         else:
-            _sv['condition'] = f'{gene} variant — condition not yet named in ClinVar'
+            _sv['condition'] = f'{gene} variant — likely benign'
+    elif 'inferred — UniProt' in _raw_cond:
+        # Already enriched in a previous run — clean up the label
+        _clean = _raw_cond.replace(' (inferred — UniProt + ClinVar P/LP)', '').replace(' (inferred — UniProt)', '')
+        _sv['condition'] = _clean
 partner_info=st.session_state.get("partner_gi")
 is_gpcr=g_gpcr(pdata)
 gpcr_assessment = assess_gpcr_piggybacking(pdata, cv, gi)
@@ -6762,29 +6814,217 @@ with tab2:
 
     st.markdown("<hr class='dv'>", unsafe_allow_html=True)
     sh("🔬","Disease Classification — Inherited (germline) vs Acquired (somatic)")
-    somatic=set(); germline=set()
+    
+    # ── Classify every variant's condition into precise categories ──────────────
+    CANCER_TERMS = {"cancer","carcinoma","tumor","tumour","leukemia","leukaemia",
+                    "lymphoma","sarcoma","glioma","glioblastoma","melanoma","myeloma",
+                    "mesothelioma","neuroblastoma","adenocarcinoma","hepatocellular",
+                    "squamous cell","renal cell","breast cancer","lung cancer","ovarian",
+                    "colorectal","pancreatic","prostate cancer","bladder cancer"}
+    
+    somatic_cancer  = {}  # cancer-type → list of specific disease names
+    somatic_other   = {}  # non-cancer somatic
+    germline_mendelian = {}  # Mendelian disease → n_pathogenic variants
+    germline_cancer_predisposition = {}  # hereditary cancer syndromes
+    both_contexts   = {}  # appears in both
+    
     for v2 in variants:
-        cond4=v2.get("condition","")
-        if not cond4 or cond4.strip().lower() in ("not specified","not provided","","none","-","n/a","unknown"): continue
-        if v2.get("somatic") or "somatic" in v2.get("origin","").lower():
-            somatic.add(cond4)
-        elif v2.get("germline") or any(x in v2.get("origin","").lower() for x in ["germline","inherited","de novo"]):
-            germline.add(cond4)
-        elif v2.get("score",0) >= 4:  # Pathogenic with unknown origin -> assume germline
-            germline.add(cond4)
-        elif v2.get("score",0) >= 3:  # Risk factor -> could be either
-            germline.add(cond4)
-    cg2,cs3=st.columns(2)
-    with cg2:
-        st.markdown(f"<div style='background:#03100a;border:1px solid #00c89628;border-radius:11px;padding:1rem;'><p style='color:#00c896;font-weight:700;font-size:.98rem;margin:0 0 2px;'>🧬 Inherited / born-with (Germline) ({len(germline)})</p><p style='color:#1a4030;font-size:.80rem;margin:0 0 6px;'>Variant present in DNA from birth — heritable, runs in families</p>", unsafe_allow_html=True)
-        for c5 in sorted(germline)[:7]: st.markdown(f"<div style='color:#2a6040;font-size:.96rem;margin:2px 0;'>◆ {c5[:65]}</div>", unsafe_allow_html=True)
-        if not germline: st.markdown("<div style='color:#1a3020;font-size:.82rem;'>No confirmed germline disease associations found in ClinVar. This may reflect somatic-only involvement, functional redundancy, or an understudied protein.</div>", unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-    with cs3:
-        st.markdown(f"<div style='background:#100308;border:1px solid #ff2d5528;border-radius:11px;padding:1rem;'><p style='color:#ff2d55;font-weight:700;font-size:.98rem;margin:0 0 2px;'>🔴 Acquired / developed (Somatic) ({len(somatic)})</p><p style='color:#3a1020;font-size:.80rem;margin:0 0 6px;'>Variant acquired after birth in specific cells — not heritable (e.g. cancer mutations)</p>", unsafe_allow_html=True)
-        for c5 in sorted(somatic)[:7]: st.markdown(f"<div style='color:#602030;font-size:.96rem;margin:2px 0;'>◆ {c5[:65]}</div>", unsafe_allow_html=True)
-        if not somatic: st.markdown("<div style='color:#1a1020;font-size:.82rem;padding:4px 0;'>No confirmed somatic (acquired) disease associations found in ClinVar. This protein may act through germline mechanisms or may not be a driver in cancer contexts.</div>", unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+        cond4 = v2.get("condition","")
+        if not cond4 or cond4.strip().lower() in ("not specified","not provided","","none","-","n/a","unknown"):
+            continue
+        cond4_clean = cond4.split(";")[0].strip()  # use first condition
+        cond_lower  = cond4_clean.lower()
+        sc4         = v2.get("score",0)
+        is_som      = v2.get("somatic") or "somatic" in v2.get("origin","").lower()
+        is_germ     = v2.get("germline") or any(x in v2.get("origin","").lower() for x in ["germline","inherited","de novo"]) or (not is_som and sc4>=3)
+        is_cancer   = any(t in cond_lower for t in CANCER_TERMS)
+        is_hereditary_cancer = is_cancer and any(x in cond_lower for x in ["hereditary","familial","predisposition","susceptibility","lynch","brca","li-fraumeni"])
+        
+        if is_som and is_cancer:
+            # Determine cancer type
+            cancer_type = "Solid tumour"
+            if "leukemia" in cond_lower or "leukaemia" in cond_lower: cancer_type = "Haematological — Leukaemia"
+            elif "lymphoma" in cond_lower: cancer_type = "Haematological — Lymphoma"
+            elif "myeloma" in cond_lower: cancer_type = "Haematological — Myeloma"
+            elif "glioma" in cond_lower or "glioblastoma" in cond_lower: cancer_type = "CNS tumour"
+            elif "sarcoma" in cond_lower: cancer_type = "Sarcoma"
+            elif "melanoma" in cond_lower: cancer_type = "Skin — Melanoma"
+            elif "breast" in cond_lower: cancer_type = "Breast carcinoma"
+            elif "lung" in cond_lower: cancer_type = "Lung carcinoma"
+            elif "colon" in cond_lower or "colorectal" in cond_lower: cancer_type = "Colorectal carcinoma"
+            elif "ovarian" in cond_lower: cancer_type = "Ovarian carcinoma"
+            elif "pancreatic" in cond_lower or "pancreas" in cond_lower: cancer_type = "Pancreatic carcinoma"
+            elif "prostate" in cond_lower: cancer_type = "Prostate carcinoma"
+            elif "liver" in cond_lower or "hepatocellular" in cond_lower: cancer_type = "Hepatocellular carcinoma"
+            elif "renal" in cond_lower or "kidney" in cond_lower: cancer_type = "Renal cell carcinoma"
+            elif "bladder" in cond_lower: cancer_type = "Bladder carcinoma"
+            elif "thyroid" in cond_lower: cancer_type = "Thyroid carcinoma"
+            if cancer_type not in somatic_cancer: somatic_cancer[cancer_type] = []
+            if cond4_clean not in somatic_cancer[cancer_type]: somatic_cancer[cancer_type].append(cond4_clean)
+        elif is_som:
+            if cond4_clean not in somatic_other: somatic_other[cond4_clean] = 0
+            somatic_other[cond4_clean] += 1
+        elif is_germ and is_hereditary_cancer:
+            if cond4_clean not in germline_cancer_predisposition: germline_cancer_predisposition[cond4_clean] = 0
+            germline_cancer_predisposition[cond4_clean] += 1
+        elif is_germ:
+            if cond4_clean not in germline_mendelian: germline_mendelian[cond4_clean] = 0
+            germline_mendelian[cond4_clean] += 1
+    
+    # Also pull from UniProt diseases that might not be in ClinVar conditions
+    for d_uni in diseases:
+        d_name_uni = d_uni.get("name","")
+        d_lower_uni = d_name_uni.lower()
+        is_cancer_uni = any(t in d_lower_uni for t in CANCER_TERMS)
+        is_hered_uni  = is_cancer_uni and any(x in d_lower_uni for x in ["hereditary","familial","predisposition"])
+        d_inh_uni     = d_uni.get("inheritance","")
+        # Only add if not already captured from ClinVar
+        if d_name_uni not in germline_mendelian and d_name_uni not in germline_cancer_predisposition:
+            if "dominant" in d_inh_uni.lower() or "recessive" in d_inh_uni.lower():
+                if is_hered_uni:
+                    germline_cancer_predisposition[d_name_uni] = germline_cancer_predisposition.get(d_name_uni,0)
+                else:
+                    germline_mendelian[d_name_uni] = germline_mendelian.get(d_name_uni,0)
+    
+    n_germ_total = len(germline_mendelian) + len(germline_cancer_predisposition)
+    n_soma_total = len(somatic_cancer) + len(somatic_other)
+    
+    # ── Display ────────────────────────────────────────────────────────────────
+    st.markdown(
+        f"<div style='color:#5a8090;font-size:.84rem;margin-bottom:.7rem;'>"
+        f"Classification of all ClinVar conditions for {gene} into germline (heritable) and "
+        f"somatic (acquired) contexts. Cancer somatic mutations are further classified by tumour type. "
+        f"Germline predisposition syndromes are separated from Mendelian diseases.</div>",
+        unsafe_allow_html=True,
+    )
+    
+    # Row 1: Germline
+    st.markdown(
+        f"<div style='background:#020d08;border:1px solid #00c89633;border-radius:12px;"
+        f"padding:1rem 1.2rem;margin-bottom:.6rem;'>"
+        f"<div style='display:flex;align-items:center;gap:10px;margin-bottom:.6rem;'>"
+        f"<span style='color:#00c896;font-weight:800;font-size:1rem;'>🧬 Inherited / Germline ({n_germ_total} conditions)</span>"
+        f"<span style='color:#1a4030;font-size:.78rem;'>Present in DNA from birth — heritable, runs in families</span>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+    
+    gcol1, gcol2 = st.columns(2)
+    with gcol1:
+        st.markdown(
+            f"<div style='color:#4a9070;font-size:.82rem;font-weight:700;margin-bottom:.3rem;'>"
+            f"Mendelian disease ({len(germline_mendelian)})</div>",
+            unsafe_allow_html=True,
+        )
+        if germline_mendelian:
+            for cname, cnt in sorted(germline_mendelian.items(), key=lambda x:-x[1])[:8]:
+                with st.expander(cname[:55], expanded=False):
+                    # Find matching disease from UniProt
+                    d_match = next((d for d in diseases if cname.lower()[:15] in d.get("name","").lower()), None)
+                    inh_info = d_match.get("inheritance","") if d_match else ""
+                    desc_info= d_match.get("desc","")[:200] if d_match else ""
+                    omim_id  = d_match.get("omim","") if d_match else ""
+                    n_path_c = sum(1 for v in variants if cname.lower()[:15] in v.get("condition","").lower() and v.get("score",0)>=4)
+                    st.markdown(
+                        f"<div style='color:#4a8070;font-size:.82rem;line-height:1.5;'>"
+                        f"<b>Inheritance:</b> {inh_info if inh_info else 'Check OMIM'}<br>"
+                        f"<b>Pathogenic variants:</b> {n_path_c}<br>"
+                        f"{('<b>Description:</b> ' + desc_info + '<br>') if desc_info else ''}"
+                        f"</div>"
+                        + (f"<a class='src-badge' href='https://omim.org/entry/{omim_id}' target='_blank'>OMIM {omim_id} ↗</a>" if omim_id else "")
+                        + f"<a class='src-badge' href='https://www.ncbi.nlm.nih.gov/clinvar/?term={gene}[gene]+{cname[:20].replace(' ','+')}' target='_blank'>ClinVar ↗</a>",
+                        unsafe_allow_html=True,
+                    )
+        else:
+            st.markdown(
+                "<div style='color:#1a4030;font-size:.82rem;'>"
+                f"No confirmed Mendelian disease associations for {gene} in ClinVar. "
+                f"{'This is consistent with a somatic-only role.' if somatic_cancer else 'Protein may be functionally redundant or understudied.'}"
+                "</div>", unsafe_allow_html=True,
+            )
+    
+    with gcol2:
+        st.markdown(
+            f"<div style='color:#4a9070;font-size:.82rem;font-weight:700;margin-bottom:.3rem;'>"
+            f"Hereditary cancer predisposition ({len(germline_cancer_predisposition)})</div>",
+            unsafe_allow_html=True,
+        )
+        if germline_cancer_predisposition:
+            for cname, cnt in sorted(germline_cancer_predisposition.items(), key=lambda x:-x[1])[:6]:
+                with st.expander(cname[:55], expanded=False):
+                    n_path_c = sum(1 for v in variants if cname.lower()[:15] in v.get("condition","").lower() and v.get("score",0)>=4)
+                    st.markdown(
+                        f"<div style='color:#4a7060;font-size:.82rem;'>"
+                        f"Germline pathogenic variants ({n_path_c}) in {gene} confer hereditary predisposition to this cancer. "
+                        f"Unlike somatic cancer mutations, these are present in every cell from birth and can be transmitted to offspring. "
+                        f"Clinical management: genetic counselling + enhanced surveillance recommended for carriers.</div>",
+                        unsafe_allow_html=True,
+                    )
+        else:
+            st.markdown(
+                f"<div style='color:#1a4030;font-size:.82rem;'>No hereditary cancer predisposition syndromes linked to {gene} in ClinVar.</div>",
+                unsafe_allow_html=True,
+            )
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    # Row 2: Somatic — with cancer type sub-classification
+    st.markdown(
+        f"<div style='background:#0d0208;border:1px solid #ff2d5533;border-radius:12px;"
+        f"padding:1rem 1.2rem;margin-top:.4rem;'>"
+        f"<div style='display:flex;align-items:center;gap:10px;margin-bottom:.6rem;'>"
+        f"<span style='color:#ff2d55;font-weight:800;font-size:1rem;'>🔴 Acquired / Somatic ({n_soma_total} contexts)</span>"
+        f"<span style='color:#3a1020;font-size:.78rem;'>Variant acquired after birth — cancer driver mutations, not heritable</span>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+    
+    if somatic_cancer:
+        st.markdown(
+            "<div style='color:#7a3040;font-size:.82rem;font-weight:700;margin-bottom:.4rem;'>"
+            f"Cancer driver mutations — {sum(len(v) for v in somatic_cancer.values())} specific tumour types</div>",
+            unsafe_allow_html=True,
+        )
+        for cancer_type, cancer_diseases in sorted(somatic_cancer.items()):
+            with st.expander(
+                f"{cancer_type}  ·  {len(cancer_diseases)} condition(s)",
+                expanded=False,
+            ):
+                for cd in cancer_diseases[:8]:
+                    n_som_v = sum(1 for v in variants if cd.lower()[:15] in v.get("condition","").lower())
+                    st.markdown(
+                        f"<div style='background:#0a0105;border:1px solid #ff2d5522;border-radius:7px;"
+                        f"padding:6px 10px;margin:3px 0;'>"
+                        f"<div style='color:#8a3050;font-weight:600;font-size:.84rem;'>{cd[:70]}</div>"
+                        f"<div style='color:#602030;font-size:.78rem;'>{n_som_v} ClinVar submissions · Somatic (acquired)</div>"
+                        f"<div style='color:#3a1020;font-size:.76rem;margin-top:2px;'>"
+                        f"Somatic variants in {gene} are found in {cancer_type.lower()} cells — not inherited. "
+                        f"Clinical implication: {gene} mutation status in this tumour type may predict {'response to ' + (drugs_data[0]['drug'] if drugs_data else 'targeted therapy') + ' — check OncoKB or cBioPortal' if drugs_data or ot_data else 'prognosis — check cBioPortal for patient data'}."
+                        f"</div>"
+                        f"<a class='src-badge' href='https://www.cbioportal.org/results/mutations?gene_list={gene}' target='_blank'>cBioPortal ↗</a> "
+                        f"<a class='src-badge' href='https://www.oncokb.org/gene/{gene}' target='_blank'>OncoKB ↗</a>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+    
+    if somatic_other:
+        st.markdown(
+            f"<div style='color:#7a3040;font-size:.82rem;font-weight:700;margin-top:.4rem;margin-bottom:.3rem;'>Non-cancer somatic ({len(somatic_other)})</div>",
+            unsafe_allow_html=True,
+        )
+        for cname, cnt in list(somatic_other.items())[:5]:
+            st.markdown(f"<div style='color:#602030;font-size:.82rem;margin:2px 0;'>◆ {cname[:60]}</div>", unsafe_allow_html=True)
+    
+    if not somatic_cancer and not somatic_other:
+        st.markdown(
+            f"<div style='color:#3a1020;font-size:.82rem;'>"
+            f"No somatic (acquired) variants found in ClinVar for {gene}. "
+            f"{'This protein acts primarily through germline mechanisms.' if germline_mendelian else 'Check cBioPortal for somatic mutations in cancer cohorts — ClinVar captures only a fraction of tumour-specific variants.'} "
+            f"<a class='src-badge' href='https://www.cbioportal.org/results/mutations?gene_list={gene}' target='_blank'>cBioPortal ↗</a></div>",
+            unsafe_allow_html=True,
+        )
+    
+    st.markdown("</div>", unsafe_allow_html=True)
     if diseases:
         st.markdown("<hr class=\'dv\'>", unsafe_allow_html=True)
         sh("🏥", "Disease Breakdown — Per-Disease Mutation Impact")
