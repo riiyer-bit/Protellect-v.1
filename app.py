@@ -25,13 +25,16 @@ def _hash(pw):
     return hashlib.sha256(pw.encode()).hexdigest()
 
 # Default credentials — in production, move to st.secrets
-CREDENTIALS = {
-    "users": {
-        "demo@protellect.com":    {"name":"Demo User",    "pw":_hash("protellect2024"), "plan":"free",    "searches_left":5},
-        "pro@protellect.com":     {"name":"Pro User",     "pw":_hash("pro2024"),        "plan":"pro",     "searches_left":999},
-        "enterprise@protellect.com":{"name":"Enterprise", "pw":_hash("ent2024"),        "plan":"enterprise","searches_left":9999},
-    }
-}
+# Credentials stored in session state so registered users persist across reruns
+def _get_credentials():
+    if "_credentials" not in st.session_state:
+        st.session_state["_credentials"] = {
+            "demo@protellect.com":    {"name":"Demo User",    "pw":_hash("protellect2024"), "plan":"free",    "searches_left":5},
+            "pro@protellect.com":     {"name":"Pro User",     "pw":_hash("pro2024"),        "plan":"pro",     "searches_left":999},
+            "enterprise@protellect.com":{"name":"Enterprise", "pw":_hash("ent2024"),        "plan":"enterprise","searches_left":9999},
+        }
+    return st.session_state["_credentials"]
+CREDENTIALS = None  # always call _get_credentials() instead
 
 PLAN_LIMITS = {
     "free":       {"searches": 5,    "history": 5,   "excel": False, "ai_report": False, "price_id": None},
@@ -45,12 +48,13 @@ STRIPE_LINKS = {
 }
 
 def auth_init():
-    if "auth_user" not in st.session_state:
-        st.session_state["auth_user"] = None
-    if "auth_plan" not in st.session_state:
-        st.session_state["auth_plan"] = None
-    if "workspace" not in st.session_state:
-        st.session_state["workspace"] = []  # list of {gene, uid, timestamp, gi, diseases, verdict}
+    defaults = {
+        "auth_user": None, "auth_name": None, "auth_plan": None,
+        "auth_searches_left": 0, "workspace": [],
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
 
 def login_page():
     """Full-page login/signup UI."""
@@ -80,7 +84,7 @@ def login_page():
             email    = st.text_input("Email", placeholder="you@lab.com", key="li_email")
             password = st.text_input("Password", type="password", key="li_pw")
             if st.button("Sign in", use_container_width=True, type="primary", key="li_btn"):
-                user = CREDENTIALS["users"].get(email)
+                user = _get_credentials().get(email)
                 if user and user["pw"] == _hash(password):
                     st.session_state["auth_user"] = email
                     st.session_state["auth_name"] = user["name"]
@@ -110,7 +114,7 @@ def login_page():
                     st.error("Enter a valid email address.")
                 else:
                     # In production: write to database. Here: add to session.
-                    CREDENTIALS["users"][new_email] = {
+                    _get_credentials()[new_email] = {
                         "name": new_name, "pw": _hash(new_pw),
                         "plan": "free", "searches_left": 5,
                     }
@@ -4333,6 +4337,11 @@ def show_tutorial_dialog():
         if st.button("Got it ✓", use_container_width=True, type="primary"):
             st.session_state["show_tutorial"] = False
             st.rerun()
+
+# ─── Auth init + gate ─────────────────────────────────────────────────────
+auth_init()
+if not st.session_state.get('auth_user'):
+    login_page()  # shows login UI and calls st.stop()
 
 # ─── Session state ──────────────────────────────────────────────────
 for k,v0 in {"pdata":None,"cv":None,"pdb":"","papers":[],"scored":[],"gene":"","uid":"",
