@@ -4367,9 +4367,9 @@ if st.session_state.get("csv_triage_active") and st.session_state.get("csv_df") 
         fig_vt = go.Figure(go.Scatter(x=df_t[fc_t], y=neg_log_p, mode="markers",
             marker=dict(color=c_v, size=4, opacity=.75),
             hovertemplate="FC: %{x:.2f}<br>-log10(p): %{y:.2f}<extra></extra>"))
-        fig_vt.add_vline(x=1, line_color="#ff2d5544", line_dash="dot")
-        fig_vt.add_vline(x=-1, line_color="#3a5a7a44", line_dash="dot")
-        fig_vt.add_hline(y=-np.log10(0.05), line_color="#ffd60a44", line_dash="dot")
+        fig_vt.add_vline(x=1, line_color="rgba(255,45,85,0.27)", line_dash="dot")
+        fig_vt.add_vline(x=-1, line_color="rgba(58,90,122,0.27)", line_dash="dot")
+        fig_vt.add_hline(y=-np.log10(0.05), line_color="rgba(255,214,10,0.27)", line_dash="dot")
         fig_vt.update_layout(paper_bgcolor="#010306", plot_bgcolor="#010306", font_color="#1e4060",
             xaxis=dict(title="Fold change (log₂) — increased vs decreased expression", gridcolor="#040c18"),
             yaxis=dict(title="-log₁₀(p-value) — confidence in result", gridcolor="#040c18"),
@@ -4573,9 +4573,9 @@ if st.session_state["csv_df"] is not None and not st.session_state["pdata"]:
         fig_v.add_trace(go.Scatter(x=df[fc_col],y=neg_log_p,mode="markers",
             marker=dict(color=colours_v,size=4,opacity=.7),
             hovertemplate="FC: %{x:.2f}<br>-log10(p): %{y:.2f}<extra></extra>"))
-        fig_v.add_vline(x=1,line_color="#ff2d5555",line_dash="dot")
-        fig_v.add_vline(x=-1,line_color="#3a5a7a55",line_dash="dot")
-        fig_v.add_hline(y=-np.log10(0.05),line_color="#ffd60a55",line_dash="dot")
+        fig_v.add_vline(x=1,line_color="rgba(255,45,85,0.33)",line_dash="dot")
+        fig_v.add_vline(x=-1,line_color="rgba(58,90,122,0.33)",line_dash="dot")
+        fig_v.add_hline(y=-np.log10(0.05),line_color="rgba(255,214,10,0.33)",line_dash="dot")
         fig_v.update_layout(paper_bgcolor="#04080f",plot_bgcolor="#04080f",font_color="#1e4060",
             xaxis=dict(title="Fold change (log₂) — how much expression increased/decreased",gridcolor="#060f1c"),
             yaxis=dict(title="-log₁₀(p-value) — confidence in the result",gridcolor="#060f1c"),
@@ -4601,9 +4601,9 @@ if st.session_state["csv_df"] is not None and not st.session_state["pdata"]:
                 marker=dict(color=c_prot,size=4,opacity=.75),
                 text=(df[gene_col_d2].astype(str) if gene_col_d2 else df.index.astype(str)),
                 hovertemplate="%{text}<br>Ratio: %{x:.2f}<br>-log10(p): %{y:.2f}<extra></extra>"))
-            fig_prot.add_vline(x=1,line_color="#ff2d5544",line_dash="dot")
-            fig_prot.add_vline(x=-1,line_color="#3a5a7a44",line_dash="dot")
-            fig_prot.add_hline(y=-_np_prot.log10(0.05),line_color="#ffd60a44",line_dash="dot")
+            fig_prot.add_vline(x=1,line_color="rgba(255,45,85,0.27)",line_dash="dot")
+            fig_prot.add_vline(x=-1,line_color="rgba(58,90,122,0.27)",line_dash="dot")
+            fig_prot.add_hline(y=-_np_prot.log10(0.05),line_color="rgba(255,214,10,0.27)",line_dash="dot")
             fig_prot.update_layout(paper_bgcolor="#010306",plot_bgcolor="#010306",font_color="#3a6080",
                 xaxis=dict(title="Log₂ protein abundance ratio",gridcolor="#040c18"),
                 yaxis=dict(title="-log₁₀(p-value)",gridcolor="#040c18"),
@@ -4640,9 +4640,9 @@ if st.session_state["csv_df"] is not None and not st.session_state["pdata"]:
             fig_m = go.Figure(go.Scatter(x=list(range(len(neg_log))),y=neg_log,mode="markers",
                 marker=dict(color=c_m,size=3,opacity=.8),
                 hovertemplate="Index: %{x}<br>-log10(p): %{y:.2f}<extra></extra>"))
-            fig_m.add_hline(y=gwas_line,line_color="#ff2d5566",line_dash="dash",
+            fig_m.add_hline(y=gwas_line,line_color="rgba(255,45,85,0.40)",line_dash="dash",
                            annotation_text="Genome-wide significance (5×10⁻⁸)",annotation_font_color="#ff2d55",annotation_font_size=9)
-            fig_m.add_hline(y=nom_line,line_color="#ffd60a44",line_dash="dot")
+            fig_m.add_hline(y=nom_line,line_color="rgba(255,214,10,0.27)",line_dash="dot")
             fig_m.update_layout(paper_bgcolor="#010306",plot_bgcolor="#010306",font_color="#3a6080",
                 xaxis=dict(title="Variant index",gridcolor="#040c18"),
                 yaxis=dict(title="-log₁₀(p-value)",gridcolor="#040c18"),
@@ -5590,7 +5590,7 @@ with tab2:
             gs=int(str(gd["start"]).replace(",","")); ge=int(str(gd["stop"]).replace(",",""))
             gene_len=ge-gs
             fig_g=go.Figure()
-            fig_g.add_trace(go.Bar(x=[gene_len],y=[gene],orientation="h",marker_color="#00e5ff44",
+            fig_g.add_trace(go.Bar(x=[gene_len],y=[gene],orientation="h",marker_color="rgba(0,229,255,0.27)",
                                    base=gs,name="Gene span",width=0.4))
             if gd.get("exons"):
                 try:
@@ -6099,7 +6099,7 @@ with tab3:
                 height=280, margin=dict(t=10,b=40,l=60,r=10),
                 title=dict(text=f"AlphaMissense scores for position {am_pos_input} ({seq[int(am_pos_input)-1] if int(am_pos_input)<=len(seq) else '?'})",font_color="#5a8090",font_size=11),
                 shapes=[dict(type="line",y0=0.564,y1=0.564,x0=-0.5,x1=len(aa_list)-0.5,
-                            line=dict(color="#ff2d5566",width=1,dash="dot"))],
+                            line=dict(color="rgba(255,45,85,0.40)",width=1,dash="dot"))],
             )
             st.plotly_chart(fig_am, use_container_width=True, config={"displayModeBar":False})
             # ClinVar cross-reference
