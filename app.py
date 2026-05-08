@@ -4453,6 +4453,12 @@ if(document.querySelector('.strat-card')) document.querySelector('.strat-card').
 </script></body></html>"""
 
 
+
+def get_goal_config(gl):
+    for k in GOAL_CONFIG:
+        if k.lower() in gl.lower() or gl.lower() in k.lower():
+            return GOAL_CONFIG[k]
+    return GOAL_CONFIG.get("Basic research", {})
 # ─── Tutorial dialog ──────────────────────────────────────────────
 @st.dialog("🧬 Welcome to Protellect", width="large")
 def show_tutorial_dialog():
@@ -5377,11 +5383,6 @@ gpcr_assessment = assess_gpcr_piggybacking(pdata, cv, gi)
 entity        = classify_entity(pdata)
 goal_cfg      = get_goal_config(active_goal) if "get_goal_config" in dir() else {}
 
-def get_goal_config(gl):
-    for k in GOAL_CONFIG:
-        if k.lower() in gl.lower() or gl.lower() in k.lower():
-            return GOAL_CONFIG[k]
-    return GOAL_CONFIG.get("Basic research", {})
 goal_cfg      = get_goal_config(active_goal)
 org_class    = st.session_state.get("org") or classify_organism(pdata)
 gnomad_data  = st.session_state.get("gnomad", {})
