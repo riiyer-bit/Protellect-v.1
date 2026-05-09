@@ -807,7 +807,122 @@ def fetch_pdb(uid):
         r2=requests.get(entries[0].get("pdbUrl",""),timeout=30); r2.raise_for_status(); return r2.text
     except: return ""
 
-@st.cache_data(show_spinner=False, ttl=3600)
+
+# ── Evidence tiers and literature inference ────────────────────────────────────
+EVIDENCE_TIERS = {
+    "randomised_trial":   {"label":"Tier 1 — Randomised controlled trial",    "weight":10, "icon":"🥇"},
+    "clinical_cohort":    {"label":"Tier 2 — Clinical cohort / patient series","weight":8,  "icon":"🥈"},
+    "functional_assay":   {"label":"Tier 3 — Functional experimental study",  "weight":7,  "icon":"🔬"},
+    "structural_biology": {"label":"Tier 4 — Structural / biophysical study", "weight":6,  "icon":"🧬"},
+    "animal_model":       {"label":"Tier 5 — Animal model",                   "weight":5,  "icon":"🐭"},
+    "computational":      {"label":"Tier 6 — Computational / in silico",      "weight":4,  "icon":"💻"},
+    "case_report":        {"label":"Tier 7 — Case report / series",           "weight":3,  "icon":"📋"},
+    "review":             {"label":"Tier 8 — Review / meta-analysis",         "weight":2,  "icon":"📚"},
+    "preprint":           {"label":"Tier 9 — Preprint (not peer-reviewed)",   "weight":1,  "icon":"⚠️"},
+}
+
+def classify_paper(title: str, abstract: str) -> str:
+    t = (title + " " + abstract).lower()
+    if any(x in t for x in ["randomised","randomized","rct","clinical trial phase","placebo-controlled"]): return "randomised_trial"
+    if any(x in t for x in ["cohort","prospective","retrospective","patients","case-control"]): return "clinical_cohort"
+    if any(x in t for x in ["crispr","knock-in","knock-out","functional assay","western blot","immunoprecipitation","luciferase","splicing assay"]): return "functional_assay"
+    if any(x in t for x in ["crystal structure","cryo-em","nmr","alphafold","x-ray","saxs","spr","itc","binding affinity"]): return "structural_biology"
+    if any(x in t for x in ["mouse model","zebrafish","drosophila","xenograft","in vivo","murine"]): return "animal_model"
+    if any(x in t for x in ["computational","in silico","machine learning","deep learning","algorithm","prediction"]): return "computational"
+    if any(x in t for x in ["case report","case series","patient report"]): return "case_report"
+    if any(x in t for x in ["review","meta-analysis","systematic review"]): return "review"
+    return "functional_assay"
+
+def infer_from_literature(papers: list, gene: str) -> dict:
+    """Extract conclusions from literature — eliminates Unknown fallbacks."""
+    import re as _re_lit
+    all_text = " ".join((p.get("title","") + " " + p.get("abstract","")).lower() for p in papers)
+    inheritance = ""
+    if any(x in all_text for x in ["autosomal dominant","de novo","heterozygous pathogenic","monoallelic"]):
+        inheritance = "Autosomal dominant (AD) — inferred from literature"
+    elif any(x in all_text for x in ["autosomal recessive","homozygous","compound heterozygous","biallelic"]):
+        inheritance = "Autosomal recessive (AR) — inferred from literature"
+    elif any(x in all_text for x in ["x-linked","hemizygous"]):
+        inheritance = "X-linked — inferred from literature"
+    mechanism = ""
+    if any(x in all_text for x in ["haploinsufficiency","loss of function","lof","loss-of-function"]):
+        mechanism = "Loss-of-function / haploinsufficiency — literature consensus"
+    elif any(x in all_text for x in ["gain of function","dominant negative","activating mutation","gain-of-function"]):
+        mechanism = "Gain-of-function or dominant-negative — reported in literature"
+    elif "missense" in all_text and "structural" in all_text:
+        mechanism = "Structural destabilisation via missense — inferred from functional studies"
+    drug_hits = []
+    for p in papers:
+        t2 = (p.get("title","") + " " + p.get("abstract","")).lower()
+        drug_hits.extend(_re_lit.findall(r"\w+(?:inib|mab|tinib|zumab|ciclib|parib|fenib|nib|vir|mivir)", t2))
+    tissues = []
+    for term, label in {"cardiac":"Heart","muscle":"Skeletal muscle","brain":"Brain/neurons","liver":"Liver",
+                         "kidney":"Kidney","lung":"Lung","blood":"Blood","breast":"Breast","colon":"Colon"}.items():
+        if term in all_text: tissues.append(label)
+    return {
+        "inheritance": inheritance,
+        "mechanism": mechanism,
+        "drugs_from_literature": list(dict.fromkeys(drug_hits))[:5],
+        "tissues_from_literature": tissues[:4],
+        "n_papers_analysed": len(papers),
+    }
+
+EVIDENCE_TIERS = {
+    "randomised_trial":   {"label":"Tier 1 — RCT",       "weight":10, "icon":"T1"},
+    "clinical_cohort":    {"label":"Tier 2 — Cohort",     "weight":8,  "icon":"T2"},
+    "functional_assay":   {"label":"Tier 3 — Functional", "weight":7,  "icon":"T3"},
+    "structural_biology": {"label":"Tier 4 — Structural", "weight":6,  "icon":"T4"},
+    "animal_model":       {"label":"Tier 5 — Animal",     "weight":5,  "icon":"T5"},
+    "computational":      {"label":"Tier 6 — Computational","weight":4,"icon":"T6"},
+    "case_report":        {"label":"Tier 7 — Case report","weight":3,  "icon":"T7"},
+    "review":             {"label":"Tier 8 — Review",     "weight":2,  "icon":"T8"},
+    "preprint":           {"label":"Tier 9 — Preprint",   "weight":1,  "icon":"T9"},
+}
+
+def classify_paper(title: str, abstract: str) -> str:
+    import re as _rcl
+    t = (title + " " + abstract).lower()
+    if any(x in t for x in ["randomised","randomized","rct","placebo-controlled"]): return "randomised_trial"
+    if any(x in t for x in ["cohort","prospective","retrospective","patients","case-control"]): return "clinical_cohort"
+    if any(x in t for x in ["crispr","knock-in","knock-out","functional assay","western blot","luciferase"]): return "functional_assay"
+    if any(x in t for x in ["crystal structure","cryo-em","nmr","x-ray","saxs","spr","itc"]): return "structural_biology"
+    if any(x in t for x in ["mouse model","zebrafish","drosophila","xenograft","in vivo","murine"]): return "animal_model"
+    if any(x in t for x in ["computational","in silico","machine learning","deep learning"]): return "computational"
+    if any(x in t for x in ["case report","case series","patient report"]): return "case_report"
+    if any(x in t for x in ["review","meta-analysis","systematic review"]): return "review"
+    return "functional_assay"
+
+def infer_from_literature(papers: list, gene: str) -> dict:
+    import re as _rlit
+    all_text = " ".join((p.get("title","") + " " + p.get("abstract","")).lower() for p in papers)
+    inheritance = ""
+    if any(x in all_text for x in ["autosomal dominant","de novo","heterozygous pathogenic"]):
+        inheritance = "Autosomal dominant (AD) — inferred from literature"
+    elif any(x in all_text for x in ["autosomal recessive","homozygous","compound heterozygous","biallelic"]):
+        inheritance = "Autosomal recessive (AR) — inferred from literature"
+    elif any(x in all_text for x in ["x-linked","hemizygous"]):
+        inheritance = "X-linked — inferred from literature"
+    mechanism = ""
+    if any(x in all_text for x in ["haploinsufficiency","loss of function","loss-of-function"]):
+        mechanism = "Loss-of-function / haploinsufficiency — literature consensus"
+    elif any(x in all_text for x in ["gain of function","dominant negative","activating mutation"]):
+        mechanism = "Gain-of-function or dominant-negative — reported in literature"
+    drug_hits = list(dict.fromkeys(
+        _rlit.findall(r"\b\w+(?:inib|mab|tinib|zumab|ciclib|parib|fenib|vir|mivir)\b",
+                      all_text)
+    ))[:5]
+    tissues = [label for term, label in {
+        "cardiac":"Heart","muscle":"Skeletal muscle","brain":"Brain/neurons",
+        "liver":"Liver","kidney":"Kidney","lung":"Lung","blood":"Blood",
+        "breast":"Breast","colon":"Colon"}.items() if term in all_text][:4]
+    return {
+        "inheritance": inheritance, "mechanism": mechanism,
+        "drugs_from_literature": drug_hits,
+        "tissues_from_literature": tissues,
+        "n_papers_analysed": len(papers),
+    }
+
+
 def fetch_papers(gene, n=12):
     """Multi-query PubMed fetch: recent papers (2020+), classified by evidence tier."""
     try:
