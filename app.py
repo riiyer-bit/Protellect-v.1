@@ -1873,10 +1873,11 @@ def assess_gpcr_piggybacking(p, cv, gi_data):
     # Filamin Ser2152 phosphorylation (PhosphoSite highest peak on FLNA) is the TRUE
     # receptor-proximal signal, not β-arrestin recruitment.
     if is_beta_arrestin:
-        _wt = 4_050_000  # total wasted investment if pursuing ARRB2
+        _wt = 4050000
+        _wt_m = str(_wt // 1000000)
         return {
             "type": "BETA_ARRESTIN_EVIDENCE_GAP",
-            "label": f"DEPRIORITISE: {gene_name} — No independent disease variants. Estimated ${_wt // 1000000}M+ in avoidable spend.",
+            "label": f"DEPRIORITISE: {gene_name} — No independent disease variants. Estimated ${_wt_m}M+ in avoidable spend.",
             "body": (
                 f"{gene_name} has {n_germline_path} confirmed germline pathogenic ClinVar variants. "
                 f"ARRB1/ARRB2 double knockout mice are viable and fertile — these proteins are redundant or dispensable. "
