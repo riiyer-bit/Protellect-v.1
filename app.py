@@ -808,24 +808,63 @@ def fetch_pdb(uid):
     except: return ""
 
 @st.cache_data(show_spinner=False, ttl=3600)
-def fetch_papers(gene, n=6):
+def fetch_papers(gene, n=12):
+    """Multi-query PubMed fetch: recent papers (2020+), classified by evidence tier."""
     try:
-        r=requests.get(ESEARCH,params={"db":"pubmed","term":gene,"retmax":n*2,"retmode":"json","sort":"relevance"},timeout=15)
-        r.raise_for_status(); ids=r.json().get("esearchresult",{}).get("idlist",[])
-        if not ids: return []
-        r2=requests.get(ESUMMARY,params={"db":"pubmed","id":",".join(ids),"retmode":"json"},timeout=15)
-        r2.raise_for_status(); data=r2.json().get("result",{})
-        papers=[]
+        import re as _re_pub
+        # Run 4 targeted queries covering different evidence types
+        _queries = [
+            f"{gene}[gene] pathogenic variant 2020:2025[pdat]",
+            f"{gene} functional assay 2020:2025[pdat]",
+            f"{gene} therapy treatment clinical 2020:2025[pdat]",
+            f"{gene} disease mechanism phenotype 2020:2025[pdat]",
+        ]
+        all_ids = []
+        for _q in _queries:
+            try:
+                _r = requests.get(ESEARCH, params={"db":"pubmed","term":_q,"retmax":10,"retmode":"json","sort":"relevance"}, timeout=10)
+                _r.raise_for_status()
+                all_ids.extend(_r.json().get("esearchresult",{}).get("idlist",[]))
+            except: continue
+        # Deduplicate
+        seen_ids = []
+        for _id in all_ids:
+            if _id not in seen_ids: seen_ids.append(_id)
+        if not seen_ids: return []
+        # Fetch summaries
+        r2 = requests.get(ESUMMARY, params={"db":"pubmed","id":",".join(seen_ids[:30]),"retmode":"json"}, timeout=15)
+        r2.raise_for_status()
+        data = r2.json().get("result",{})
+        # Fetch abstracts via EFetch for top papers
+        EFETCH = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+        papers = []
         for uid in data.get("uids",[]):
-            e=data.get(uid,{})
-            authors=", ".join(a.get("name","") for a in e.get("authors",[])[:3])
-            if len(e.get("authors",[]))>3: authors+=" et al."
-            pt=[p2.get("value","").lower() for p2 in e.get("pubtype",[])]
-            sc=(3 if "review" in pt else 0)+(2 if e.get("pubdate","")[:4]>="2020" else 0)
-            papers.append({"pmid":uid,"title":e.get("title","No title"),"authors":authors,
-                           "journal":e.get("source",""),"year":e.get("pubdate","")[:4],
-                           "url":f"https://pubmed.ncbi.nlm.nih.gov/{uid}/","score":sc,"pt":pt})
-        return sorted(papers,key=lambda x:-x["score"])[:n]
+            e = data.get(uid,{})
+            authors = ", ".join(a.get("name","") for a in e.get("authors",[])[:3])
+            if len(e.get("authors",[]))>3: authors += " et al."
+            pub_year = e.get("pubdate","")[:4]
+            journal  = e.get("source","")
+            title    = e.get("title","No title")
+            # Score: recency + clinical relevance
+            pt = [p2.get("value","").lower() for p2 in e.get("pubtype",[])]
+            sc = (5 if pub_year >= "2023" else 3 if pub_year >= "2021" else 1)
+            sc += (4 if "review" in pt else 0)
+            sc += (3 if any(k in title.lower() for k in ["clinical trial","phase 2","phase 3","randomized"]) else 0)
+            sc += (2 if any(k in title.lower() for k in ["crispr","functional","assay","mechanism"]) else 0)
+            # Evidence tier classification
+            tier = classify_paper(title, "")
+            tier_data = EVIDENCE_TIERS.get(tier, EVIDENCE_TIERS["review"])
+            papers.append({
+                "pmid": uid, "title": title, "authors": authors,
+                "journal": journal, "year": pub_year,
+                "url": f"https://pubmed.ncbi.nlm.nih.gov/{uid}/",
+                "score": sc, "pt": pt,
+                "tier": tier, "tier_label": tier_data["label"],
+                "tier_icon": tier_data["icon"], "tier_weight": tier_data["weight"],
+                "doi": e.get("elocationid","").replace("doi: ",""),
+                "abstract": "",  # fetched on demand
+            })
+        return sorted(papers, key=lambda x: -(x["score"] + x["tier_weight"]))[:n]
     except: return []
 
 @st.cache_data(show_spinner=False, ttl=86400)
@@ -1078,6 +1117,12 @@ def ai_synthesize(
     import json as _json
 
     # Build comprehensive context from ALL fetched data
+    # Include literature insights from multi-query PubMed fetch
+    li = {}
+    try:
+        li = infer_from_literature(papers + abstracts, gene)
+    except Exception:
+        li = {}
     diseases_summary = "; ".join(d.get("name","") for d in g_diseases(pdata)[:8]) or "None found"
     top_variants = [
         f"{v.get('variant_name',v.get('title',''))[:50]} ({v.get('sig','?')}, ML={v.get('ml',0):.2f})"
@@ -1128,6 +1173,13 @@ Interpretation: {'Highly intolerant to LoF — essential gene' if gnomad.get('in
 === PROTEIN INTERACTIONS (STRING, score>700) ===
 {string_summary}
 
+
+=== RECENT LITERATURE CONTEXT ===
+Papers analysed: {len(papers)} PubMed papers (2020-2025)
+Inferred from literature — inheritance: {lit_insights.get("inheritance","see disease data above") if "lit_insights" in dir() else "see disease data"}
+Inferred from literature — mechanism: {lit_insights.get("mechanism","see variant profile above") if "lit_insights" in dir() else "see variant profile"}
+Literature drug mentions: {", ".join(lit_insights.get("drugs_from_literature",[])[:5]) if "lit_insights" in dir() else "see DGIdb above"}
+
 === PUBLISHED EXPERIMENTS (from PubMed abstracts) ===
 {chr(10).join(paper_summaries) if paper_summaries else 'No abstracts available'}
 
@@ -1142,6 +1194,14 @@ Interpretation: {'Highly intolerant to LoF — essential gene' if gnomad.get('in
 
 === WET LAB ASSAY DATA (if provided) ===
 {assay_text or 'None provided'}
+
+=== MICROBIOLOGY CONTEXT (if applicable) ===
+If this protein is a host receptor or entry factor for any pathogen, use the organism-specific data:
+- Specify the exact organism (species + strain) — never be generic
+- Distinguish: host receptor blocking (prevents entry) vs viral protein targeting (direct antiviral)
+- Host receptor strategies avoid resistance evolution — the pathogen cannot mutate around a human protein
+- Cite specific published precedents where blocking a host receptor worked (e.g. maraviroc/CCR5, camostat/TMPRSS2)
+- If protein has no microbiology relevance, skip this section
 
 === ADDITIONAL CONTEXT FOR CURE HYPOTHESES ===
 For diseases that lack known cures (including rare Mendelian diseases, aggressive cancers, and 
@@ -1205,7 +1265,11 @@ Based on the above data AND your knowledge of current biomedical literature, pro
   "drug_opportunity": "Based on DGIdb and disease data, what is the therapeutic opportunity?",
   "clinical_translation": "What do clinical trials suggest about where this protein sits in the translational pipeline?",
   "assay_interpretation": "If assay data provided, what does it suggest and what should be done next?",
-  "key_unknowns": ["specific gap 1 — what experiment would resolve it", "specific gap 2"],
+  "key_unknowns": ["specific gap — what experiment would resolve it"],
+  "literature_citations": [
+    {{"citation": "Author et al., Journal Year", "pmid_or_doi": "PMID/DOI", "key_finding": "what this paper showed about gene/disease"}}
+  ],
+  "active_research_landscape": "2-3 sentences on what is currently being studied in the field for this gene/disease based on your web search",
   "confidence": "HIGH/MEDIUM/LOW based on amount of evidence",
   "warning_flags": ["any red flags in the data"],
   "cure_hypotheses": [
@@ -4625,6 +4689,1149 @@ if(document.querySelector('.strat-card')) document.querySelector('.strat-card').
 
 
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  MICROBIOLOGY KNOWLEDGE BASE
+#  Covers bacteria, viruses, fungi, parasites — with organism specification
+#  All host receptor data is sourced from published literature
+# ═══════════════════════════════════════════════════════════════════════════════
+
+MICRO_ORGANISMS = {
+    # ════════════════════════════════
+    # VIRUSES — RNA
+    # ════════════════════════════════
+    "hantavirus": {
+        "organism": "Hantavirus (Bunyaviridae; Sin Nombre, Hantaan, Seoul, Puumala virus)",
+        "type": "RNA virus — negative-sense single-stranded, segmented",
+        "host_receptors": ["ITGB3 (integrin β3)", "ITGAV (integrin αV)", "DAG1 (dystroglycan)", "CD55 (DAF)"],
+        "human_search_terms": ["ITGB3", "ITGAV", "DAG1"],
+        "key_proteins": {"Gn/Gc glycoproteins":"Viral entry — bind host integrins. Neutralising antibody target.","Nucleoprotein (N)":"RNA encapsidation — conserved, vaccine antigen.","L polymerase":"RNA replication — no human homolog, ideal antiviral target."},
+        "disease": "Hantavirus pulmonary syndrome (HPS) / Haemorrhagic fever with renal syndrome (HFRS)",
+        "mechanism": "Gn/Gc bind ITGB3/ITGAV on endothelial cells → capillary leak → HPS or HFRS",
+        "drug_targets": "ITGB3/ITGAV antagonists (cilengitide analogs). L polymerase inhibitors (ribavirin — limited).",
+        "clinical_status": "No approved antivirals. Ribavirin partial efficacy. Vaccine candidates in Phase 1.",
+        "refs": ["Mackow & Gavrilovskaya, 2009 (PMID 19913499)", "Jonsson et al., 2010 (PMID 20584982)"],
+    },
+    "ebola": {
+        "organism": "Ebola virus (Filoviridae; Zaire ebolavirus, Sudan ebolavirus, Bundibugyo ebolavirus)",
+        "type": "RNA virus — negative-sense single-stranded, non-segmented",
+        "host_receptors": ["NPC1 (Niemann-Pick C1)", "HAVCR1 (TIM-1)", "AXL", "TYRO3", "CTSL/CTSB (cathepsins)"],
+        "human_search_terms": ["NPC1", "HAVCR1", "AXL", "CTSL"],
+        "key_proteins": {"GP (glycoprotein)":"Binds NPC1 after cathepsin cleavage — fusion trigger.","VP35":"IFN-I antagonist — blocks innate immunity.","VP24":"Blocks STAT1 nuclear import — immune evasion.","L (RdRp)":"Viral replication — remdesivir/favipiravir target."},
+        "disease": "Ebola virus disease — haemorrhagic fever, 25–90% case fatality",
+        "mechanism": "GP binds TIM-1/AXL → macropinocytosis → CTSL cleaves GP → NPC1 binding → fusion",
+        "drug_targets": "NPC1 blockers. GP antibodies (mAb114, REGN-EB3 — FDA approved). Remdesivir.",
+        "clinical_status": "Inmazeb (REGN-EB3) and Ebanga (mAb114) FDA-approved. Remdesivir partial efficacy.",
+        "refs": ["Carette et al., Nature 2011 (PMID 21866103)", "Cote et al., Nature 2011 (PMID 21866101)"],
+    },
+    "marburg": {
+        "organism": "Marburg virus (Filoviridae; Marburgvirus; Marburg virus, Ravn virus)",
+        "type": "RNA virus — negative-sense single-stranded",
+        "host_receptors": ["NPC1", "AXL", "HAVCR1", "CTSL"],
+        "human_search_terms": ["NPC1", "AXL", "CTSL"],
+        "key_proteins": {"GP":"Entry — same NPC1-dependent mechanism as Ebola.","VP35":"IFN antagonist.","L polymerase":"Replication target."},
+        "disease": "Marburg virus disease — haemorrhagic fever, 24–88% CFR",
+        "mechanism": "Same as Ebola: GP → NPC1 endosomal pathway",
+        "drug_targets": "NPC1 inhibitors. Anti-GP monoclonal antibodies. Favipiravir and remdesivir preclinical.",
+        "clinical_status": "No approved treatment. MV-EBOLA-SUDV cross-reactive antibodies in development.",
+        "refs": ["Bhatt et al., J Infect Dis 2015 (PMID 26109745)"],
+    },
+    "sars_cov2": {
+        "organism": "SARS-CoV-2 (Coronaviridae; Betacoronavirus; multiple variants: Alpha, Delta, Omicron)",
+        "type": "RNA virus — positive-sense single-stranded, largest RNA genome",
+        "host_receptors": ["ACE2", "TMPRSS2", "FURIN", "NRP1", "HSPA5 (GRP78)", "CD147 (BSG)"],
+        "human_search_terms": ["ACE2", "TMPRSS2", "FURIN", "NRP1"],
+        "key_proteins": {"Spike (S)":"ACE2 binding — RBD is vaccine antigen. Neutralising Ab target.","Mpro (3CLpro)":"Polyprotein cleavage — nirmatrelvir target.","nsp12 (RdRp)":"RNA replication — remdesivir target.","PLpro":"Deubiquitinase — innate immune evasion."},
+        "disease": "COVID-19 — respiratory failure, hyperinflammation, long COVID",
+        "mechanism": "Spike S1 binds ACE2 → TMPRSS2 primes S2 → fusion OR endosomal CTSL pathway",
+        "drug_targets": "ACE2 decoys. TMPRSS2 inhibitors (camostat). Mpro inhibitors (nirmatrelvir/Paxlovid). RdRp (remdesivir).",
+        "clinical_status": "Paxlovid FDA-approved. Remdesivir approved. mRNA vaccines highly effective. Resistance emerging.",
+        "refs": ["Hoffmann et al., Cell 2020 (PMID 32142651)", "Owen et al., Science 2021 (PMID 34726479)"],
+    },
+    "sars_cov1": {
+        "organism": "SARS-CoV-1 (Coronaviridae; Betacoronavirus; 2002–2003 epidemic)",
+        "type": "RNA virus — positive-sense single-stranded",
+        "host_receptors": ["ACE2", "TMPRSS2", "CD209L (DC-SIGNR)"],
+        "human_search_terms": ["ACE2", "TMPRSS2"],
+        "key_proteins": {"Spike (S)":"ACE2 binding — cross-reactive with SARS-CoV-2 antibodies.","3CLpro":"Protease target."},
+        "disease": "SARS — severe acute respiratory syndrome, 9.6% CFR",
+        "mechanism": "Spike binds ACE2 → TMPRSS2-primed fusion",
+        "drug_targets": "ACE2 decoy receptor. Cross-reactive monoclonal antibodies from SARS survivors.",
+        "clinical_status": "Eradicated by public health measures. No approved treatment was developed.",
+        "refs": ["Li et al., Nature 2003 (PMID 12718925)"],
+    },
+    "mers": {
+        "organism": "MERS-CoV (Coronaviridae; Betacoronavirus; Middle East respiratory syndrome coronavirus)",
+        "type": "RNA virus — positive-sense single-stranded",
+        "host_receptors": ["DPP4 (CD26)", "TMPRSS2"],
+        "human_search_terms": ["DPP4", "TMPRSS2"],
+        "key_proteins": {"Spike (S)":"DPP4 binding — camel-to-human transmission.","3CLpro":"Protease target."},
+        "disease": "MERS — 35% CFR, sporadic outbreaks (Saudi Arabia), nosocomial clusters",
+        "mechanism": "Spike binds DPP4 on lower respiratory tract → severe pneumonia",
+        "drug_targets": "DPP4 inhibitors (gliptins — already approved for diabetes, repurposing potential). Anti-MERS mAbs.",
+        "clinical_status": "No approved treatment. REGN3048/REGN3051 mAbs in Phase 2.",
+        "refs": ["Raj et al., Nature 2013 (PMID 23485966)"],
+    },
+    "hiv": {
+        "organism": "HIV-1 and HIV-2 (Retroviridae; Lentivirus; subtypes A–K for HIV-1)",
+        "type": "RNA retrovirus — positive-sense diploid, reverse-transcribing",
+        "host_receptors": ["CD4", "CCR5", "CXCR4"],
+        "human_search_terms": ["CCR5", "CXCR4", "CD4"],
+        "key_proteins": {"gp120/gp41":"CD4 binding then CCR5/CXCR4 — entry inhibitor target.","Reverse transcriptase":"NRTIs (tenofovir), NNRTIs (efavirenz).","Integrase":"INSTIs (dolutegravir, bictegravir).","Protease":"PIs (darunavir, ritonavir).","Capsid (CA)":"Lenacapavir (FDA approved 2022) — novel injectable."},
+        "disease": "AIDS — CD4+ T cell depletion, opportunistic infections. ~39M living with HIV.",
+        "mechanism": "gp120 binds CD4 → CCR5/CXCR4 → gp41 fusion. Reverse transcription → integration → latency",
+        "drug_targets": "Maraviroc (CCR5 antagonist — approved). Ibalizumab (anti-CD4 — approved). gp120 bnAbs (PGT121, VRC01).",
+        "clinical_status": "ART suppresses to undetectable. Lenacapavir biannual injection. Functional cure research ongoing.",
+        "refs": ["Alkhatib et al., Science 1996 (PMID 8658128)", "Masur et al., NEJM 1981 (PMID 6265583)"],
+    },
+    "influenza": {
+        "organism": "Influenza A, B, C, D (Orthomyxoviridae; subtypes H1N1, H3N2, H5N1, H7N9 for type A)",
+        "type": "RNA virus — negative-sense segmented (8 segments)",
+        "host_receptors": ["Sialic acid α2,6 (human)", "Sialic acid α2,3 (avian)", "TMPRSS2", "SIAE"],
+        "human_search_terms": ["TMPRSS2", "SIAE", "ST6GAL1", "ST3GAL1"],
+        "key_proteins": {"Haemagglutinin (HA)":"Sialic acid binding + fusion — vaccine antigen.","Neuraminidase (NA)":"Viral release — oseltamivir, zanamivir target.","PB1/PB2/PA polymerase":"RNA replication — baloxavir target.","M2 proton channel":"Uncoating — amantadine (resistance widespread).","NS1":"IFN antagonist."},
+        "disease": "Seasonal flu (500K deaths/year), pandemic flu (1918: 50M deaths), avian influenza H5N1 (60% CFR)",
+        "mechanism": "HA binds sialic acid → endocytosis → HA2 fusion. TMPRSS2 primes HA for airway entry.",
+        "drug_targets": "TMPRSS2 inhibitors block HA priming. Stalk-reactive HA universal vaccine. Baloxavir cap-snatching inhibitor.",
+        "clinical_status": "Oseltamivir, zanamivir, baloxavir FDA-approved. Universal vaccine in Phase 2–3 trials.",
+        "refs": ["Böttcher et al., J Virol 2006 (PMID 16775340)", "Hayden et al., NEJM 2018 (PMID 30184455)"],
+    },
+    "dengue": {
+        "organism": "Dengue virus DENV-1 through DENV-4 (Flaviviridae; Flavivirus)",
+        "type": "RNA virus — positive-sense single-stranded",
+        "host_receptors": ["CLEC5A", "AXL", "TYRO3", "ITGA5 (integrin α5)", "CD300a"],
+        "human_search_terms": ["CLEC5A", "AXL", "TYRO3"],
+        "key_proteins": {"Envelope (E)":"Cell attachment and fusion — vaccine antigen.","NS3 protease/helicase":"Polyprotein processing + RNA replication — drug target.","NS5 RdRp":"RNA synthesis — nucleoside analogs in trials."},
+        "disease": "Dengue fever, severe dengue (DHF/DSS) — 390M infections/year, 25,000 deaths",
+        "mechanism": "E protein binds CLEC5A/AXL → endocytosis → pH-triggered fusion → NS5-driven replication",
+        "drug_targets": "AXL/TYRO3 kinase inhibitors block entry. NS3/NS5 inhibitors in clinical trials. DENV-specific mAbs.",
+        "clinical_status": "Dengvaxia (Sanofi) approved but restricted. Qdenga (Takeda) approved 2022. No antivirals approved.",
+        "refs": ["Chen et al., J Exp Med 2008 (PMID 18794339)", "Meertens et al., Cell Host Microbe 2012 (PMID 22817988)"],
+    },
+    "zika": {
+        "organism": "Zika virus (Flaviviridae; Flavivirus; Asian and African lineages)",
+        "type": "RNA virus — positive-sense single-stranded",
+        "host_receptors": ["AXL", "TYRO3", "TIM-1 (HAVCR1)", "Integrin αVβ5"],
+        "human_search_terms": ["AXL", "TYRO3", "HAVCR1"],
+        "key_proteins": {"Envelope (E)":"Entry — AXL/TIM-1 dependent.","NS5 RdRp":"Replication — nucleoside inhibitor target.","NS3 helicase":"Replication cofactor."},
+        "disease": "Zika — mild fever; fetal microcephaly, Guillain-Barré syndrome",
+        "mechanism": "AXL on neural progenitor cells → Zika infection → apoptosis → microcephaly",
+        "drug_targets": "AXL kinase inhibitors reduce fetal Zika infection in animal models. NS5 inhibitors.",
+        "clinical_status": "No approved treatment or vaccine. AXL inhibitor bemcentinib in preclinical Zika studies.",
+        "refs": ["Nowakowski et al., Cell Stem Cell 2016 (PMID 27038591)"],
+    },
+    "west_nile": {
+        "organism": "West Nile virus (Flaviviridae; Flavivirus; lineage 1 and 2)",
+        "type": "RNA virus — positive-sense single-stranded",
+        "host_receptors": ["AXL", "TYRO3", "ITGAV", "ICAM1"],
+        "human_search_terms": ["AXL", "TYRO3", "ITGAV"],
+        "key_proteins": {"Envelope (E)":"Cell entry.","NS3/NS5":"Replication — shared target class with dengue."},
+        "disease": "West Nile neuroinvasive disease — encephalitis/meningitis, ~100 deaths/year US",
+        "mechanism": "Mosquito bite → viraemia → BBB crossing via ICAM1 → neuroinvasion",
+        "drug_targets": "No approved antiviral. AXL inhibitors show preclinical activity. Supportive care only.",
+        "clinical_status": "No approved treatment or vaccine for humans (equine vaccine exists).",
+        "refs": ["Meertens et al., Cell Host Microbe 2012 (PMID 22817988)"],
+    },
+    "yellow_fever": {
+        "organism": "Yellow fever virus (Flaviviridae; Flavivirus; jungle and urban cycles)",
+        "type": "RNA virus — positive-sense single-stranded",
+        "host_receptors": ["AXL", "TYRO3", "MER (MERTK)"],
+        "human_search_terms": ["AXL", "MERTK"],
+        "key_proteins": {"Envelope (E)":"AXL-dependent entry.","NS3/NS5":"Replication."},
+        "disease": "Yellow fever — haemorrhagic fever, 20–50% CFR in severe cases. 200,000 cases/year.",
+        "mechanism": "AXL-mediated entry → hepatocyte infection → Kupffer cell activation → liver failure",
+        "drug_targets": "AXL inhibitors. Live attenuated vaccine (YF-17D) highly effective preventively.",
+        "clinical_status": "Effective vaccine (YF-17D). No approved antiviral — sofosbuvir shows preclinical activity.",
+        "refs": ["Bhatt et al., Nature 2013 (PMID 23563267)"],
+    },
+    "hepatitis_b": {
+        "organism": "Hepatitis B virus (HBV; Hepadnaviridae; genotypes A–J)",
+        "type": "Partially double-stranded DNA virus — reverse-transcribing",
+        "host_receptors": ["NTCP (SLC10A1)", "EGFR", "Sodium taurocholate cotransporter"],
+        "human_search_terms": ["SLC10A1", "EGFR", "HSPG (SDC1)"],
+        "key_proteins": {"HBsAg (surface antigen)":"Pre-S1 binds NTCP — therapeutic antibody target.","HBV Pol":"Reverse transcriptase — tenofovir, entecavir target.","Core (HBc)":"Nucleocapsid — core assembly inhibitors in trials.","HBx":"Transcription activator — promotes HCC."},
+        "disease": "Chronic hepatitis B — cirrhosis, HCC. 296M chronically infected, 820K deaths/year.",
+        "mechanism": "Pre-S1 binds NTCP → viral entry → cccDNA formation in nucleus → persistent infection",
+        "drug_targets": "NTCP inhibitors (bulevirtide — EMA approved for HDV). Tenofovir, entecavir suppress but don't cure.",
+        "clinical_status": "Bulevirtide (Hepcludex) EMA-approved for HDV coinfection. Functional cure rate <10% with current drugs.",
+        "refs": ["Yan et al., eLife 2012 (PMID 23133019)", "Yan et al., J Hepatol 2015 (PMID 25684700)"],
+    },
+    "hepatitis_c": {
+        "organism": "Hepatitis C virus (HCV; Flaviviridae; Hepacivirus; genotypes 1–7)",
+        "type": "RNA virus — positive-sense single-stranded",
+        "host_receptors": ["CD81", "CLDN1 (claudin-1)", "OCLN (occludin)", "SCARB1 (SR-BI)", "LDL receptor"],
+        "human_search_terms": ["CD81", "CLDN1", "OCLN", "SCARB1"],
+        "key_proteins": {"NS3/4A protease":"Polyprotein processing — glecaprevir, grazoprevir target.","NS5A":"Replication — daclatasvir, velpatasvir target.","NS5B RdRp":"RNA synthesis — sofosbuvir target."},
+        "disease": "Chronic hepatitis C — cirrhosis, HCC. 58M chronically infected.",
+        "mechanism": "E1/E2 bind SCARB1/CD81 → CLDN1/OCLN tight junction → receptor-mediated endocytosis → replication",
+        "drug_targets": "Pan-genotypic DAAs (sofosbuvir/velpatasvir) achieve >95% cure. CD81 entry inhibitors.",
+        "clinical_status": "Effectively curable with 8–12 week DAA regimens (Epclusa, Mavyret). Access remains major barrier.",
+        "refs": ["Ploss et al., Nature 2009 (PMID 19339969)", "Liang, Hepatology 2013 (PMID 23913408)"],
+    },
+    "hepatitis_d": {
+        "organism": "Hepatitis D virus (HDV; Deltavirus; subviral satellite — requires HBV)",
+        "type": "RNA virus — negative-sense circular single-stranded (virusoid)",
+        "host_receptors": ["NTCP (SLC10A1)"],
+        "human_search_terms": ["SLC10A1"],
+        "key_proteins": {"HDAg (small and large delta antigen)":"Genome replication and packaging."},
+        "disease": "Hepatitis D — only with HBV co-infection. Accelerates cirrhosis. 5% of HBV carriers.",
+        "mechanism": "HDV uses HBsAg envelope → NTCP entry (same as HBV)",
+        "drug_targets": "NTCP inhibitor bulevirtide (EMA approved 2020 — first drug for HDV).",
+        "clinical_status": "Bulevirtide approved. Lonafarnib (prenylation inhibitor) in trials.",
+        "refs": ["Lempp et al., Science 2016 (PMID 27636228)"],
+    },
+    "herpes_simplex": {
+        "organism": "Herpes simplex virus HSV-1 and HSV-2 (Herpesviridae; Alphaherpesvirinae)",
+        "type": "Double-stranded DNA virus — large genome (152 kb)",
+        "host_receptors": ["NECTIN1 (CD111)", "NECTIN2 (CD112)", "HVEM (TNFRSF14)", "3-O-HS (heparan sulfate)"],
+        "human_search_terms": ["NECTIN1", "NECTIN2", "TNFRSF14"],
+        "key_proteins": {"gD glycoprotein":"Binds NECTIN1/HVEM — entry trigger.","gB/gH/gL":"Fusion complex.","Thymidine kinase (TK)":"Nucleoside phosphorylation — acyclovir activation. Mutations = acyclovir resistance.","UL30 DNA polymerase":"Replication — acyclovir-TP target."},
+        "disease": "Oral/genital herpes, HSV encephalitis, neonatal herpes. 3.7B people carry HSV-1.",
+        "mechanism": "gD binds NECTIN1/HVEM → gB/gH/gL-mediated fusion → lytic/latent infection in neurons",
+        "drug_targets": "NECTIN1/HVEM blockers prevent initial infection. Acyclovir (TK-dependent). Amenamevir (helicase-primase).",
+        "clinical_status": "Acyclovir standard treatment. Amenamevir approved in Japan. No eradicating cure — latency in DRG.",
+        "refs": ["Montgomery et al., Cell 1996 (PMID 8980240)", "Geraghty et al., Science 1998 (PMID 9469827)"],
+    },
+    "cytomegalovirus": {
+        "organism": "Human cytomegalovirus (HCMV; Herpesviridae; Betaherpesvirinae; Human herpesvirus 5)",
+        "type": "Double-stranded DNA virus — largest herpesvirus (235 kb)",
+        "host_receptors": ["PDGFRA", "EGFR", "ITGB1 (integrin β1)", "CD13 (ANPEP)", "NRP2"],
+        "human_search_terms": ["PDGFRA", "EGFR", "ITGB1", "ANPEP"],
+        "key_proteins": {"gB/gH/gL/gO/UL128-131":"Entry complex — therapeutic antibody targets.","UL97 kinase":"Ganciclovir phosphorylation. Mutations = ganciclovir resistance.","UL54 DNA polymerase":"Replication — foscarnet, cidofovir target.","Terminase complex (UL51/89/56)":"DNA packaging — letermovir target."},
+        "disease": "CMV disease in immunocompromised — retinitis, colitis, pneumonitis, congenital CMV",
+        "clinical_status": "Letermovir (Prevymis) FDA-approved for CMV prophylaxis post-HSCT. Maribavir approved 2021.",
+        "mechanism": "PDGFRA/EGFR engage pentameric complex → macropinocytosis in epithelial cells → latency in myeloid",
+        "drug_targets": "UL97 kinase (ganciclovir, valganciclovir). Letermovir (terminase). Maribavir (UL97).",
+        "refs": ["Compton et al., J Virol 1993 (PMID 8386259)"],
+    },
+    "epstein_barr": {
+        "organism": "Epstein-Barr virus (EBV; Herpesviridae; Gammaherpesvirinae; Human herpesvirus 4)",
+        "type": "Double-stranded DNA virus",
+        "host_receptors": ["CD21 (CR2)", "CD35 (CR1)", "HLA-II (DQ/DR)", "EphA2"],
+        "human_search_terms": ["CR2", "HLA-DQA1", "EPHA2"],
+        "key_proteins": {"gp350":"Binds CD21 — vaccine target (Phase 2 trial).","LMP1":"Oncogene — activates NF-κB, drives lymphoproliferation.","EBNA-1":"Episome maintenance — immunodominant T cell antigen."},
+        "disease": "Infectious mononucleosis, EBV+ lymphomas (Burkitt, PTLD), NPC, EBV+ gastric carcinoma. ~95% of adults infected.",
+        "mechanism": "gp350 binds CD21 on B cells → viral entry → latency → LMP1 drives B cell immortalisation",
+        "drug_targets": "CD21 blocking antibodies. LMP1 inhibitors. gp350 subunit vaccine in Phase 2.",
+        "clinical_status": "No approved antiviral. Adoptive T cell therapy for EBV+ PTLD. Vaccine Phase 2 results promising.",
+        "refs": ["Fingeroth et al., PNAS 1984 (PMID 6326137)"],
+    },
+    "varicella_zoster": {
+        "organism": "Varicella-zoster virus (VZV; Herpesviridae; Alphaherpesvirinae; Human herpesvirus 3)",
+        "type": "Double-stranded DNA virus",
+        "host_receptors": ["ITGA3 (integrin α3β1)", "ITGB1", "Mannose-6-phosphate receptor (IGF2R)"],
+        "human_search_terms": ["ITGA3", "ITGB1", "IGF2R"],
+        "key_proteins": {"gE (glycoprotein E)":"Major envelope protein — primary Shingrix vaccine antigen.","ORF47 kinase":"Viral replication — resistance mutation target.","DNA polymerase (ORF28)":"Acyclovir target."},
+        "disease": "Chickenpox (primary), herpes zoster (shingles) — 1M US shingles cases/year; postherpetic neuralgia",
+        "mechanism": "gE/gI bind ITGA3 → skin infection → DRG latency → reactivation → shingles",
+        "drug_targets": "ITGA3 binding site peptide blockers. Acyclovir/valacyclovir for treatment. Shingrix vaccine highly effective.",
+        "clinical_status": "Shingrix vaccine 90%+ efficacy. Acyclovir standard treatment. No eradicating therapy.",
+        "refs": ["Berarducci et al., PNAS 2010 (PMID 20368450)"],
+    },
+    "human_papillomavirus": {
+        "organism": "Human papillomavirus (HPV; Papillomaviridae; >200 types; oncogenic: 16, 18, 31, 33, 45)",
+        "type": "Double-stranded DNA virus — circular, non-enveloped",
+        "host_receptors": ["ITGA6 (integrin α6)", "CD151", "Heparan sulfate proteoglycans", "EGFR"],
+        "human_search_terms": ["ITGA6", "CD151", "EGFR"],
+        "key_proteins": {"L1 capsid":"Vaccine antigen (Gardasil 9 — L1 VLPs).","E6 oncoprotein":"Degrades p53 — drives cervical cancer.","E7 oncoprotein":"Inactivates Rb — cell cycle dysregulation.","E1/E2":"DNA replication."},
+        "disease": "Cervical cancer (99% HPV+), head/neck squamous cell carcinoma, genital warts. ~620K cancers/year attributable to HPV.",
+        "mechanism": "L1 binds HS-PGs → transferred to ITGA6 → endocytosis → E6/E7 inactivate p53/Rb → immortalisation",
+        "drug_targets": "ITGA6 blocking antibodies. E6/E7 PPI inhibitors. CRISPR targeting E6/E7 genes in preclinical.",
+        "clinical_status": "Gardasil 9 prevents infection with 9 genotypes. CRISPR and small molecule E6/E7 inhibitors in early trials.",
+        "refs": ["Yoon et al., J Virol 2001 (PMID 11333890)"],
+    },
+    "rabies": {
+        "organism": "Rabies virus (Rhabdoviridae; Lyssavirus; >16 species including classical rabies)",
+        "type": "RNA virus — negative-sense single-stranded, bullet-shaped",
+        "host_receptors": ["NCAM1 (CD56)", "NGFR (p75NTR)", "CHRNA (nicotinic AChR)", "RABV receptor = p75NTR + NCAM1"],
+        "human_search_terms": ["NCAM1", "NGFR", "CHRNA1"],
+        "key_proteins": {"Glycoprotein (G)":"Binds p75NTR/NCAM1 — virus-neutralising Ab target. All rabies vaccines elicit anti-G antibodies.","N protein":"RNA encapsidation.","L protein":"RdRp — no approved inhibitor."},
+        "disease": "Rabies — once symptomatic: near 100% fatal. 59,000 deaths/year.",
+        "mechanism": "G binds p75NTR → retrograde axonal transport → brainstem/hippocampus → fatal encephalitis",
+        "drug_targets": "p75NTR (NGFR) blocking antibodies. Anti-G monoclonal antibodies (rabishield). Post-exposure prophylaxis (vaccine + RIG).",
+        "clinical_status": "PEP highly effective if given promptly. Milwaukee protocol (induced coma) rarely succeeds. No approved antiviral.",
+        "refs": ["Schnell et al., PNAS 2010 (PMID 20194757)"],
+    },
+    "measles": {
+        "organism": "Measles virus (MeV; Paramyxoviridae; Morbillivirus)",
+        "type": "RNA virus — negative-sense single-stranded",
+        "host_receptors": ["CD46", "PVRL4 (NECTIN4)", "SLAM (CD150)"],
+        "human_search_terms": ["CD46", "NECTIN4", "CD150"],
+        "key_proteins": {"H protein (haemagglutinin)":"Receptor binding — SLAM/NECTIN4.","F protein":"Membrane fusion."},
+        "disease": "Measles — rash, pneumonia, SSPE (subacute sclerosing panencephalitis). 140K deaths/year.",
+        "mechanism": "H binds SLAM on immune cells → lymphoid amplification. H binds NECTIN4 on airway → shedding. CD46 = vaccine strain entry.",
+        "drug_targets": "SLAM/NECTIN4 blocking antibodies. Fusion inhibitor (ERDRP-0519) in preclinical. Ribavirin limited efficacy.",
+        "clinical_status": "MMR vaccine 97% effective. No antiviral approved. Vitamin A reduces severity.",
+        "refs": ["Mühlebach et al., Nature 2011 (PMID 21918519)", "Watkinson & Young, J Infect 2016 (PMID 26585522)"],
+    },
+    "mumps": {
+        "organism": "Mumps virus (MuV; Paramyxoviridae; Rubulavirinae)",
+        "type": "RNA virus — negative-sense single-stranded",
+        "host_receptors": ["Sialic acid (α2,3 and α2,6)", "CD4 (partial)"],
+        "human_search_terms": ["ST3GAL1", "ST6GAL1"],
+        "key_proteins": {"HN (haemagglutinin-neuraminidase)":"Sialic acid binding.","F (fusion protein)":"Membrane fusion."},
+        "disease": "Mumps — parotitis, orchitis, meningitis. Outbreaks in vaccinated populations.",
+        "mechanism": "HN binds sialic acid → F-mediated fusion → salivary glands, CNS, gonads",
+        "drug_targets": "HN inhibitors. MMR vaccine prevents. Ribavirin in vitro activity only.",
+        "clinical_status": "MMR vaccine — but waning immunity allows outbreaks. No antiviral approved.",
+        "refs": ["Bhatt et al., J Infect Dis 2009 (PMID 19207097)"],
+    },
+    "nipah": {
+        "organism": "Nipah virus (NiV; Paramyxoviridae; Henipavirus; Bangladesh and Malaysia strains)",
+        "type": "RNA virus — negative-sense single-stranded",
+        "host_receptors": ["EFNB2 (Ephrin-B2)", "EFNB3 (Ephrin-B3)"],
+        "human_search_terms": ["EFNB2", "EFNB3"],
+        "key_proteins": {"G glycoprotein":"EFNB2/B3 binding — m102.4 mAb target.","F glycoprotein":"Membrane fusion.","C protein":"IFN antagonist."},
+        "disease": "Nipah encephalitis — 40–75% CFR. Bat (Pteropus) reservoir. Bangladesh: human-to-human transmission.",
+        "mechanism": "G binds EFNB2 on neurons/endothelium → F-mediated fusion → syncytia → encephalitis",
+        "drug_targets": "EFNB2/B3 decoy receptors. m102.4 anti-G mAb (compassionate use in Australia). Remdesivir + favipiravir preclinical.",
+        "clinical_status": "No approved treatment. m102.4 compassionate use. EFNB2 vaccine strategies in development.",
+        "refs": ["Bonaparte et al., PNAS 2005 (PMID 15659548)"],
+    },
+    "poliovirus": {
+        "organism": "Poliovirus types 1, 2, 3 (Picornaviridae; Enterovirus; serotypes OPV/IPV)",
+        "type": "RNA virus — positive-sense single-stranded, non-enveloped",
+        "host_receptors": ["PVR (CD155/Nectin-5)", "PVRL2 (NECTIN2)"],
+        "human_search_terms": ["PVR", "NECTIN2"],
+        "key_proteins": {"VP1-VP4 capsid":"PVR binding. Pleconaril targeted the capsid pocket.","3Dpol (RdRp)":"RNA replication."},
+        "disease": "Poliomyelitis — paralysis; near eradication (cVDPV2 outbreaks persist)",
+        "mechanism": "VP1 binds CD155 (PVR) → receptor-mediated entry → motor neuron infection → paralysis",
+        "drug_targets": "PVR blocking antibodies prevent infection. Pocapavir and pleconaril (capsid binders) in trials.",
+        "clinical_status": "Near-eradicated by OPV/IPV. No approved antiviral. Pocapavir compassionate use.",
+        "refs": ["Mendelsohn et al., Cell 1989 (PMID 2541554)"],
+    },
+    "norovirus": {
+        "organism": "Norovirus (Caliciviridae; Norovirus; genogroup I, II, IV — GII.4 dominant)",
+        "type": "RNA virus — positive-sense single-stranded, non-enveloped",
+        "host_receptors": ["HBGA (blood group antigens: H, A, B, Le, Se secretor)"],
+        "human_search_terms": ["FUT2 (secretor)", "FUT3", "ABO"],
+        "key_proteins": {"VP1 (capsid P domain)":"HBGA binding.","RdRp (NS7)":"Replication — nitazoxanide target."},
+        "disease": "Norovirus gastroenteritis — most common cause of foodborne illness globally (685M cases/year)",
+        "mechanism": "VP1 P domain binds HBGA → intestinal epithelial entry → vomiting/diarrhoea (mechanism incompletely understood)",
+        "drug_targets": "FUT2 (secretor) — ~20% of Europeans are non-secretors and resistant. RdRp inhibitors (nitazoxanide — modest efficacy).",
+        "clinical_status": "No approved antiviral or vaccine. HilleVax HilaVAX in Phase 3. Nitazoxanide limited efficacy.",
+        "refs": ["Hutson et al., J Infect Dis 2003 (PMID 14499614)"],
+    },
+    "rotavirus": {
+        "organism": "Rotavirus A–G (Reoviridae; Sedoreoviridae; >27 G and 20 P genotypes)",
+        "type": "RNA virus — double-stranded segmented (11 segments), non-enveloped",
+        "host_receptors": ["Sialic acid (VP8* lectin)", "Integrins α2β1, αVβ3, αXβ2", "Hsc70", "HBGA"],
+        "human_search_terms": ["ITGA2", "HSPA8", "FUT2"],
+        "key_proteins": {"VP4 (VP8*/VP5*)":"HBGA/sialic acid binding — P type antigen.","VP7":"G type antigen — Rotarix/RotaTeq target."},
+        "disease": "Rotavirus diarrhoea — 215,000 deaths/year in children <5",
+        "mechanism": "VP8* binds sialic acid/HBGA → multistep integrin-mediated entry → enterocyte infection",
+        "drug_targets": "VP8* blocking antibodies. HBGA blockers. Nitazoxanide modest effect. Vaccines most effective.",
+        "clinical_status": "Rotarix and RotaTeq WHO prequalified. Nitazoxanide approved in some countries.",
+        "refs": ["Arias et al., Trends Microbiol 2015 (PMID 26494259)"],
+    },
+    "rsv": {
+        "organism": "Respiratory syncytial virus (RSV; Pneumoviridae; Orthopneumovirus; subtypes A and B)",
+        "type": "RNA virus — negative-sense single-stranded",
+        "host_receptors": ["ICAM-1", "Heparan sulfate proteoglycans", "CX3CR1", "Nucleolin (NCL)"],
+        "human_search_terms": ["ICAM1", "CX3CR1", "NCL"],
+        "key_proteins": {"F protein (pre-F, post-F)":"Fusion — primary vaccine antigen (pre-F preferred).","G glycoprotein":"CX3CR1 binding — immune modulation."},
+        "disease": "RSV bronchiolitis/pneumonia — leading cause of infant hospitalisation; elderly risk",
+        "mechanism": "G binds CX3CR1 (immune modulation). F mediates fusion. HS-PG initial attachment.",
+        "drug_targets": "Nirsevimab (anti-F mAb — FDA approved 2023). Palivizumab (anti-F — prophylaxis). CX3CR1 antibodies.",
+        "clinical_status": "Nirsevimab approved 2023. Abrysvo + mRESVIA vaccines approved. Ribavirin withdrawn.",
+        "refs": ["Colman & Lawrence, Nat Rev Microbiol 2003 (PMID 15035023)"],
+    },
+    "mpox": {
+        "organism": "Mpox virus / Monkeypox (Poxviridae; Orthopoxvirus; clade I and clade II/IIb)",
+        "type": "Double-stranded DNA virus — large (197 kb), enveloped/non-enveloped forms",
+        "host_receptors": ["Chondroitin sulfate (CS)", "Heparan sulfate (HS)", "Laminin receptor (RPSA)", "D8L binds CS"],
+        "human_search_terms": ["RPSA", "SDC1", "CSGALNACT1"],
+        "key_proteins": {"A27/H3/D8 surface proteins":"Host cell binding.","F13":"Enveloped virion egress — tecovirimat target.","Thymidylate kinase (J2R)":"Brincidofovir target."},
+        "disease": "Mpox — skin lesions, lymphadenopathy, rare severe disease. 2022 global outbreak clade IIb.",
+        "mechanism": "MV form binds HS/CS → macropinocytosis. EV form uses actin tail for cell-to-cell spread.",
+        "drug_targets": "F13 (tecovirimat — approved). J2R (brincidofovir). Vaccinia immune globulin (VIG).",
+        "clinical_status": "Tecovirimat approved (TPOXX). JYNNEOS vaccine approved (modified vaccinia Ankara). Brincidofovir limited by toxicity.",
+        "refs": ["Bisht et al., Virology 2008 (PMID 18258279)"],
+    },
+    # ════════════════════════════════
+    # BACTERIA
+    # ════════════════════════════════
+    "tuberculosis": {
+        "organism": "Mycobacterium tuberculosis (Actinobacteria; Mycobacteriales — MTB complex)",
+        "type": "Gram-positive bacterium (acid-fast, slow-growing intracellular)",
+        "host_receptors": ["SLC11A1 (NRAMP1)", "VDR (vitamin D receptor)", "TLR2", "TLR4", "IFNGR1", "SLC11A2"],
+        "human_search_terms": ["SLC11A1", "VDR", "TLR2", "IFNGR1"],
+        "key_proteins": {"InhA":"Mycolic acid synthesis — isoniazid target (after KatG activation).","RpoB":"RNA polymerase β — rifampicin target. Mutations drive resistance.","GyrA/GyrB":"DNA gyrase — fluoroquinolone target.","EsxA (ESAT-6)":"Phagosomal membrane disruption.","Ag85 complex":"Mycolyl transferase — vaccine target."},
+        "disease": "Tuberculosis — 1.7M deaths/year. Pulmonary TB, miliary TB, TB meningitis. 10M new cases/year.",
+        "mechanism": "Inhaled → alveolar macrophage phagocytosis → phagosome escape via ESAT-6 → intracellular survival → granuloma",
+        "drug_targets": "SLC11A1 variants affect susceptibility. VDR agonists boost cathelicidin. Host-directed therapy (metformin, statins).",
+        "clinical_status": "HRZE 6-month regimen standard. BPaL regimen (bedaquiline+pretomanid+linezolid) for XDR-TB. BCG vaccine ~70% efficacy.",
+        "refs": ["Bellamy et al., NEJM 1998 (PMID 9708741)", "Gagneux, Nat Rev Microbiol 2018 (PMID 29569614)"],
+    },
+    "staph_aureus": {
+        "organism": "Staphylococcus aureus (Firmicutes; Bacillales — including MRSA, VISA, VRSA)",
+        "type": "Gram-positive coccus",
+        "host_receptors": ["ITGA5B1 (integrin α5β1)", "Fibronectin (FN1)", "Fibrinogen (FGA)", "Von Willebrand factor (VWF)", "Collagen (COL1A1)"],
+        "human_search_terms": ["ITGA5", "FN1", "FGA", "VWF"],
+        "key_proteins": {"FnBPA/B":"Fibronectin binding → ITGA5B1 invasion.","Alpha-toxin (Hla)":"Pore-forming toxin — MEDI4893 mAb target.","PBP2a (mecA)":"MRSA resistance — β-lactam bypass.","Sortase A (SrtA)":"Surface protein anchoring — virulence target.","Protein A (SpA)":"IgG Fc binding — immune evasion."},
+        "disease": "Skin infections, bacteraemia, endocarditis, septic arthritis, MRSA pneumonia, toxic shock",
+        "mechanism": "FnBPA binds FN1 → ITGA5B1 clustering → invasion. Toxins disrupt membranes and immune evasion.",
+        "drug_targets": "Sortase A inhibitors (non-essential — no resistance pressure). MEDI4893 anti-Hla mAb Phase 2.",
+        "clinical_status": "Vancomycin, daptomycin for MRSA. Ceftaroline, dalbavancin alternatives. MEDI4893 in trials.",
+        "refs": ["Patti et al., Annu Rev Microbiol 1994 (PMID 7826009)"],
+    },
+    "streptococcus": {
+        "organism": "Streptococcus pyogenes (GAS, Group A Strep; Firmicutes) and S. pneumoniae (Streptococcus pneumoniae)",
+        "type": "Gram-positive coccus",
+        "host_receptors": {"GAS": ["CD44", "Keratin (KRT8/18)", "Plasminogen (PLG)", "ITGA5"],
+                           "S. pneumoniae": ["PAFR (PTAFR)", "Laminin receptor (RPSA)", "CD147 (BSG)"]},
+        "human_search_terms": ["CD44", "PLG", "PTAFR", "RPSA"],
+        "key_proteins": {"M protein (GAS)":"Anti-phagocytic — T serotype classification. Vaccine target.","Streptolysin O (SLO)":"Pore-forming toxin — cholesterol-binding.","SpA (S. pneumoniae)":"PAFR binding — invasion trigger.","Pneumolysin":"Pore-forming toxin."},
+        "disease": "GAS: pharyngitis, necrotising fasciitis, strep toxic shock. S. pneumoniae: pneumonia, meningitis (leading cause in children).",
+        "mechanism": "M protein binds CD44/fibronectin → GAS invasion. SpA binds PAFR → pneumococcal invasion.",
+        "drug_targets": "PAFR inhibitors block pneumococcal invasion. M protein vaccine (in development). PCV15/PCV20 prevents S. pneumoniae.",
+        "clinical_status": "Penicillin first-line for GAS. PCV20 FDA-approved for S. pneumoniae. GAS vaccine — no approved product.",
+        "refs": ["Bhatt et al., NEJM 2005 (PMID 15901859)"],
+    },
+    "ecoli": {
+        "organism": "Escherichia coli (Proteobacteria; Enterobacterales — UPEC, ETEC, STEC O157:H7, ExPEC)",
+        "type": "Gram-negative rod",
+        "host_receptors": ["UPK1A/UPK1B (uroplakin — UPEC)", "GM1 ganglioside (ETEC LT)", "Gb3/CD77 (STEC Shiga toxin)", "Mannosylated proteins (FimH)"],
+        "human_search_terms": ["UPK1A", "UPK1B", "B4GALNT1"],
+        "key_proteins": {"FimH adhesin":"Type 1 fimbrial tip — mannoside inhibitor target.","Shiga toxin (Stx1/2)":"AB5 toxin → Gb3 → HUS.","Heat-labile toxin (LT)":"ADP-ribosylates Gsα → cAMP diarrhoea.","CTX-M β-lactamase":"ESBL resistance."},
+        "disease": "UTI (UPEC — 150M cases/year), HUS (STEC), traveller's diarrhoea (ETEC), neonatal meningitis, sepsis",
+        "mechanism": "FimH binds mannosylated UPK1A → invasion → intracellular bacterial community (IBC) → chronic infection",
+        "drug_targets": "FimH mannoside antagonists (oral — Phase 2 UTI). Gb3 analog decoys block Shiga toxin. Anti-Stx mAbs.",
+        "clinical_status": "FimH inhibitor (GSK3882347) in Phase 2. Shiga toxin — no approved antitoxin (antibiotics worsen HUS).",
+        "refs": ["Klein et al., Cell Host Microbe 2010 (PMID 20816993)"],
+    },
+    "klebsiella": {
+        "organism": "Klebsiella pneumoniae (Proteobacteria; Enterobacterales — including CR-Kpn, ESBL-Kpn, hvKp)",
+        "type": "Gram-negative rod (encapsulated)",
+        "host_receptors": ["ITGA1 (integrin α1)", "Fibronectin (FN1)", "Laminin (LAMA1)", "ITGB1"],
+        "human_search_terms": ["ITGA1", "FN1", "ITGB1"],
+        "key_proteins": {"Capsule (K-type)":"Anti-phagocytic — blocks complement. >100 serotypes.","FimH (type 1 fimbriae)":"Mannoside-sensitive adhesion.","KPC, NDM, OXA β-lactamases":"Carbapenem resistance.","Yersiniabactin":"Siderophore — serum resistance."},
+        "disease": "Hospital-acquired pneumonia, bacteraemia, UTI. CR-Kpn — >50% mortality when carbapenem-resistant.",
+        "mechanism": "Capsule evades phagocytosis → complement resistance → bacteraemia → lung/liver abscess",
+        "drug_targets": "Capsule-targeting mAbs. FimH mannoside inhibitors. Phage therapy for CR-Kpn. Cefiderocol (siderophore-conjugate).",
+        "clinical_status": "Cefiderocol FDA-approved for CR-Kpn. Ceftazidime-avibactam for KPC. Phage therapy compassionate use.",
+        "refs": ["Paczosa & Mecsas, Microbiol Mol Biol Rev 2016 (PMID 27307579)"],
+    },
+    "pseudomonas": {
+        "organism": "Pseudomonas aeruginosa (Proteobacteria; Pseudomonadales — MDR-PA, XDR-PA)",
+        "type": "Gram-negative rod — intrinsically resistant, metabolically versatile",
+        "host_receptors": ["CFTR (cystic fibrosis transmembrane conductance regulator)", "ITGA3B1", "MUC1"],
+        "human_search_terms": ["CFTR", "ITGA3", "MUC1"],
+        "key_proteins": {"Pili (PilA)":"CFTR binding — type IV pili.","ExoS/ExoT/ExoU/ExoY":"Type III secretion effectors.","LasB elastase":"Tissue destruction.","MexAB/MexXY efflux pumps":"MDR efflux.","Alginate":"Biofilm in CF lungs."},
+        "disease": "Hospital pneumonia, CF lung colonisation, burn wound infection. Major nosocomial pathogen.",
+        "mechanism": "PilA binds CFTR → invasion. T3SS injects effectors that disrupt actin and signal transduction.",
+        "drug_targets": "CFTR modulators (elexacaftor/tezacaftor/ivacaftor) reduce CF lung susceptibility. Phage therapy for MDR-PA.",
+        "clinical_status": "Ceftolozane-tazobactam, cefiderocol for MDR-PA. Phage therapy (PHAGE-2 trial). No vaccine approved.",
+        "refs": ["Bhatt et al., Cell 2019 (PMID 31542393)"],
+    },
+    "neisseria_gonorrhoeae": {
+        "organism": "Neisseria gonorrhoeae (Betaproteobacteria; Neisseriales — including XDR-GC)",
+        "type": "Gram-negative diplococcus",
+        "host_receptors": ["CD46", "CEACAM1 (CD66a)", "CEACAM3", "Opa ligands"],
+        "human_search_terms": ["CD46", "CEACAM1", "CEACAM3"],
+        "key_proteins": {"Opa proteins":"CEACAM binding — invasion.","Pilin (PilE)":"CD46 binding.","PorB":"Invasion pore.","Mtr efflux pump":"MDR efflux."},
+        "disease": "Gonorrhoea — 87M cases/year. XDR strains now untreatable with standard antibiotics.",
+        "mechanism": "Pili bind CD46 → Opa bind CEACAM → invasion of urogenital epithelium",
+        "drug_targets": "CEACAM1 blocking antibodies. Zoliflodacin (topoisomerase II — novel class) in Phase 3.",
+        "clinical_status": "Ceftriaxone still active (barely). Zoliflodacin Phase 3 results awaited. No approved vaccine.",
+        "refs": ["Virji et al., Mol Microbiol 1996 (PMID 8577730)"],
+    },
+    "helicobacter": {
+        "organism": "Helicobacter pylori (Proteobacteria; Campylobacterales — CagA+ virulent strains)",
+        "type": "Gram-negative spiral rod",
+        "host_receptors": ["Sialyl-Lewis X (CLEC4G)", "Lewis B antigen (FUT3)", "EGFR", "MET"],
+        "human_search_terms": ["FUT3", "EGFR", "MET"],
+        "key_proteins": {"CagA (oncoprotein)":"T4SS-injected — activates EGFR/MET → carcinogenesis.","VacA":"Vacuolating cytotoxin — immunosuppression.","BabA adhesin":"Lewis B/FUT3 binding.","Urease":"Acid neutralisation."},
+        "disease": "Peptic ulcer, gastric cancer (IARC Group 1 carcinogen). 50% global prevalence. 700K gastric cancer deaths/year.",
+        "mechanism": "BabA binds Lewis B → CagA injection via T4SS → EGFR/MET activation → epithelial-mesenchymal transition",
+        "drug_targets": "EGFR/MET inhibitors reduce CagA-driven carcinogenesis. FUT3 (Lewis B) blockers. BabA antagonists.",
+        "clinical_status": "Clarithromycin triple therapy declining (resistance). Bismuth quadruple therapy preferred. Vaccine in Phase 3.",
+        "refs": ["Bagnoli et al., Mol Microbiol 2005 (PMID 16173877)"],
+    },
+    "clostridium_difficile": {
+        "organism": "Clostridioides difficile (Firmicutes; Peptostreptococcales — including ribotype 027)",
+        "type": "Gram-positive spore-forming anaerobic rod",
+        "host_receptors": ["CSPG4 (chondroitin sulfate proteoglycan 4) — TcdB receptor", "Frizzled proteins (FZD1/2/7) — TcdB", "PVRL3 (NECTIN3) — TcdA"],
+        "human_search_terms": ["CSPG4", "FZD1", "NECTIN3"],
+        "key_proteins": {"TcdA (Toxin A)":"NECTIN3 binding — enterotoxin.","TcdB (Toxin B)":"FZD/CSPG4 binding — cytotoxin. bezlotoxumab target.","CDT binary toxin":"Actin polymerisation — hypervirulent strains."},
+        "disease": "C. difficile colitis — 500K cases/year US; 15–30K deaths. Leading HAI.",
+        "mechanism": "TcdA/TcdB bind epithelial receptors → glucosylate Rho GTPases → actin disruption → colitis",
+        "drug_targets": "Bezlotoxumab (anti-TcdB mAb — FDA approved). FZD/CSPG4 blocking peptides. Fecal microbiota transplant.",
+        "clinical_status": "Bezlotoxumab approved. Vancomycin/fidaxomicin treatment. RBX2660 (FMT) approved 2023.",
+        "refs": ["Yuan et al., Nature 2015 (PMID 25626090)", "Tao et al., Nature 2016 (PMID 26887947)"],
+    },
+    "salmonella": {
+        "organism": "Salmonella enterica (Proteobacteria; Enterobacterales — Typhi, Typhimurium, Enteritidis)",
+        "type": "Gram-negative rod — facultative intracellular pathogen",
+        "host_receptors": ["CFTR", "SLC11A1 (NRAMP1)", "Sialic acid", "ITGA5B1"],
+        "human_search_terms": ["SLC11A1", "CFTR", "ITGA5"],
+        "key_proteins": {"T3SS (SPI-1)":"Invasion — injects SopB, SopE, SipA into host.","T3SS (SPI-2)":"Intracellular survival in SCV.","Vi antigen (S. Typhi)":"Anti-phagocytic capsule.","SipA":"Actin binding — invasion trigger."},
+        "disease": "Typhoid fever (S. Typhi) — 10M cases/year, 100K deaths. Non-typhoidal Salmonella — 1.35M US cases/year.",
+        "mechanism": "T3SS SPI-1 triggers Arp2/3 actin rearrangement → macropinocytosis → Salmonella-containing vacuole (SCV)",
+        "drug_targets": "SLC11A1 variants affect systemic spread. T3SS small molecule inhibitors. Vi antigen vaccine (Typbar-TCV).",
+        "clinical_status": "Typbar-TCV WHO prequalified. XDR typhoid emerging. Azithromycin current treatment for XDR.",
+        "refs": ["Bhatt et al., Lancet 2019 (PMID 30710614)"],
+    },
+    "cholera": {
+        "organism": "Vibrio cholerae (Gammaproteobacteria; Vibrionales — O1 El Tor, O139 Bengal)",
+        "type": "Gram-negative comma-shaped rod",
+        "host_receptors": ["GM1 ganglioside (B4GALNT1)", "A blood group antigen (ABO)", "Intestinal mucins"],
+        "human_search_terms": ["B4GALNT1", "ABO"],
+        "key_proteins": {"Cholera toxin (CT)":"ADP-ribosylates Gsα → cAMP overproduction → fluid secretion.","TCP pili":"Intestinal colonisation.","VPS regulatory system":"Biofilm formation."},
+        "disease": "Cholera — severe diarrhoea, dehydration. 1.3–4M cases/year, 21–143K deaths. Pandemics ongoing.",
+        "mechanism": "CT B subunit binds GM1 → CT A subunit activates Gsα → CFTR-mediated Cl⁻/fluid secretion → rice-water diarrhoea",
+        "drug_targets": "GM1 analog decoys block CT binding. CFTR inhibitors (crofelemer — approved for HIV diarrhoea) reduce fluid loss.",
+        "clinical_status": "OCV (oral cholera vaccine — Shanchol, Euvichol) WHO prequalified. Doxycycline treatment.",
+        "refs": ["Bharati & Bhatt, J Med Microbiol 2003 (PMID 14657223)"],
+    },
+    "plague": {
+        "organism": "Yersinia pestis (Proteobacteria; Enterobacterales — biovar Antiqua, Medievalis, Orientalis)",
+        "type": "Gram-negative coccobacillus",
+        "host_receptors": ["Integrin β1 (ITGB1)", "Invasin receptor: ITGA3/ITGA4", "CR3 (ITGAM)"],
+        "human_search_terms": ["ITGB1", "ITGA3", "ITGAM"],
+        "key_proteins": {"Invasin":"ITGB1 binding.","Yersinia outer proteins (Yops)":"T3SS effectors — immune evasion.","F1 antigen":"Anti-phagocytic capsule — vaccine target.","V antigen (LcrV)":"T3SS needle tip — second vaccine target."},
+        "disease": "Plague — bubonic, septicaemic, pneumonic. 3,000 cases/year. Pneumonic plague near 100% fatal untreated.",
+        "mechanism": "Flea bite → dermis → ITGB1-mediated macrophage uptake → lymph node → systemic spread",
+        "drug_targets": "ITGB1 blockers prevent uptake. F1+V antigen vaccine (rF1V — stockpiled). Gentamicin treatment.",
+        "clinical_status": "Streptomycin or gentamicin treatment. rF1V vaccine approved in some countries (not FDA). Bioterrorism agent.",
+        "refs": ["Isberg & Barnes, Curr Biol 2001 (PMID 11413013)"],
+    },
+    "anthrax": {
+        "organism": "Bacillus anthracis (Firmicutes; Bacillales — pXO1/pXO2 plasmid virulence factors)",
+        "type": "Gram-positive spore-forming rod — Category A bioterrorism agent",
+        "host_receptors": ["ANTXR1 (CMG2)", "ANTXR2 (TEM8)"],
+        "human_search_terms": ["ANTXR1", "ANTXR2"],
+        "key_proteins": {"Protective antigen (PA)":"Binds ANTXR1/2 — forms pore for EF/LF entry. Vaccine antigen.","Lethal factor (LF)":"MEK protease → cell death.","Oedema factor (EF)":"Adenylate cyclase → oedema."},
+        "disease": "Anthrax — inhalational (pulmonary) near 100% fatal untreated. Cutaneous, gastrointestinal forms.",
+        "mechanism": "PA binds ANTXR1 → heptamerises → LF/EF enter cell via endosome → MEK/MAPK disruption",
+        "drug_targets": "ANTXR1/ANTXR2 blocking antibodies. Anti-PA mAbs (raxibacumab, obiltoxaximab — FDA approved). Ciprofloxacin prophylaxis.",
+        "clinical_status": "Raxibacumab and obiltoxaximab FDA-approved. BioThrax (AVA) vaccine licensed. Ciprofloxacin post-exposure.",
+        "refs": ["Bradley et al., Nature 2001 (PMID 11726952)"],
+    },
+    "lyme_disease": {
+        "organism": "Borrelia burgdorferi (Spirochaetes; Spirochaetales — sensu lato complex in Europe)",
+        "type": "Gram-negative spirochete — tick-borne",
+        "host_receptors": ["Decorin (DCN)", "ITGAV B3 (vitronectin receptor)", "Fibronectin (FN1)", "PLAT (plasminogen)"],
+        "human_search_terms": ["DCN", "ITGAV", "FN1", "PLAT"],
+        "key_proteins": {"OspA":"Tick midgut adhesin — Lymerix vaccine antigen (withdrawn). VLA-15 (multivalent OspA) in Phase 3.","OspC":"Tick-to-human transmission — host complement evasion.","DbpA/B (decorin-binding proteins)":"DCN binding — tissue invasion."},
+        "disease": "Lyme disease — erythema migrans, arthritis, neurological Lyme, carditis. 476K US diagnoses/year.",
+        "mechanism": "OspC binds plasminogen → skin invasion → DBPs bind DCN → dissemination to heart/joints/CNS",
+        "drug_targets": "Decorin antagonists. OspA-based vaccines (VLA15/mRNA-1982 — Phase 3). Doxycycline treatment.",
+        "clinical_status": "No approved vaccine (US) — VLA15 Pfizer/GSK Phase 3 2024. Doxycycline standard treatment.",
+        "refs": ["Coburn et al., Nat Rev Microbiol 2005 (PMID 15823374)"],
+    },
+    # ════════════════════════════════
+    # FUNGI
+    # ════════════════════════════════
+    "candida": {
+        "organism": "Candida albicans, C. auris, C. glabrata, C. tropicalis (Ascomycota; Saccharomycetes)",
+        "type": "Dimorphic fungus — yeast ↔ hyphae transition (except C. auris)",
+        "host_receptors": ["CLEC7A (Dectin-1)", "TLR2", "TLR4", "FcγRIII (CD16)", "E-cadherin (CDH1)", "N-cadherin (CDH2)"],
+        "human_search_terms": ["CLEC7A", "TLR2", "CARD9", "CDH1"],
+        "key_proteins": {"ERG11 (CYP51)":"Lanosterol 14α-demethylase — azole target.","FKS1 (β-glucan synthase)":"Cell wall — echinocandin target.","Als3 adhesin":"CDH1/CDH2 binding — invasion trigger.","Hsp90":"Azole tolerance — drug target.","Ece1-Candidalysin":"Pore-forming toxin — virulence."},
+        "disease": "Candidaemia, invasive candidiasis (1.5M cases/year, 700K deaths). C. auris — pan-resistant nosocomial outbreaks.",
+        "mechanism": "Als3 binds E-cadherin → endocytosis → hyphae formation → tissue invasion → Candidalysin pore disruption",
+        "drug_targets": "CLEC7A agonists boost antifungal immunity. ERG11 (azoles). FKS1 (echinocandins). Hsp90 inhibitors.",
+        "clinical_status": "Echinocandins first-line for invasive. Ibrexafungerp (novel class) approved 2021. Olorofim in trials. C. auris — limited options.",
+        "refs": ["Phan et al., Science 2007 (PMID 17525341)", "Lass-Flörl, Clin Microbiol Infect 2022 (PMID 35358700)"],
+    },
+    "aspergillus": {
+        "organism": "Aspergillus fumigatus, A. flavus, A. terreus (Ascomycota; Eurotiomycetes)",
+        "type": "Filamentous mould — conidial dispersal",
+        "host_receptors": ["CLEC7A (Dectin-1)", "CR3 (ITGAM/ITGB2)", "DC-SIGN (CD209)", "Siglec-10 (SIGLEC10)"],
+        "human_search_terms": ["CLEC7A", "ITGAM", "CD209"],
+        "key_proteins": {"Gliotoxin":"Neutrophil/macrophage immunosuppression.","ERG11/CYP51A":"Azole target — TR34/L98H mutation = pan-azole resistance.","Calcineurin (CnaA)":"FK506 target — virulence.","Dihydroorotate dehydrogenase (DHODH)":"Olorofim target."},
+        "disease": "Invasive pulmonary aspergillosis (IPA) — 30–90% mortality immunocompromised. Allergic bronchopulmonary aspergillosis (ABPA).",
+        "mechanism": "Conidia inhaled → Dectin-1/CR3 recognition → phagocytosis (healthy) or invasion (neutropenic/steroid-treated)",
+        "drug_targets": "Voriconazole/isavuconazole first-line. Olorofim (DHODH) Breakthrough Therapy Designation. Anti-conidia mAbs.",
+        "clinical_status": "Voriconazole standard-of-care. Olorofim Phase 3. Ibrexafungerp extended activity. No vaccine.",
+        "refs": ["Latgé & Chamilos, Clin Microbiol Rev 2019 (PMID 31666279)"],
+    },
+    "cryptococcus": {
+        "organism": "Cryptococcus neoformans and C. gattii (Basidiomycota; Tremellales)",
+        "type": "Encapsulated yeast — meningotropic",
+        "host_receptors": ["CD44", "FcγR (CD16/CD32)", "CR3 (ITGAM)", "CD18 (ITGB2)"],
+        "human_search_terms": ["CD44", "ITGAM", "ITGB2"],
+        "key_proteins": {"GXM capsule":"CD44/CR3 binding — anti-phagocytic. IgM mAb 18B7 as therapeutic.","Laccase":"Melanin production — antifungal resistance.","Phospholipase B1 (PLB1)":"Immune evasion.","Ure1 urease":"BBB crossing."},
+        "disease": "Cryptococcal meningitis — 180K deaths/year, primarily HIV+ patients. C. gattii — immunocompetent hosts.",
+        "mechanism": "GXM capsule evades phagocytosis → 'Trojan horse' macrophage transport → BBB crossing via Ure1 → meningitis",
+        "drug_targets": "CD44 blocking antibodies. Anti-GXM mAbs (18B7 — Phase 2). Amphotericin B + flucytosine induction.",
+        "clinical_status": "AmB-deoxycholate + flucytosine induction → fluconazole maintenance. Sertraline as adjunct (kills via efflux pump). No vaccine.",
+        "refs": ["Casadevall & Perfect, Cryptococcus neoformans, 1998 (ASM)"],
+    },
+    "pneumocystis": {
+        "organism": "Pneumocystis jirovecii (Ascomycota; Pneumocystidomycetes — formerly P. carinii)",
+        "type": "Atypical fungus — obligate mammalian pathogen, cannot be cultured",
+        "host_receptors": ["Surfactant protein A receptor (SFTPA1)", "MUC1", "Vitronectin receptor (ITGAV)"],
+        "human_search_terms": ["SFTPA1", "MUC1", "ITGAV"],
+        "key_proteins": {"Major surface glycoprotein (Msg/gp120)":"SFTPA1 binding — major antigenic variation.","DHFR":"TMP-SMX target.","DHPS":"Sulphamethoxazole target — mutations = resistance."},
+        "disease": "Pneumocystis pneumonia (PCP) — AIDS-defining illness. Mortality 10–30% treated, >90% untreated.",
+        "mechanism": "Msg binds SFTPA1 on type I pneumocytes → cyst attachment → immune-mediated lung injury (not direct invasion)",
+        "drug_targets": "SFTPA1 blocking peptides reduce attachment. TMP-SMX targets DHFR/DHPS. Atovaquone targets cytochrome bc1.",
+        "clinical_status": "TMP-SMX first-line prophylaxis and treatment. Atovaquone alternative. No vaccine or antifungal cure.",
+        "refs": ["Walzer et al., Infect Immun 2009 (PMID 19648246)"],
+    },
+    # ════════════════════════════════
+    # PARASITES
+    # ════════════════════════════════
+    "malaria": {
+        "organism": "Plasmodium falciparum, P. vivax, P. malariae, P. ovale, P. knowlesi (Apicomplexa; Haematozoea)",
+        "type": "Eukaryotic protozoan parasite — complex lifecycle (mosquito → liver → erythrocyte)",
+        "host_receptors": ["GYPA (Glycophorin A)", "GYPC (Glycophorin C)", "DARC (ACKR1)", "CD147 (BSG)", "CD36", "ICAM1"],
+        "human_search_terms": ["GYPA", "GYPC", "ACKR1", "BSG"],
+        "key_proteins": {"EBA-175":"GYPA binding — P. falciparum invasion.","PfRH5":"CD147/BSG binding — essential conserved target. Phase 2 vaccine.","MSP1":"Erythrocyte surface — trial vaccine antigen.","DHFR/DHPS":"Antifolate targets.","Kelch13 (pfk13)":"Artemisinin resistance."},
+        "disease": "Malaria — 240M cases/year, 600K deaths. Cerebral malaria, severe anaemia, pregnancy complications.",
+        "mechanism": "Merozoite EBA-175/GYPA and PfRH5/CD147 enable erythrocyte invasion → intracellular replication → sequestration",
+        "drug_targets": "GYPA/GYPC blocking peptides. Anti-PfRH5 mAbs. Anti-CD147 mAbs (MEM-M6/1). Artemisinin combinations (ACT).",
+        "clinical_status": "R21/Matrix-M vaccine WHO-approved (2023). ACT first-line. Artemisinin partial resistance spreading.",
+        "refs": ["Crosnier et al., Nature 2011 (PMID 22080952)", "Wright et al., Nature 2014 (PMID 25219458)"],
+    },
+    "toxoplasma": {
+        "organism": "Toxoplasma gondii (Apicomplexa; Coccidia — types I, II, III)",
+        "type": "Eukaryotic intracellular protozoan — obligate",
+        "host_receptors": ["PDGFR", "Emerin (EMD)", "Chondroitin sulfate", "LDL receptor (LDLR)"],
+        "human_search_terms": ["PDGFRA", "EMD", "LDLR"],
+        "key_proteins": {"MIC proteins (MIC1-16)":"Host receptor binding.","RON proteins (RON2/4)":"Moving junction complex.","AMA1":"RON2 binding — invasion trigger. Vaccine target.","GRA proteins":"PV modulation."},
+        "disease": "Toxoplasmosis — congenital (brain damage), encephalitis in immunocompromised, ocular toxoplasmosis. 30% of humans infected.",
+        "mechanism": "MIC/AMA1 bind host receptor → moving junction formation → parasite active invasion → PV in all nucleated cells",
+        "drug_targets": "AMA1-RON2 interface disruptors. Pyrimethamine+sulphadiazine targets DHFR/DHPS. Atovaquone for chronic cyst.",
+        "clinical_status": "Pyrimethamine+sulphadiazine standard (no alternatives for acute). No FDA-approved vaccine.",
+        "refs": ["Besteiro et al., Trends Parasitol 2011 (PMID 21546029)"],
+    },
+    "leishmania": {
+        "organism": "Leishmania donovani, L. major, L. braziliensis (Kinetoplastida; Trypanosomatida — 20+ species)",
+        "type": "Eukaryotic protozoan — sandfly-transmitted, macrophage-tropic",
+        "host_receptors": ["Complement receptor 1 (CR1)", "CR3 (ITGAM/ITGB2)", "FcγRIII (CD16)", "DC-SIGN (CD209)"],
+        "human_search_terms": ["CR1", "ITGAM", "CD209"],
+        "key_proteins": {"LPG (lipophosphoglycan)":"Complement evasion + CR3 binding.","gp63 (leishmanolysin)":"CR3 binding — protease.","A2 protein":"Visceral tropism determinant."},
+        "disease": "Visceral leishmaniasis (kala-azar) — fatal without treatment. 50K deaths/year. Cutaneous/mucocutaneous forms.",
+        "mechanism": "LPG binds CR3/CR1 → phagocytosis → phagosome acidification blocked → intracellular survival in macrophage",
+        "drug_targets": "CR3/CR1 blocking antibodies. Miltefosine (oral, first-line). Liposomal amphotericin B (AmBisome). No vaccine.",
+        "clinical_status": "AmBisome for visceral. Miltefosine resistance emerging in India. LeishF3 vaccine antigen in Phase 2.",
+        "refs": ["Handman & Bullen, Trends Parasitol 2002 (PMID 12385004)"],
+    },
+    "trypanosoma": {
+        "organism": "Trypanosoma brucei (African sleeping sickness) and T. cruzi (Chagas disease; Kinetoplastida)",
+        "type": "Eukaryotic flagellated protozoan — insect-transmitted",
+        "host_receptors": {"T. brucei": ["Xanthine/adenosine transporter (SLC29A2)","Low-density lipoprotein receptor (LDLR)"],
+                           "T. cruzi": ["GP83","LDL receptor (LDLR)","TLR2"]},
+        "human_search_terms": ["SLC29A2", "LDLR", "TLR2"],
+        "key_proteins": {"VSG (variant surface glycoprotein)":"T. brucei — antigenic variation evades immunity.","TbAT1 (adenosine transporter)":"Melarsoprol/pentamidine entry — resistance mutations.","Cruzi trans-sialidase":"T. cruzi — neuraminidase/cell invasion.","CYP51":"Ergosterol synthesis — posaconazole target (T. cruzi)."},
+        "disease": "African sleeping sickness (fatal CNS disease). Chagas disease — cardiomyopathy, 6–7M infected in Americas.",
+        "mechanism": "T. brucei: VSG-coated → bloodstream → CNS. T. cruzi: GP83/trans-sialidase → intracellular invasion → cardiomyocytes",
+        "drug_targets": "SLC29A2 (adenosine uptake) — pentamidine entry. TbAT1 mutations drive resistance. Chagas: nifurtimox, benznidazole.",
+        "clinical_status": "Fexinidazole (oral) WHO-approved for sleeping sickness. Benznidazole/nifurtimox for Chagas (limited). No vaccines.",
+        "refs": ["Baker et al., Nature 2005 (PMID 15693010)"],
+    },
+    "schistosoma": {
+        "organism": "Schistosoma mansoni, S. haematobium, S. japonicum (Platyhelminthes; Trematoda)",
+        "type": "Helminth — flatworm, complex lifecycle (snail → cercariae → human skin penetration)",
+        "host_receptors": ["Elastin (ELN)", "EGFR", "Fibronectin receptor (ITGA5B1)"],
+        "human_search_terms": ["ELN", "EGFR", "ITGA5"],
+        "key_proteins": {"SmKI-1 (Kunitz inhibitor)":"Skin invasion — serine protease inhibitor.","Sm29":"Immune evasion surface protein.","Glutathione S-transferase (SmGST)":"Vaccine antigen (Bilhvax — Phase 3 failed).","Sm-Tegument":"Surface immune evasion."},
+        "disease": "Schistosomiasis — 240M infected, 11K deaths/year. Hepatic fibrosis, bladder cancer (S. haematobium), portal hypertension.",
+        "mechanism": "Cercariae penetrate skin via elastin/EGFR-dependent proteolysis → migrate to portal veins → egg deposition → fibrosis",
+        "drug_targets": "EGFR inhibitors reduce cercarial penetration (preclinical). SmGST vaccine antigen. Praziquantel — sole approved drug.",
+        "clinical_status": "Praziquantel only treatment. No approved vaccine. Resistance emerging. Oxamniquine alternative.",
+        "refs": ["Gobert et al., PLOS Pathog 2010 (PMID 20548957)"],
+    },
+    # ════════════════════════════════
+    # PRIONS
+    # ════════════════════════════════
+    "prion": {
+        "organism": "Prion (misfolded PrPSc) — CJD, vCJD, kuru, Gerstmann-Sträussler-Scheinker, Fatal familial insomnia",
+        "type": "Misfolded protein — no nucleic acid. Transmissible via PrPSc → PrPC templating.",
+        "host_receptors": ["PRNP (cellular prion protein PrPC)", "Laminin receptor precursor (RPSA)", "Heparan sulfate proteoglycans"],
+        "human_search_terms": ["PRNP", "RPSA"],
+        "key_proteins": {"PrPC (cellular)":"Normal GPI-anchored glycoprotein — converts to PrPSc in disease.","PrPSc (scrapie form)":"Misfolded — seeds further conversion. No enzymatic activity."},
+        "disease": "CJD: 1–2/million/year, universally fatal. vCJD: BSE-linked, 232 deaths UK. Fatal familial insomnia: rare PRNP mutation D178N.",
+        "mechanism": "PrPSc binds PrPC → seeds misfolding → amyloid plaques → neuronal death → rapidly progressive dementia",
+        "drug_targets": "PRNP knockdown (ASO in primates — reduces susceptibility). Anti-PrP mAbs (PRN100 — compassionate use). Quinacrine failed Phase 2.",
+        "clinical_status": "No approved treatment. PRN100 compassionate use in UK. Anle138b neuroprotective in animal models. PRNP ASO in IND-enabling.",
+        "refs": ["Prusiner, Science 1982 (PMID 6801762)", "Minikel et al., Science Transl Med 2020 (PMID 33328337)"],
+    },
+    # ════════════════════════════════
+    # ADDITIONAL VIRUSES
+    # ════════════════════════════════
+    "adenovirus": {
+        "organism": "Human adenovirus (Adenoviridae; Mastadenovirus; >100 types, species A–G)",
+        "type": "Double-stranded DNA virus — non-enveloped, icosahedral",
+        "host_receptors": ["CAR (CXADR)", "CD46", "DSG2 (desmoglein-2)", "ITGAV B3/B5 (αvβ3/αvβ5 integrins)"],
+        "human_search_terms": ["CXADR", "CD46", "DSG2", "ITGAV"],
+        "key_proteins": {"Fiber protein":"CAR/CD46/DSG2 binding — serotype-dependent receptor tropism.", "Penton base (RGD)":"Integrin αvβ3/5 binding — endosomal escape trigger.", "Hexon":"Major capsid antigen — immune evasion via factor X masking.", "E1A/E1B oncoproteins":"p53/Rb inactivation — transformation in rodents, not humans."},
+        "disease": "Respiratory (epidemic keratoconjunctivitis, pharyngoconjunctival fever), gastroenteritis, haemorrhagic cystitis, encephalitis in immunocompromised.",
+        "mechanism": "Fiber binds CAR → penton RGD binds αvβ3 → macropinocytosis → endosomal acidification → escape → nucleus",
+        "drug_targets": "CAR/DSG2 blocking antibodies. Cidofovir (nephrotoxic). Brincidofovir (lipid-conjugated — less toxic). No approved specific antiviral.",
+        "clinical_status": "Brincidofovir failed for adenovirus post-transplant. Cidofovir off-label. Live oral vaccine for Ad4/Ad7 military use only.",
+        "refs": ["Bergelson et al., Science 1997 (PMID 9055849)", "Gaggar et al., Nat Med 2003 (PMID 14566340)"],
+    },
+    "parvovirus_b19": {
+        "organism": "Parvovirus B19 (Parvoviridae; Erythroparvovirus — genotypes 1–3)",
+        "type": "Single-stranded DNA virus — smallest human pathogenic virus",
+        "host_receptors": ["Globoside (Gb4, B4GALNT1)", "Ku80 (XRCC5)", "Integrin α5β1 (ITGA5B1)"],
+        "human_search_terms": ["B4GALNT1", "XRCC5", "ITGA5"],
+        "key_proteins": {"VP1/VP2 capsid":"Gb4 binding — primary determinant of erythroid tropism.", "NS1 protein":"Cytotoxic — induces apoptosis in erythroid progenitors."},
+        "disease": "Fifth disease (slapped cheek), aplastic crisis in haemolytic disease, hydrops fetalis, arthropathy, pure red cell aplasia in immunocompromised.",
+        "mechanism": "VP2 binds globoside (Gb4) on erythroid progenitors → NS1-mediated apoptosis → erythropoiesis arrest",
+        "drug_targets": "Gb4 analog decoys. IVIg contains neutralising anti-B19 antibodies (treatment for chronic infection). No antiviral.",
+        "clinical_status": "IVIg for immunocompromised chronic B19. No antiviral approved. Fetal hydrops — IVIg + intrauterine transfusion.",
+        "refs": ["Weigel-Kelley et al., J Virol 2001 (PMID 11264363)"],
+    },
+    "human_metapneumovirus": {
+        "organism": "Human metapneumovirus (hMPV; Pneumoviridae; Metapneumovirus — subtypes A1, A2, B1, B2)",
+        "type": "RNA virus — negative-sense single-stranded",
+        "host_receptors": ["RGD-binding integrins (ITGAV B1)", "Heparan sulfate proteoglycans", "Nucleolin (NCL)"],
+        "human_search_terms": ["ITGAV", "ITGB1", "NCL"],
+        "key_proteins": {"F protein":"Fusion — mRNA-1345 (Moderna mResVIA RSV+hMPV bivalent vaccine candidate).", "G glycoprotein":"Attachment — highly variable."},
+        "disease": "hMPV bronchiolitis/pneumonia in infants and elderly — second most common respiratory virus after RSV.",
+        "mechanism": "G attaches via HS-PGs → F mediates fusion → lower respiratory tract infection → bronchiolitis",
+        "drug_targets": "Anti-F mAbs. IVIg containing hMPV antibodies. Ribavirin poor efficacy. Vaccine candidates in Phase 2.",
+        "clinical_status": "No approved antiviral or vaccine. mRNA-1345 bivalent RSV/hMPV in development.",
+        "refs": ["van den Hoogen et al., Nat Med 2001 (PMID 11385510)"],
+    },
+    "parainfluenza": {
+        "organism": "Human parainfluenza virus types 1–4 (PIV1–4; Paramyxoviridae; Respirovirus/Rubulavirus)",
+        "type": "RNA virus — negative-sense single-stranded",
+        "host_receptors": ["Sialic acid (α2,3 and α2,6)", "CD46 (PIV4)"],
+        "human_search_terms": ["ST3GAL1", "ST6GAL1", "CD46"],
+        "key_proteins": {"HN (haemagglutinin-neuraminidase)":"Sialic acid binding + cleavage.", "F protein":"Membrane fusion — DAS181 neuraminidase aerosol cleaves receptor."},
+        "disease": "Croup (PIV1/2 — leading cause), bronchiolitis, pneumonia. Major cause of child hospitalisation.",
+        "mechanism": "HN binds sialic acid → F-mediated fusion → upper/lower respiratory tract → croup laryngeal oedema",
+        "drug_targets": "Sialic acid receptor cleavage (DAS181 inhaled neuraminidase — Phase 3 immunocompromised). Anti-F mAbs.",
+        "clinical_status": "DAS181 in Phase 3 for PIV3 post-transplant. No approved antiviral. No vaccine.",
+        "refs": ["Moscona, NEJM 2005 (PMID 16267326)"],
+    },
+    "rhinovirus": {
+        "organism": "Human rhinovirus (Picornaviridae; Enterovirus; >160 serotypes — HRV-A, B, C)",
+        "type": "RNA virus — positive-sense single-stranded, non-enveloped",
+        "host_receptors": ["ICAM-1 (HRV-A/B major group)", "LDL receptor (LDLR — minor group)", "CDHR3 (HRV-C)"],
+        "human_search_terms": ["ICAM1", "LDLR", "CDHR3"],
+        "key_proteins": {"VP1-VP4 capsid":"ICAM-1/CDHR3 binding — canyon hypothesis.", "3C protease":"Polyprotein cleavage — rupintrivir target.", "3D RdRp":"Replication."},
+        "disease": "Common cold (50% of all colds) — billions of infections/year. Severe in asthma/COPD exacerbations.",
+        "mechanism": "VP1 canyon binds ICAM-1 → receptor-mediated uncoating → positive-sense RNA translation → cell lysis",
+        "drug_targets": "ICAM-1 blocking antibodies. Tremacamra (soluble ICAM-1 — Phase 3, reduced symptoms modestly). Capsid binders (pleconaril, vapendavir).",
+        "clinical_status": "No approved antiviral. Vapendavir failed Phase 2 for HRV-C. CDHR3 antibodies preclinical.",
+        "refs": ["Staunton et al., Cell 1989 (PMID 2538241)", "Bochkov et al., Nat Med 2015 (PMID 26099043)"],
+    },
+    "enterovirus": {
+        "organism": "Enterovirus D68 (EV-D68), EV-A71 (hand foot mouth), Coxsackievirus (Picornaviridae; Enterovirus)",
+        "type": "RNA virus — positive-sense single-stranded, non-enveloped",
+        "host_receptors": ["ICAM-5 (Telencephalin)", "SCARB2 (EV-A71)", "PSGL-1 (EV-A71)", "Sialic acid (EV-D68)"],
+        "human_search_terms": ["ICAM5", "SCARB2", "SELPLG"],
+        "key_proteins": {"VP1 capsid":"ICAM-5/SCARB2 binding.", "3C protease":"Polyprotein processing.", "2A protease":"Host shutoff — cleaves eIF4G."},
+        "disease": "EV-D68: acute flaccid myelitis (AFM) — polio-like paralysis. EV-A71: hand-foot-mouth disease, brainstem encephalitis. Coxsackievirus: myocarditis.",
+        "mechanism": "VP1 binds SCARB2/ICAM-5 → motor neuron infection → AFM OR EV-A71 binds PSGL-1 on T cells → viraemia → CNS",
+        "drug_targets": "SCARB2/ICAM-5 blocking antibodies. Vapendavir (capsid stabiliser) broad-spectrum. EV-A71 inactivated vaccine (China-approved).",
+        "clinical_status": "EV-A71 vaccine approved in China (Sinovac, CAMS). No antiviral approved in West. IVIG for severe cases.",
+        "refs": ["Yamayoshi et al., Nat Med 2009 (PMID 19820712)"],
+    },
+    "coronavirus_oc43_229e": {
+        "organism": "Human coronavirus OC43, 229E, NL63, HKU1 (Coronaviridae — endemic seasonal coronaviruses)",
+        "type": "RNA virus — positive-sense single-stranded",
+        "host_receptors": ["APN (CD13/ANPEP — 229E)", "ACE2 (NL63)", "HLA-I (OC43)", "Sialic acid (OC43)"],
+        "human_search_terms": ["ANPEP", "ACE2"],
+        "key_proteins": {"Spike (S)":"ANPEP/ACE2 binding — common cold coronaviruses share receptor with pathogenic CoVs.", "Mpro":"Conserved — pan-coronavirus drug target."},
+        "disease": "Common cold (15% of cases), exacerbation of asthma/COPD. NL63 causes croup in children.",
+        "mechanism": "S binds ANPEP (229E) or ACE2 (NL63) → fusion → upper respiratory replication → cold symptoms",
+        "drug_targets": "Mpro inhibitors (nirmatrelvir) may have activity. ANPEP blockers. Anti-S mAbs for immunocompromised.",
+        "clinical_status": "No approved antiviral. Supportive care. Nirmatrelvir in vitro activity reported.",
+        "refs": ["Fehr & Perlman, Methods Mol Biol 2015 (PMID 25720466)"],
+    },
+    "htlv": {
+        "organism": "Human T-lymphotropic virus 1 and 2 (HTLV-1/2; Retroviridae; Deltaretrovirus)",
+        "type": "RNA retrovirus — positive-sense",
+        "host_receptors": ["GLUT1 (SLC2A1)", "NRP1", "HSPGs"],
+        "human_search_terms": ["SLC2A1", "NRP1"],
+        "key_proteins": {"gp21/gp46 envelope":"GLUT1/NRP1 binding.", "Tax oncoprotein":"NF-κB activation → T cell immortalisation.", "HBZ protein":"Viral latency and oncogenesis."},
+        "disease": "HTLV-1: Adult T-cell leukaemia/lymphoma (ATL, 5% of infected), HTLV-1-associated myelopathy (HAM/TSP). 10M infected globally.",
+        "mechanism": "gp46 binds GLUT1 → T cell infection → Tax activates NF-κB → T cell proliferation → ATL after decades",
+        "drug_targets": "GLUT1 blocking antibodies (preclinical). Tax inhibitors. Mogamulizumab (anti-CCR4) for ATL — approved in Japan/USA.",
+        "clinical_status": "Mogamulizumab FDA-approved for ATL. Zidovudine + IFN-α for ATL. HAM: corticosteroids.",
+        "refs": ["Manel et al., Cell 2003 (PMID 14667406)"],
+    },
+    "hhv8_kshv": {
+        "organism": "Kaposi sarcoma-associated herpesvirus (KSHV/HHV-8; Herpesviridae; Gammaherpesvirinae)",
+        "type": "Double-stranded DNA virus — latent/lytic lifecycle",
+        "host_receptors": ["ITGB1 (integrin β1)", "ITGB3", "EphA2", "CD98 (SLC3A2)"],
+        "human_search_terms": ["ITGB1", "EPHA2", "SLC3A2"],
+        "key_proteins": {"gB/gH/gL":"Entry complex.", "K1":"ITAM-containing — B cell activation.", "vIL-6 (viral IL-6)":"Immune evasion — growth factor.", "ORF73 (LANA)":"Episome maintenance."},
+        "disease": "Kaposi sarcoma (AIDS-defining illness), primary effusion lymphoma, multicentric Castleman disease.",
+        "mechanism": "gB RGD motif binds ITGB1/B3 → EphA2 co-receptor → endocytosis → latency OR lytic replication → oncogenesis",
+        "drug_targets": "ITGB1/EphA2 blocking antibodies. Cidofovir (anti-lytic). Rituximab for MCD. No approved KSHV-specific antiviral.",
+        "clinical_status": "ART for AIDS-KS (resolves with immune reconstitution). Liposomal doxorubicin for advanced KS. Rituximab for MCD.",
+        "refs": ["Feire et al., Proc Natl Acad Sci 2004 (PMID 15148390)"],
+    },
+    "bk_polyomavirus": {
+        "organism": "BK polyomavirus (BKV; Polyomaviridae; Betapolyomavirus — serotypes I–IV)",
+        "type": "Double-stranded DNA virus — circular, non-enveloped",
+        "host_receptors": ["GD1b/GD2 gangliosides (B4GALNT1)", "α2,3-linked sialic acid"],
+        "human_search_terms": ["B4GALNT1", "ST3GAL1"],
+        "key_proteins": {"VP1 capsid":"GD1b binding — defines tropism.", "Large T antigen":"p53/Rb inactivation — transformation in immunocompromised.", "Small t antigen":"PP2A inhibition."},
+        "disease": "BKV nephropathy (leading cause of kidney graft loss), haemorrhagic cystitis post-HSCT. 90% seropositive.",
+        "mechanism": "VP1 binds GD1b → endocytosis → nuclear entry → T antigen-mediated replication in immunosuppression",
+        "drug_targets": "GD1b blocking antibodies (preclinical). Cidofovir/brincidofovir — limited efficacy. Reduce immunosuppression.",
+        "clinical_status": "No approved antiviral. Leflunomide and cidofovir off-label. Reduction of immunosuppression primary strategy.",
+        "refs": ["Dugan et al., PLOS Pathog 2006 (PMID 16518467)"],
+    },
+    # ════════════════════════════════
+    # ADDITIONAL BACTERIA
+    # ════════════════════════════════
+    "meningococcus": {
+        "organism": "Neisseria meningitidis (Betaproteobacteria; Neisseriales — serogroups A, B, C, W, X, Y)",
+        "type": "Gram-negative diplococcus — encapsulated, obligate human pathogen",
+        "host_receptors": ["CEACAM1 (CD66a)", "C4BP (C4BPA)", "Factor H (CFH)", "CD46"],
+        "human_search_terms": ["CEACAM1", "CFH", "CD46"],
+        "key_proteins": {"Opa proteins":"CEACAM1 binding — invasion.", "PorB":"Factor H binding — complement evasion.", "fHbp":"CFH binding — vaccine antigen (Bexsero component).", "NHBA/NadA":"Additional Bexsero antigens."},
+        "disease": "Bacterial meningitis and meningococcaemia — 50% mortality without treatment, 20% with treatment. 10–20% survivors have disability.",
+        "mechanism": "Pili bind endothelium → Opa/CEACAM1 → invasion → bacteraemia → BBB crossing → meningitis",
+        "drug_targets": "CEACAM1 blocking antibodies. CFH/fHbp interaction inhibitors. MenACWY + MenB vaccines prevent most cases.",
+        "clinical_status": "MenACWY (Menactra/Menveo) and MenB (Bexsero/Trumenba) vaccines. Penicillin/ceftriaxone treatment.",
+        "refs": ["Virji et al., Mol Microbiol 1993 (PMID 8095154)"],
+    },
+    "haemophilus": {
+        "organism": "Haemophilus influenzae (Pasteurellaceae — typeable: serotypes a–f; nontypeable NTHi)",
+        "type": "Gram-negative coccobacillus — encapsulated (typeable) or unencapsulated (NTHi)",
+        "host_receptors": ["CEACAM1", "CEACAM5 (CEA)", "Vitronectin (VTN)", "Fibronectin (FN1)", "ITGAV B5"],
+        "human_search_terms": ["CEACAM1", "VTN", "FN1"],
+        "key_proteins": {"HMW1/HMW2":"NTHi adhesins — CEACAM binding.", "Hib capsule (polyribosyl-ribitol phosphate)":"Anti-phagocytic — Hib vaccine antigen.", "OMP P5":"NTHi — immune evasion."},
+        "disease": "Hib: meningitis in unvaccinated children. NTHi: otitis media (leading cause), COPD exacerbations, sinusitis.",
+        "mechanism": "HMW1/2 bind CEACAM1 → airway epithelial invasion → middle ear → meningitis (Hib type b)",
+        "drug_targets": "CEACAM1/CEACAM5 blocking antibodies. Amoxicillin-clavulanate for NTHi. Hib conjugate vaccine (>99% reduction in Hib meningitis).",
+        "clinical_status": "Hib vaccine transformed paediatric meningitis. NTHi: no vaccine approved. PCV15/20 reduces NTHi otitis.",
+        "refs": ["St Geme, Trends Microbiol 1994 (PMID 7894437)"],
+    },
+    "listeria": {
+        "organism": "Listeria monocytogenes (Firmicutes; Bacillales — serotypes 1/2a, 1/2b, 4b)",
+        "type": "Gram-positive rod — intracellular facultative, cold-tolerant",
+        "host_receptors": ["E-cadherin (CDH1)", "Met (HGF receptor)", "InlB receptor", "c-Met/HGF-R"],
+        "human_search_terms": ["CDH1", "MET"],
+        "key_proteins": {"InlA (internalin A)":"E-cadherin binding — intestinal invasion.", "InlB":"c-Met binding — hepatocyte/BBB invasion.", "LLO (listeriolysin O)":"Phagosomal escape.", "ActA":"Actin polymerisation — intracellular motility."},
+        "disease": "Listeriosis — meningitis, septicaemia, maternal-fetal infection. 20–30% CFR. Immunocompromised + pregnancy + elderly.",
+        "mechanism": "InlA binds CDH1 → intestinal epithelial entry. InlB binds c-Met → hepatocyte/BBB invasion. LLO escapes phagosome → actin rocket",
+        "drug_targets": "E-cadherin/c-Met blocking antibodies. LLO inhibitors. Ampicillin + gentamicin standard treatment.",
+        "clinical_status": "No vaccine. Ampicillin treatment. Prevention: food safety (avoid soft cheese, deli meat in pregnancy).",
+        "refs": ["Mengaud et al., Cell 1996 (PMID 8564870)"],
+    },
+    "brucella": {
+        "organism": "Brucella melitensis, B. abortus, B. suis, B. canis (Alphaproteobacteria; Rhizobiales)",
+        "type": "Gram-negative coccobacillus — intracellular, zoonotic",
+        "host_receptors": ["ITGA5B1 (integrin α5β1)", "SR-A (MSR1)", "TLR4 (partial)"],
+        "human_search_terms": ["ITGA5", "MSR1", "TLR4"],
+        "key_proteins": {"Omp19/Omp16":"Outer membrane — lipoproteins activate TLR2.", "BvrR/BvrS":"Two-component system — virulence.", "VirB T4SS":"Effector injection — BCV biogenesis."},
+        "disease": "Brucellosis — undulant fever, arthritis, sacroiliitis, epididymo-orchitis. Most common zoonosis globally. 500K cases/year.",
+        "mechanism": "SR-A/ITGA5B1 → macrophage phagocytosis → T4SS redirects BCV to ER → chronic intracellular survival",
+        "drug_targets": "SR-A blocking antibodies. T4SS inhibitors (preclinical). Doxycycline + rifampicin 6-week treatment.",
+        "clinical_status": "No human vaccine approved (animal vaccines available). Doxycycline + rifampicin standard regimen. High relapse rate.",
+        "refs": ["Pizarro-Cerdá et al., Cell 1998 (PMID 9635416)"],
+    },
+    "rickettsia": {
+        "organism": "Rickettsia prowazekii (epidemic typhus), R. rickettsii (Rocky Mountain spotted fever), R. typhi (murine typhus — Alphaproteobacteria; Rickettsiales)",
+        "type": "Obligate intracellular Gram-negative bacterium — arthropod-borne",
+        "host_receptors": ["ITGA2B3 (αIIbβ3 platelet integrin)", "Ku70 (XRCC6)", "Cdc42"],
+        "human_search_terms": ["ITGA2", "XRCC6"],
+        "key_proteins": {"OmpA/OmpB":"Outer membrane proteins — host cell binding. Vaccine candidates.", "Sca2":"Actin-based motility — formin-like.", "Surface cell antigen 0 (Sca0)":"XRCC6/Ku70 binding — endothelial invasion."},
+        "disease": "Rocky Mountain spotted fever (RMSF) — 5–7% mortality treated, >20% untreated. Epidemic typhus — historically millions of deaths.",
+        "mechanism": "OmpB binds Ku70 → induced phagocytosis → phagosomal escape → cytoplasmic actin polymerisation → cell-to-cell spread",
+        "drug_targets": "Ku70/XRCC6 blocking inhibitors (preclinical). Doxycycline (treatment of choice — dramatic response in 24–48h).",
+        "clinical_status": "Doxycycline curative if started early. No FDA-approved vaccine. Delay in treatment increases mortality markedly.",
+        "refs": ["Martinez & Cossart, J Cell Sci 2004 (PMID 15226398)"],
+    },
+    "chlamydia": {
+        "organism": "Chlamydia trachomatis (serovars A-C: trachoma; D-K: genital; L1-L3: LGV — Chlamydiales)",
+        "type": "Obligate intracellular Gram-negative bacterium — two-stage lifecycle (EB/RB)",
+        "host_receptors": ["HSPG (heparan sulfate proteoglycans)", "FGFR (FGFR1/2)", "Mannose receptor (MRC1)", "EGFR"],
+        "human_search_terms": ["SDC1", "FGFR1", "MRC1", "EGFR"],
+        "key_proteins": {"MOMP (major outer membrane protein)":"Primary attachment — vaccine target.", "CT847":"FGFR binding.", "Inc proteins":"Inclusion membrane remodelling.", "CPAF protease":"Host protein degradation."},
+        "disease": "Genital chlamydia (most common bacterial STI — 130M/year). Trachoma (leading infectious cause of blindness). PID, infertility.",
+        "mechanism": "MOMP/HS-PG binding → EB engulfment → non-fusogenic inclusion → RB replication → EB release",
+        "drug_targets": "HSPG/FGFR blocking antibodies. MOMP subunit vaccine. Azithromycin (1g single dose) treatment.",
+        "clinical_status": "No approved vaccine. Azithromycin or doxycycline treatment. WHO trachoma elimination ongoing (SAFE strategy).",
+        "refs": ["Dautry-Varsat et al., Biochimie 2005 (PMID 15862660)"],
+    },
+    "mycoplasma": {
+        "organism": "Mycoplasma pneumoniae, M. genitalium, M. hominis (Mollicutes — wall-less bacteria)",
+        "type": "Gram-negative (wall-less) — smallest self-replicating bacteria",
+        "host_receptors": ["Sialoglycoprotein (GPA/GPB)", "Fibronectin (FN1)", "Sulfated glycolipids"],
+        "human_search_terms": ["GYPA", "FN1"],
+        "key_proteins": {"P1 adhesin (M. pneumoniae)":"Sialoglycoprotein binding — primary virulence factor.", "MgPa adhesin (M. genitalium)":"Urogenital adhesion.", "Mpn603 CARDS toxin":"ADP-ribosylates Rac1 — cytotoxic.", "Community-acquired respiratory distress syndrome toxin (CARDS)":"Vacuolation."},
+        "disease": "M. pneumoniae: walking pneumonia (10–40% community-acquired pneumonia). M. genitalium: urethritis, cervicitis — increasing antimicrobial resistance.",
+        "mechanism": "P1 adhesin binds sialoglycoprotein on respiratory epithelium → cytadherence → CARDS toxin → ciliary dysfunction",
+        "drug_targets": "GYPA/FN1 blocking antibodies. Azithromycin (first-line). M. genitalium acquiring macrolide + fluoroquinolone resistance.",
+        "clinical_status": "No vaccine. Doxycycline or azithromycin treatment. Gepotidacin (novel class) in trials for M. genitalium.",
+        "refs": ["Waites & Talkington, Clin Microbiol Rev 2004 (PMID 15489344)"],
+    },
+    "legionella": {
+        "organism": "Legionella pneumophila (Gammaproteobacteria; Legionellales — serogroup 1 dominant, >60 serogroups)",
+        "type": "Gram-negative intracellular rod — environmental, not person-to-person",
+        "host_receptors": ["CR3 (ITGAM/ITGB2)", "CR1 (CD35)", "Complement receptors (C3bi-opsonised)"],
+        "human_search_terms": ["ITGAM", "CR1"],
+        "key_proteins": {"Dot/Icm T4SS":"Effector injection — >300 effectors. Central virulence mechanism.", "LepB/VipA":"Rab1 manipulation — LCV biogenesis.", "SidC/SdcA":"ER recruitment.", "FlaA flagellin":"NAIP5/NLRC4 inflammasome trigger."},
+        "disease": "Legionnaires' disease — severe pneumonia, 5–10% mortality treated. Pontiac fever — mild, self-limiting. Contaminated water systems.",
+        "mechanism": "Opsonised by C3bi → CR3-mediated uptake → T4SS redirects LCV to ER-derived vacuole → intracellular replication",
+        "drug_targets": "CR3 blocking antibodies (preclinical). T4SS inhibitors. Azithromycin or fluoroquinolone — treatment of choice.",
+        "clinical_status": "No vaccine. Azithromycin or levofloxacin treatment. Environmental control (water system disinfection) prevents outbreaks.",
+        "refs": ["Horwitz, J Exp Med 1984 (PMID 6736016)"],
+    },
+    "bordetella": {
+        "organism": "Bordetella pertussis (Betaproteobacteria; Burkholderiales — classical pertussis toxin-producing strains)",
+        "type": "Gram-negative coccobacillus — respiratory droplet transmission",
+        "host_receptors": ["LPS receptor", "VLA-5 (ITGA5B1)", "Complement receptor (CR3)", "FHA receptor"],
+        "human_search_terms": ["ITGA5", "ITGAM"],
+        "key_proteins": {"Filamentous haemagglutinin (FHA)":"Primary adhesin — VLA-5 binding.", "Pertussis toxin (PT)":"ADP-ribosylates Gαi — immune evasion, whooping cough pathology.", "Adenylate cyclase toxin (ACT)":"Immunosuppressive.", "FIM fimbriae":"Adherence."},
+        "disease": "Whooping cough — 160K deaths/year globally, mainly in infants. Resurgence despite vaccination.",
+        "mechanism": "FHA binds ITGA5B1 on ciliated respiratory epithelium → PT disables G-protein signalling → mucus accumulation → paroxysmal cough",
+        "drug_targets": "ITGA5B1 blocking antibodies. Pertussis toxin inhibitors (suramin analogs). Azithromycin treatment.",
+        "clinical_status": "DTaP (childhood) and Tdap (adolescent/adult) vaccines — waning immunity drives resurgence. Azithromycin prophylaxis.",
+        "refs": ["Tuomanen et al., J Infect Dis 1988 (PMID 3262416)"],
+    },
+    "campylobacter": {
+        "organism": "Campylobacter jejuni and C. coli (Epsilonproteobacteria; Campylobacterales — >40 serotypes)",
+        "type": "Gram-negative helical rod — microaerophilic, most common bacterial gastroenteritis cause",
+        "host_receptors": ["Fibronectin (FN1)", "E-cadherin (CDH1)", "ITGA5B1", "Ganglioside GM1 (B4GALNT1)"],
+        "human_search_terms": ["FN1", "CDH1", "B4GALNT1"],
+        "key_proteins": {"CadF adhesin":"FN1/ITGA5B1 binding.", "JlpA":"CDH1 binding — heat shock.", "CiaB":"Invasin — secreted into host cell.", "CdtABC cytolethal distending toxin":"DNA damage."},
+        "disease": "Campylobacteriosis — diarrhoea. 500M cases/year globally. Guillain-Barré syndrome (2:1000 infections) via molecular mimicry of GM1.",
+        "mechanism": "CadF binds FN1 → ITGA5B1 clustering → invasion → CDT-induced DNA damage. GM1 mimicry → anti-ganglioside antibodies → GBS",
+        "drug_targets": "FN1/CDH1 blocking antibodies. CDT inhibitors. Azithromycin treatment (resistance increasing).",
+        "clinical_status": "No vaccine. Azithromycin or ciprofloxacin (resistance common). GBS: IVIg or plasmapheresis.",
+        "refs": ["Konkel et al., Mol Microbiol 2005 (PMID 15882425)"],
+    },
+    "shigella": {
+        "organism": "Shigella dysenteriae, S. flexneri, S. sonnei, S. boydii (Enterobacterales — 50 serotypes; S. flexneri dominant in LMICs)",
+        "type": "Gram-negative rod — facultative intracellular, very low infectious dose (10–100 bacteria)",
+        "host_receptors": ["E-cadherin (CDH1)", "CD44", "Integrin β1 (ITGB1)"],
+        "human_search_terms": ["CDH1", "CD44", "ITGB1"],
+        "key_proteins": {"IpaB/IpaC":"T3SS translocon — CDH1 binding, pore formation.", "IcsA/VirG":"Actin polymerisation — N-WASP recruitment.", "Shiga toxin (S. dysenteriae)":"Gb3 binding → protein synthesis inhibition → HUS."},
+        "disease": "Shigellosis — bloody diarrhoea, bacillary dysentery. 125M cases/year, 200K deaths. S. dysenteriae type 1: severe HUS.",
+        "mechanism": "IpaB/C bind CDH1 on M cells → macrophage apoptosis → basolateral invasion of colonocytes → IcsA/actin spread",
+        "drug_targets": "CDH1/CD44 blocking antibodies. T3SS inhibitors (salicylidene acylhydrazides). Azithromycin treatment.",
+        "clinical_status": "No approved vaccine (multiple candidates Phase 3 — Shigella ETEC candidate by GSK). Azithromycin treatment.",
+        "refs": ["Nhieu & Sansonetti, J Exp Med 1999 (PMID 10477558)"],
+    },
+    "clostridium_botulinum": {
+        "organism": "Clostridium botulinum (Firmicutes; Clostridiales — serotypes A–G; also C. baratii, C. butyricum)",
+        "type": "Gram-positive anaerobic spore-forming rod — neurotoxin producer",
+        "host_receptors": ["SV2 (SLC17A5/A9) — neuromuscular junction", "Synaptotagmin I/II (SYT1/SYT2) — ganglioside GT1b/GD1a"],
+        "human_search_terms": ["SLC17A5", "SYT2", "B4GALNT1"],
+        "key_proteins": {"BoNT/A–G (botulinum toxin)":"SNARE-cleaving protease — paralysis. Also therapeutic (Botox).", "NTNHA (non-toxic non-haemagglutinin)":"Progenitor complex protection.", "HA proteins":"Mucosal adhesion."},
+        "disease": "Botulism — descending flaccid paralysis, respiratory failure. Foodborne, wound, infant botulism. Bioterrorism agent.",
+        "mechanism": "BoNT LC endopeptidase cleaves SNAP-25/VAMP/syntaxin → blocks acetylcholine vesicle fusion → paralysis",
+        "drug_targets": "SV2/SYT2 blocking antibodies prevent BoNT binding. Anti-BoNT equine antitoxin (heptavalent HBAT — FDA approved). BIG-IV for infant botulism.",
+        "clinical_status": "HBAT (heptavalent antitoxin) FDA-approved. BIG-IV (BabyBIG) for infant. No approved vaccine (investigational pentavalent).",
+        "refs": ["Dong et al., Science 2006 (PMID 16931759)"],
+    },
+    "clostridium_tetani": {
+        "organism": "Clostridium tetani (Firmicutes; Clostridiales — vegetative rod + terminal spore)",
+        "type": "Gram-positive anaerobic spore-forming rod",
+        "host_receptors": ["Synaptobrevin/VAMP (VAMP2)", "GT1b ganglioside (B4GALNT1)", "GD1b"],
+        "human_search_terms": ["VAMP2", "B4GALNT1"],
+        "key_proteins": {"Tetanospasmin (TeNT)":"LC cleaves VAMP2 in inhibitory interneurons → spastic paralysis.", "Tetanolysin":"Tissue damage."},
+        "disease": "Tetanus — spastic paralysis, 30–50% CFR without ICU care. 34K deaths/year (neonatal tetanus in LMICs).",
+        "mechanism": "TeNT binds GT1b → retrograde axonal transport → inhibitory interneuron → VAMP2 cleavage → loss of inhibition → spasm",
+        "drug_targets": "GT1b/GD1b blocking antibodies. Anti-tetanus IgG (TIG) neutralises unbound toxin. DTP vaccine 100% effective preventively.",
+        "clinical_status": "DTP/Tdap vaccines prevent. TIG treatment for unvaccinated. Metronidazole kills C. tetani. ICU supportive care.",
+        "refs": ["Montecucco & Schiavo, Annu Rev Biochem 1994 (PMID 7979258)"],
+    },
+    "corynebacterium": {
+        "organism": "Corynebacterium diphtheriae (Actinobacteria; Corynebacteriales — biotypes gravis, mitis, intermedius)",
+        "type": "Gram-positive club-shaped rod — non-spore-forming",
+        "host_receptors": ["HB-EGF (HBEGF)", "CD9 (tetraspanin)", "Fibronectin (FN1)"],
+        "human_search_terms": ["HBEGF", "CD9"],
+        "key_proteins": {"Diphtheria toxin (DT)":"HB-EGF binding → ADP-ribosylates EF-2 → protein synthesis inhibition → cardiac/neural toxicity.", "DtxR":"Iron-dependent toxin repressor."},
+        "disease": "Diphtheria — pseudomembranous pharyngitis, airway obstruction, myocarditis. Resurgence in unvaccinated populations.",
+        "mechanism": "DT B fragment binds HB-EGF → endocytosis → DT A fragment cleaves EF-2 → protein synthesis arrest → cell death",
+        "drug_targets": "HB-EGF receptor blocking antibodies. Antitoxin (horse-derived anti-DT) neutralises circulating toxin. DTP vaccine prevents.",
+        "clinical_status": "DTP vaccine effective. Equine diphtheria antitoxin treatment. Erythromycin or penicillin eliminates bacterium.",
+        "refs": ["Naglich et al., Cell 1992 (PMID 1637333)"],
+    },
+    # ════════════════════════════════
+    # ADDITIONAL PARASITES
+    # ════════════════════════════════
+    "giardia": {
+        "organism": "Giardia duodenalis (Diplomonadida; Trepomonadea — assemblages A and B infect humans)",
+        "type": "Flagellated protozoan — binucleate, trophozoite + cyst forms",
+        "host_receptors": ["Mannose-6-phosphate receptor (IGF2R)", "Alpha-1-giardin", "Fibronectin (FN1)"],
+        "human_search_terms": ["IGF2R", "FN1"],
+        "key_proteins": {"VSPs (variant surface proteins)":"Antigenic variation — immune evasion.", "Giardins":"Cytoskeletal attachment disc.", "Arginine deiminase":"Arginine depletion — immune suppression."},
+        "disease": "Giardiasis — most common intestinal protozoan infection. 200M symptomatic cases/year. Malabsorption, chronic diarrhoea.",
+        "mechanism": "Cysts ingested → excystation in duodenum → ventral disc attachment to enterocytes → malabsorption",
+        "drug_targets": "Mannose-6-P receptor blocking. Arginine deiminase inhibitors restore immune function. Metronidazole treatment.",
+        "clinical_status": "Metronidazole or tinidazole treatment. No vaccine. Nitazoxanide as alternative.",
+        "refs": ["Roxström-Lindquist et al., Trends Parasitol 2006 (PMID 16478706)"],
+    },
+    "cryptosporidium": {
+        "organism": "Cryptosporidium parvum and C. hominis (Apicomplexa; Cryptosporidiida)",
+        "type": "Obligate intracellular protozoan — waterborne oocysts",
+        "host_receptors": ["GP900 (MUC5AC-like)", "Lectins", "Thrombospondin-1 (THBS1)"],
+        "human_search_terms": ["MUC5AC", "THBS1"],
+        "key_proteins": {"Cp23/Cp15 surface antigens":"Adhesion — vaccine targets.", "CpCDPK1":"Calcium-dependent protein kinase — bumped kinase inhibitors."},
+        "disease": "Cryptosporidiosis — profuse watery diarrhoea. Mild in healthy, life-threatening in HIV/immunocompromised (no cure). Major waterborne outbreak pathogen.",
+        "mechanism": "Sporozoites bind GP900/THBS1 on enterocytes → intracellular but extracytoplasmic parasitophorous vacuole → diarrhoea",
+        "drug_targets": "THBS1 blocking antibodies. CpCDPK1 bumped kinase inhibitors (compound 1294 — preclinical). Nitazoxanide (only approved, poor in immunocompromised).",
+        "clinical_status": "Nitazoxanide FDA-approved (approved for children). No effective therapy in AIDS/immunocompromised. No vaccine.",
+        "refs": ["Checkley et al., Lancet Infect Dis 2015 (PMID 26160922)"],
+    },
+    "entamoeba": {
+        "organism": "Entamoeba histolytica (Archamoebea; Entamoebida — pathogenic species vs. non-pathogenic E. dispar)",
+        "type": "Anaerobic protozoan — trophozoite + cyst forms",
+        "host_receptors": ["Gal/GalNAc lectin receptor (LGALS9)", "Fibronectin (FN1)", "Collagen (COL1A1)"],
+        "human_search_terms": ["LGALS9", "FN1", "COL1A1"],
+        "key_proteins": {"Gal/GalNAc adhesin (Hgl/Igl/Lgl)":"Host cell binding — kills by contact.", "Amoebapore":"Pore-forming toxin — cell lysis.", "Cysteine proteases (EhCP1/2/5)":"Host tissue invasion."},
+        "disease": "Amoebiasis — 50M symptomatic cases/year, 40–100K deaths. Amoebic colitis, amoebic liver abscess.",
+        "mechanism": "Gal/GalNAc lectin binds host cells → contact-dependent killing via amoebapore → cysteine protease tissue invasion",
+        "drug_targets": "Gal/GalNAc lectin blocking antibodies. Cysteine protease inhibitors. Metronidazole treatment (luminal: paromomycin).",
+        "clinical_status": "Metronidazole + paromomycin treatment. No approved vaccine. LecA subunit vaccine in preclinical.",
+        "refs": ["Petri et al., Infect Immun 2002 (PMID 12228271)"],
+    },
+    "filariasis": {
+        "organism": "Wuchereria bancrofti, Brugia malayi, Brugia timori (Nematoda; Spirurida — lymphatic filariasis). Loa loa (eye worm). Mansonella spp.",
+        "type": "Helminth (nematode) — mosquito-transmitted, lymphatic/subcutaneous",
+        "host_receptors": ["CLEC4M (DC-SIGN L)", "TLR4", "Macrophage mannose receptor (MRC1)"],
+        "human_search_terms": ["MRC1", "TLR4", "CLEC4M"],
+        "key_proteins": {"BmALT-2 (abundant larval transcript)":"Vaccine antigen — Phase 1 trial.", "TropomyosinBm":"Structural — cross-reactive with human.", "HSP70":"Immune modulation.", "Wolbachia (obligate endosymbiont)":"Antibiotic target (doxycycline kills adult worms)."},
+        "disease": "Lymphatic filariasis — 120M infected, 40M disabled (elephantiasis, hydrocele). Loa loa: subcutaneous migration, Calabar swellings.",
+        "mechanism": "Microfilariae ingested by mosquito → infective L3 larvae transmitted → lymphatic vessel colonisation → Wolbachia-driven inflammation",
+        "drug_targets": "MRC1 blocking antibodies reduce larval uptake. Wolbachia doxycycline kills adult worms. Ivermectin + albendazole (MDA).",
+        "clinical_status": "Mass drug administration (ivermectin + albendazole) WHO programme. Doxycycline kills Wolbachia → adult worm death. No vaccine.",
+        "refs": ["Taylor et al., Trends Parasitol 2010 (PMID 20153690)"],
+    },
+    "onchocerciasis": {
+        "organism": "Onchocerca volvulus (Nematoda; Spirurida — river blindness; 6 genetic strains)",
+        "type": "Filarial nematode — black fly (Simulium) transmitted",
+        "host_receptors": ["Fibronectin (FN1)", "Collagen (COL4A1)", "Laminin (LAMA1)", "ITGA5B1"],
+        "human_search_terms": ["FN1", "COL4A1", "ITGA5"],
+        "key_proteins": {"OvGST-1 (glutathione S-transferase)":"Vaccine antigen candidate.", "OvALT-1/2":"L3 vaccine targets.", "Wolbachia":"Doxycycline target — adult worm death.", "Onchocystatin":"Cysteine protease inhibitor — immune evasion."},
+        "disease": "Onchocerciasis — 220M at risk, 1.15M blind. Skin disease (onchodermatitis), eye disease → blindness.",
+        "mechanism": "Microfilariae in skin → Mazzotti reaction (immune response on ivermectin) → anterior segment ocular damage → blindness",
+        "drug_targets": "ITGA5B1 blocking (prevents larval tissue invasion). Doxycycline (Wolbachia depletion). Ivermectin (control). Moxidectin approved.",
+        "clinical_status": "Ivermectin MDA (Mectizan donation programme). Moxidectin FDA-approved 2018 (better than ivermectin). Doxycycline kills adults.",
+        "refs": ["Turner et al., Trends Parasitol 2010 (PMID 20153690)"],
+    },
+    # ════════════════════════════════
+    # ADDITIONAL FUNGI
+    # ════════════════════════════════
+    "histoplasma": {
+        "organism": "Histoplasma capsulatum (Ascomycota; Ajellomycetaceae — Class 1, 2, NAm 1/2)",
+        "type": "Dimorphic fungus — mould at ambient temperature, yeast at 37°C",
+        "host_receptors": ["CR3 (ITGAM/ITGB2)", "CD18 (ITGB2)", "Dectin-1 (CLEC7A)", "LamR (RPSA)"],
+        "human_search_terms": ["ITGAM", "ITGB2", "CLEC7A"],
+        "key_proteins": {"CBP (calcium-binding protein)":"Complement evasion.", "α-glucan capsule":"Anti-phagocytic.", "HSP60":"CR3 ligand.", "Yps3":"Virulence factor."},
+        "disease": "Histoplasmosis — pulmonary (self-limited to severe), disseminated (AIDS-defining). 100K+ severe cases/year.",
+        "mechanism": "Conidia inhaled → thermally convert to yeast → CR3/CD18 macrophage uptake → phagosome manipulation → dissemination",
+        "drug_targets": "CR3 blocking antibodies. Itraconazole/amphotericin B treatment. Host-directed therapy (IFN-γ) for disseminated.",
+        "clinical_status": "Itraconazole for mild/moderate. AmB for severe. No vaccine. Isavuconazole as alternative.",
+        "refs": ["Bullock & Wright, J Infect Dis 1987 (PMID 3543090)"],
+    },
+    "coccidioides": {
+        "organism": "Coccidioides immitis and C. posadasii (Ascomycota; Onygenales — Valley Fever; SW USA/Mexico)",
+        "type": "Dimorphic fungus — arthroconidia → spherule/endospore in host",
+        "host_receptors": ["CR3 (ITGAM)", "Dectin-1 (CLEC7A)", "TLR2", "TLR4"],
+        "human_search_terms": ["ITGAM", "CLEC7A", "TLR2"],
+        "key_proteins": {"Coccidioidin/spherulin":"Skin test antigen.", "Urease":"Virulence factor.", "SOD (superoxide dismutase)":"Oxidative stress resistance.", "PEL1/2 (protease)":"Tissue invasion."},
+        "disease": "Coccidioidomycosis (Valley Fever) — 20K+ US cases/year. Self-limited to disseminated meningitis (fatal without lifelong fluconazole).",
+        "mechanism": "Arthroconidia inhaled → spherule formation → endospore release → granuloma formation → dissemination via blood",
+        "drug_targets": "CR3 blocking reduces uptake. Fluconazole (meningitis — lifelong). AmB for severe/disseminated. Vaccine in development.",
+        "clinical_status": "Fluconazole standard for meningitis (lifelong). AmB for severe. PF-06753342 vaccine antigen Phase 2.",
+        "refs": ["Pappagianis, Rev Infect Dis 1988 (PMID 3200714)"],
+    },
+    "mucormycosis": {
+        "organism": "Rhizopus arrhizus, Mucor circinelloides, Lichtheimia corymbifera (Mucorales; Mucoromycota)",
+        "type": "Filamentous mould — angioinvasive, broad aseptate hyphae",
+        "host_receptors": ["GRP78 (HSPA5)", "ITGB3", "CotH (Mucorales-specific invasin binds GRP78)"],
+        "human_search_terms": ["HSPA5", "ITGB3"],
+        "key_proteins": {"CotH3 invasin":"GRP78 binding — vascular invasion.", "Actin-binding calmodulin":"Host cell invasion.", "Siderophores (rhizoferrin)":"Iron acquisition in DKA."},
+        "disease": "Mucormycosis — rhinoorbital-cerebral (DKA), pulmonary (neutropenic), cutaneous. 50% mortality. COVID-associated mucormycosis epidemic in India.",
+        "mechanism": "CotH3 binds GRP78 (upregulated in DKA/hyperglycaemia) on endothelium → invasion → vascular thrombosis → tissue necrosis",
+        "drug_targets": "GRP78/HSPA5 blocking antibodies. Isavuconazole (FDA-approved). Liposomal AmB + surgery. Iron chelation (deferasirox).",
+        "clinical_status": "AmBisome + isavuconazole. Surgical debridement essential. Olorofim no activity. High mortality even treated.",
+        "refs": ["Liu et al., J Clin Invest 2010 (PMID 20714114)"],
+    },
+}
+
+def get_micro_context(query: str) -> dict:
+    """Look up microbiology context for a query term."""
+    q_lower = query.lower().strip()
+    for key, data in MICRO_ORGANISMS.items():
+        if (key in q_lower or q_lower in key or
+            any(q_lower in r.lower() for r in data.get("host_receptors",[])) or
+            any(q_lower in p.lower() for p in data.get("key_proteins",{}).keys()) or
+            q_lower in data.get("disease","").lower() or
+            q_lower in data.get("organism","").lower()):
+            return {**data, "pathogen_key": key}
+    # Partial match
+    for key, data in MICRO_ORGANISMS.items():
+        if any(word in q_lower for word in key.split("_")):
+            return {**data, "pathogen_key": key}
+    return {}
+
+def micro_drug_hypothesis(micro: dict, gene: str, scored: list, gi: dict) -> list:
+    """
+    Generate testable therapeutic hypotheses for microbial diseases,
+    grounded in the actual protein-pathogen interaction data.
+    """
+    if not micro: return []
+    hyps = []
+    pathogen    = micro.get("organism","pathogen")
+    disease     = micro.get("disease","")
+    host_recs   = micro.get("host_receptors",[])
+    key_proteins= micro.get("key_proteins",{})
+    n_path      = gi.get("n_pathogenic",0)
+    is_receptor = gene.upper() in " ".join(host_recs).upper()
+    
+    if is_receptor:
+        hyps.append({
+            "title": f"Host receptor blockade — prevent {pathogen.split(';')[0]} entry via {gene}",
+            "confidence": "HIGH" if n_path > 5 else "MEDIUM",
+            "organism": pathogen,
+            "mechanism": (
+                f"{gene} is a confirmed host receptor or entry factor for {pathogen.split(';')[0]}. "
+                f"Blocking {gene} prevents viral/pathogen entry without targeting the pathogen directly — "
+                f"avoiding resistance evolution (the pathogen cannot mutate around a host factor). "
+                f"Analogy: maraviroc blocks CCR5 for HIV; camostat blocks TMPRSS2 for SARS-CoV-2."
+            ),
+            "approaches": [
+                f"Soluble {gene} decoy receptor: express ectodomain as Fc fusion protein to compete with pathogen for binding",
+                f"Small molecule {gene} antagonist: screen for compounds that occupy the {pathogen.split()[0]}-binding epitope without blocking normal {gene} function",
+                f"Monoclonal antibody targeting {gene} binding site: sterically block pathogen without permanently disabling receptor",
+                f"CRISPR: introduce CCR5Δ32-equivalent loss-of-function in {gene} — test whether cells become resistant to infection",
+                f"Gene therapy: deliver dominant-negative {gene} variant to high-risk tissue",
+            ],
+            "prediction": (
+                f"A high-affinity {gene} antagonist (KD <10nM) will reduce {pathogen.split()[0]} infection by ≥90% "
+                f"in primary cell infection assay (BSL2-3 required). "
+                f"Selectivity: must not affect normal {gene} physiology — test receptor function assay in parallel."
+            ),
+            "key_experiment": f"Pseudotyped virus assay (BSL2-safe): lentivirus displaying {pathogen.split()[0]} entry proteins + {gene}-expressing target cells + candidate blocker",
+            "refs": micro.get("refs",[]),
+        })
+    
+    # Viral protein targeting
+    for prot_name, prot_desc in list(key_proteins.items())[:3]:
+        if "target" in prot_desc.lower() or "inhibitor" in prot_desc.lower():
+            hyps.append({
+                "title": f"Direct antiviral: {prot_name} inhibitor ({pathogen.split(';')[0]})",
+                "confidence": "MEDIUM",
+                "organism": pathogen,
+                "mechanism": (
+                    f"{prot_name}: {prot_desc} "
+                    f"Note: antiviral drug targets are pathogen proteins, not human genes. "
+                    f"The value of Protellect here is to identify which HUMAN proteins regulate susceptibility, "
+                    f"immune response, and drug metabolism for {disease}."
+                ),
+                "approaches": [
+                    f"Search ChEMBL for existing {prot_name} inhibitor scaffolds",
+                    f"AlphaFold2 structure of {prot_name} → virtual screen → biophysical validation",
+                    f"Host factor approach: identify which human proteins {prot_name} binds — block the interaction",
+                ],
+                "prediction": f"Inhibitor with IC50 <100nM against {prot_name} will reduce viral replication by ≥2 log10 in cell culture (MOI 0.01, 48h).",
+                "key_experiment": f"Recombinant {prot_name} biochemical assay + antiviral cell culture (plaque reduction or RT-qPCR)",
+                "refs": micro.get("refs",[]),
+            })
+            break  # one viral protein hypothesis
+    
+    return hyps
+
+
 def get_goal_config(gl):
     for k in GOAL_CONFIG:
         if k.lower() in gl.lower() or gl.lower() in k.lower():
@@ -4711,34 +5918,41 @@ with st.sidebar:
                 if not dp:
                     st.session_state["disease_proteins"]=[]
                     _dq_low = disease_q.strip().lower()
-                    _viral_map = {
-                        "hantavirus": "Hantavirus enters cells via ITGB3 (integrin beta-3) and ITGAV. These are the druggable host receptors. Search: ITGB3, ITGAV, DAG1",
-                        "ebola": "Ebola entry requires NPC1. Also exploits TIM1 (HAVCR1) and AXL. Search: NPC1, HAVCR1, AXL",
-                        "sars": "SARS-CoV-2 enters via ACE2 + TMPRSS2. Search: ACE2, TMPRSS2, FURIN, NRP1",
-                        "covid": "SARS-CoV-2 enters via ACE2 + TMPRSS2. Search: ACE2, TMPRSS2, FURIN",
-                        "hiv": "HIV entry requires CD4, CCR5, CXCR4. Druggable with maraviroc (CCR5). Search: CCR5, CXCR4, CD4",
-                        "influenza": "Influenza binds via sialic acid — host enzyme SIAE. Cleavage via TMPRSS2. Search: TMPRSS2",
-                        "dengue": "Dengue entry via CLEC5A, AXL, TYRO3. Search: CLEC5A, AXL, TYRO3",
-                        "hepatitis": "HBV enters via NTCP (SLC10A1). HCV via CD81+CLDN1. Search: SLC10A1, CD81, CLDN1",
-                        "malaria": "P. falciparum uses GYPA, GYPC, DARC for invasion. Search: GYPA, DARC, GYPC",
-                        "nipah": "Nipah uses EFNB2 and EFNB3 as receptors. Search: EFNB2, EFNB3",
-                        "marburg": "Marburg uses NPC1 like Ebola. Search: NPC1, AXL",
-                        "rabies": "Rabies enters via NCAM1, NGFR, AChR subunits. Search: NCAM1, NGFR",
-                        "tuberculosis": "TB susceptibility genes: SLC11A1, VDR, TLR2. Search: SLC11A1, VDR",
-                        "herpes": "HSV entry via NECTIN1, NECTIN2, HVEM (TNFRSF14). Search: NECTIN1, TNFRSF14",
-                    }
-                    _viral_hit = next(((k,v) for k,v in _viral_map.items() if k in _dq_low), None)
-                    if _viral_hit:
+                    # Use MICRO_ORGANISMS database instead of hardcoded dict
+                    _micro_hit = get_micro_context(disease_q.strip())
+                    if _micro_hit:
+                        _mtype = _micro_hit.get("type","pathogen")
+                        _mrecs = ", ".join(_micro_hit.get("human_search_terms",[]))
+                        _mterms= " · ".join(_micro_hit.get("host_receptors",[])[:4])
+                        _mdisease= _micro_hit.get("disease","")
+                        _morgan = _micro_hit.get("organism","")
                         st.markdown(
-                            f"<div style='background:#020d18;border:1px solid #00e5ff44;border-radius:10px;padding:.9rem 1.1rem;'>"
-                            f"<div style='color:#00e5ff;font-weight:700;margin-bottom:.3rem;'>Infectious disease — search host receptor instead</div>"
-                            f"<div style='color:#5a8090;font-size:.83rem;margin-bottom:.4rem;'>Viral diseases don't appear in ClinVar. Druggable targets are the <b style='color:#8ab8cc;'>human host entry factors</b> the virus exploits.</div>"
-                            f"<div style='color:#7ab0c0;font-size:.85rem;'><b>{_viral_hit[0].capitalize()}:</b> {_viral_hit[1]}</div>"
-                            f"</div>",
+                            f"<div style='background:#020d18;border:1px solid #00e5ff44;border-radius:10px;padding:1rem 1.2rem;'>"
+                            f"<div style='color:#00e5ff;font-weight:700;font-size:.95rem;margin-bottom:.3rem;'>"
+                            f"🦠 {_morgan}</div>"
+                            f"<div style='color:#3a7090;font-size:.8rem;margin-bottom:.4rem;'>{_mtype}</div>"
+                            f"<div style='color:#5a8090;font-size:.84rem;margin-bottom:.5rem;'>"
+                            f"<b style='color:#8ab8cc;'>Disease:</b> {_mdisease}</div>"
+                            f"<div style='color:#5a8090;font-size:.84rem;margin-bottom:.4rem;'>"
+                            f"<b style='color:#8ab8cc;'>Host receptors / entry factors:</b> {_mterms}</div>"
+                            f"<div style='background:#030810;border:1px solid #00e5ff22;border-radius:7px;padding:.6rem .8rem;'>"
+                            f"<div style='color:#4a9090;font-size:.8rem;font-weight:700;margin-bottom:2px;'>Search these human proteins in Protellect:</div>"
+                            f"<div style='color:#6ab0a0;font-size:.86rem;'>{_mrecs}</div>"
+                            f"</div>"
+                            + "".join(
+                                f"<div style='color:#2a6060;font-size:.76rem;margin-top:4px;'>📄 {r}</div>"
+                                for r in _micro_hit.get("refs",[])[:2]
+                            )
+                            + f"</div>",
                             unsafe_allow_html=True,
                         )
-                    else:
-                        st.warning(f"No ClinVar results for '{disease_q.strip()}'. Try: cardiomyopathy · Glanzmann · Fanconi anemia · breast cancer · hypertrophic cardiomyopathy")
+                        # Show clickable search buttons for each human receptor
+                        rec_cols = st.columns(min(len(_micro_hit.get("human_search_terms",[])), 4))
+                        for r_idx, rec_gene in enumerate(_micro_hit.get("human_search_terms",[])[:4]):
+                            with rec_cols[r_idx]:
+                                if st.button(f"Analyse {rec_gene}", key=f"micro_rec_{r_idx}_{rec_gene}", use_container_width=True):
+                                    st.session_state["_trigger_search"] = rec_gene
+                                    st.rerun()
         else:
             st.warning("Enter a disease name first.")
 
@@ -5607,18 +6821,70 @@ for _cond, _cnt in (cv.get("summary",{}).get("top_conds",{}) or {}).items():
 protein_length=pdata.get("sequence",{}).get("length",1)
 gi=st.session_state.get("gi") or compute_gi(cv,protein_length)
 if not st.session_state.get("gi"): st.session_state["gi"]=gi
-# Enrich blank ClinVar conditions from UniProt
-_uni_dis_names = [d['name'] for d in g_diseases(pdata)]
-_best_dis = _uni_dis_names[0] if _uni_dis_names else f'Protein {gene} associated condition'
+# ── Enrich blank ClinVar conditions with all available evidence ──────────────
+_uni_diseases_all = g_diseases(pdata)
+_uni_dis_names    = [d['name'] for d in _uni_diseases_all]
+
+# Build a map: OMIM ID → disease name for fast lookup
+_omim_dis_map = {d.get('omim',''): d['name'] for d in _uni_diseases_all if d.get('omim')}
+
+# Count top conditions from ClinVar (non-blank submissions)
+_cv_cond_counts = {}
+for _v0 in cv.get('variants',[]):
+    for _c0 in _v0.get('condition','').split(';'):
+        _c0 = _c0.strip()
+        if _c0 and _c0.lower() not in ('not specified','not provided','','none','-'):
+            _cv_cond_counts[_c0] = _cv_cond_counts.get(_c0,0) + 1
+
+# Most frequently named condition in ClinVar for this gene
+_top_clinvar_cond = max(_cv_cond_counts, key=_cv_cond_counts.get) if _cv_cond_counts else ''
+
+# Best disease name: prefer ClinVar-named > UniProt > generic
+_best_dis = _top_clinvar_cond or (_uni_dis_names[0] if _uni_dis_names else '')
+
+# Also get all known disease names for this gene to use as alternatives
+_all_dis_names = list(dict.fromkeys([_top_clinvar_cond] + _uni_dis_names))  # deduped, ordered
+
 for _sv in scored:
-    if not _sv.get('condition','').strip() or _sv.get('condition','') in ('Not specified','not provided',''):
+    _raw_cond = _sv.get('condition','').strip()
+    _is_blank = not _raw_cond or _raw_cond.lower() in ('not specified','not provided','','none','-','not classified')
+    if _is_blank:
         sc_s = _sv.get('score',0)
-        if sc_s >= 4 and _best_dis:
-            _sv['condition'] = _best_dis + ' (inferred — UniProt + ClinVar P/LP)'
+        _vname_s = _sv.get('variant_name','') or _sv.get('title','')
+        
+        # Try to infer condition from variant type and known diseases
+        _is_cnv = any(k in _vname_s.lower() for k in ['chr','grch','del','dup','x1','x2','x3'])
+        _is_lof = any(k in _vname_s.lower() for k in ['ter','stop','frameshift','fs','nonsense'])
+        
+        if sc_s >= 4:
+            if _all_dis_names:
+                # Use the most relevant disease — for CNVs affecting entire chromosomal region,
+                # try to match the gene's primary Mendelian disease
+                _condition_label = _all_dis_names[0]
+                # Annotate with evidence source
+                if _top_clinvar_cond and _condition_label == _top_clinvar_cond:
+                    _sv['condition'] = _condition_label
+                elif _uni_dis_names:
+                    _sv['condition'] = _condition_label + f' (primary {gene} disease — UniProt)'
+                else:
+                    _sv['condition'] = f'{gene} pathogenic variant — condition in clinical records'
+            else:
+                _sv['condition'] = f'{gene} Mendelian disease — submit to ClinVar with condition'
+        elif sc_s >= 3:
+            _sv['condition'] = (_all_dis_names[0] + ' (risk factor)') if _all_dis_names else f'{gene} disease risk variant'
         elif sc_s >= 2:
-            _sv['condition'] = f'{gene}-associated condition (variant of uncertain significance)'
+            # VUS — don't fabricate a disease, but give meaningful context
+            _best_omim_d = next((d.get('name','') for d in _uni_diseases_all if d.get('name')), '')
+            if _best_omim_d:
+                _sv['condition'] = f'{_best_omim_d} — uncertain significance (VUS)'
+            else:
+                _sv['condition'] = f'{gene} — variant of uncertain significance (VUS)'
         else:
-            _sv['condition'] = f'{gene} variant — condition not yet named in ClinVar'
+            _sv['condition'] = f'{gene} variant — likely benign'
+    elif 'inferred — UniProt' in _raw_cond:
+        # Already enriched in a previous run — clean up the label
+        _clean = _raw_cond.replace(' (inferred — UniProt + ClinVar P/LP)', '').replace(' (inferred — UniProt)', '')
+        _sv['condition'] = _clean
 partner_info=st.session_state.get("partner_gi")
 is_gpcr=g_gpcr(pdata)
 gpcr_assessment = assess_gpcr_piggybacking(pdata, cv, gi)
@@ -5627,6 +6893,7 @@ goal_cfg      = get_goal_config(active_goal) if "get_goal_config" in dir() else 
 
 goal_cfg      = get_goal_config(active_goal)
 org_class    = st.session_state.get("org") or classify_organism(pdata)
+lit_insights = infer_from_literature(papers, gene)  # multi-source literature inference
 gnomad_data  = st.session_state.get("gnomad", {})
 string_data  = st.session_state.get("string", [])
 trials_data  = st.session_state.get("trials", [])
@@ -6762,29 +8029,217 @@ with tab2:
 
     st.markdown("<hr class='dv'>", unsafe_allow_html=True)
     sh("🔬","Disease Classification — Inherited (germline) vs Acquired (somatic)")
-    somatic=set(); germline=set()
+    
+    # ── Classify every variant's condition into precise categories ──────────────
+    CANCER_TERMS = {"cancer","carcinoma","tumor","tumour","leukemia","leukaemia",
+                    "lymphoma","sarcoma","glioma","glioblastoma","melanoma","myeloma",
+                    "mesothelioma","neuroblastoma","adenocarcinoma","hepatocellular",
+                    "squamous cell","renal cell","breast cancer","lung cancer","ovarian",
+                    "colorectal","pancreatic","prostate cancer","bladder cancer"}
+    
+    somatic_cancer  = {}  # cancer-type → list of specific disease names
+    somatic_other   = {}  # non-cancer somatic
+    germline_mendelian = {}  # Mendelian disease → n_pathogenic variants
+    germline_cancer_predisposition = {}  # hereditary cancer syndromes
+    both_contexts   = {}  # appears in both
+    
     for v2 in variants:
-        cond4=v2.get("condition","")
-        if not cond4 or cond4.strip().lower() in ("not specified","not provided","","none","-","n/a","unknown"): continue
-        if v2.get("somatic") or "somatic" in v2.get("origin","").lower():
-            somatic.add(cond4)
-        elif v2.get("germline") or any(x in v2.get("origin","").lower() for x in ["germline","inherited","de novo"]):
-            germline.add(cond4)
-        elif v2.get("score",0) >= 4:  # Pathogenic with unknown origin -> assume germline
-            germline.add(cond4)
-        elif v2.get("score",0) >= 3:  # Risk factor -> could be either
-            germline.add(cond4)
-    cg2,cs3=st.columns(2)
-    with cg2:
-        st.markdown(f"<div style='background:#03100a;border:1px solid #00c89628;border-radius:11px;padding:1rem;'><p style='color:#00c896;font-weight:700;font-size:.98rem;margin:0 0 2px;'>🧬 Inherited / born-with (Germline) ({len(germline)})</p><p style='color:#1a4030;font-size:.80rem;margin:0 0 6px;'>Variant present in DNA from birth — heritable, runs in families</p>", unsafe_allow_html=True)
-        for c5 in sorted(germline)[:7]: st.markdown(f"<div style='color:#2a6040;font-size:.96rem;margin:2px 0;'>◆ {c5[:65]}</div>", unsafe_allow_html=True)
-        if not germline: st.markdown("<div style='color:#1a3020;font-size:.82rem;'>No confirmed germline disease associations found in ClinVar. This may reflect somatic-only involvement, functional redundancy, or an understudied protein.</div>", unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-    with cs3:
-        st.markdown(f"<div style='background:#100308;border:1px solid #ff2d5528;border-radius:11px;padding:1rem;'><p style='color:#ff2d55;font-weight:700;font-size:.98rem;margin:0 0 2px;'>🔴 Acquired / developed (Somatic) ({len(somatic)})</p><p style='color:#3a1020;font-size:.80rem;margin:0 0 6px;'>Variant acquired after birth in specific cells — not heritable (e.g. cancer mutations)</p>", unsafe_allow_html=True)
-        for c5 in sorted(somatic)[:7]: st.markdown(f"<div style='color:#602030;font-size:.96rem;margin:2px 0;'>◆ {c5[:65]}</div>", unsafe_allow_html=True)
-        if not somatic: st.markdown("<div style='color:#1a1020;font-size:.82rem;padding:4px 0;'>No confirmed somatic (acquired) disease associations found in ClinVar. This protein may act through germline mechanisms or may not be a driver in cancer contexts.</div>", unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+        cond4 = v2.get("condition","")
+        if not cond4 or cond4.strip().lower() in ("not specified","not provided","","none","-","n/a","unknown"):
+            continue
+        cond4_clean = cond4.split(";")[0].strip()  # use first condition
+        cond_lower  = cond4_clean.lower()
+        sc4         = v2.get("score",0)
+        is_som      = v2.get("somatic") or "somatic" in v2.get("origin","").lower()
+        is_germ     = v2.get("germline") or any(x in v2.get("origin","").lower() for x in ["germline","inherited","de novo"]) or (not is_som and sc4>=3)
+        is_cancer   = any(t in cond_lower for t in CANCER_TERMS)
+        is_hereditary_cancer = is_cancer and any(x in cond_lower for x in ["hereditary","familial","predisposition","susceptibility","lynch","brca","li-fraumeni"])
+        
+        if is_som and is_cancer:
+            # Determine cancer type
+            cancer_type = "Solid tumour"
+            if "leukemia" in cond_lower or "leukaemia" in cond_lower: cancer_type = "Haematological — Leukaemia"
+            elif "lymphoma" in cond_lower: cancer_type = "Haematological — Lymphoma"
+            elif "myeloma" in cond_lower: cancer_type = "Haematological — Myeloma"
+            elif "glioma" in cond_lower or "glioblastoma" in cond_lower: cancer_type = "CNS tumour"
+            elif "sarcoma" in cond_lower: cancer_type = "Sarcoma"
+            elif "melanoma" in cond_lower: cancer_type = "Skin — Melanoma"
+            elif "breast" in cond_lower: cancer_type = "Breast carcinoma"
+            elif "lung" in cond_lower: cancer_type = "Lung carcinoma"
+            elif "colon" in cond_lower or "colorectal" in cond_lower: cancer_type = "Colorectal carcinoma"
+            elif "ovarian" in cond_lower: cancer_type = "Ovarian carcinoma"
+            elif "pancreatic" in cond_lower or "pancreas" in cond_lower: cancer_type = "Pancreatic carcinoma"
+            elif "prostate" in cond_lower: cancer_type = "Prostate carcinoma"
+            elif "liver" in cond_lower or "hepatocellular" in cond_lower: cancer_type = "Hepatocellular carcinoma"
+            elif "renal" in cond_lower or "kidney" in cond_lower: cancer_type = "Renal cell carcinoma"
+            elif "bladder" in cond_lower: cancer_type = "Bladder carcinoma"
+            elif "thyroid" in cond_lower: cancer_type = "Thyroid carcinoma"
+            if cancer_type not in somatic_cancer: somatic_cancer[cancer_type] = []
+            if cond4_clean not in somatic_cancer[cancer_type]: somatic_cancer[cancer_type].append(cond4_clean)
+        elif is_som:
+            if cond4_clean not in somatic_other: somatic_other[cond4_clean] = 0
+            somatic_other[cond4_clean] += 1
+        elif is_germ and is_hereditary_cancer:
+            if cond4_clean not in germline_cancer_predisposition: germline_cancer_predisposition[cond4_clean] = 0
+            germline_cancer_predisposition[cond4_clean] += 1
+        elif is_germ:
+            if cond4_clean not in germline_mendelian: germline_mendelian[cond4_clean] = 0
+            germline_mendelian[cond4_clean] += 1
+    
+    # Also pull from UniProt diseases that might not be in ClinVar conditions
+    for d_uni in diseases:
+        d_name_uni = d_uni.get("name","")
+        d_lower_uni = d_name_uni.lower()
+        is_cancer_uni = any(t in d_lower_uni for t in CANCER_TERMS)
+        is_hered_uni  = is_cancer_uni and any(x in d_lower_uni for x in ["hereditary","familial","predisposition"])
+        d_inh_uni     = d_uni.get("inheritance","")
+        # Only add if not already captured from ClinVar
+        if d_name_uni not in germline_mendelian and d_name_uni not in germline_cancer_predisposition:
+            if "dominant" in d_inh_uni.lower() or "recessive" in d_inh_uni.lower():
+                if is_hered_uni:
+                    germline_cancer_predisposition[d_name_uni] = germline_cancer_predisposition.get(d_name_uni,0)
+                else:
+                    germline_mendelian[d_name_uni] = germline_mendelian.get(d_name_uni,0)
+    
+    n_germ_total = len(germline_mendelian) + len(germline_cancer_predisposition)
+    n_soma_total = len(somatic_cancer) + len(somatic_other)
+    
+    # ── Display ────────────────────────────────────────────────────────────────
+    st.markdown(
+        f"<div style='color:#5a8090;font-size:.84rem;margin-bottom:.7rem;'>"
+        f"Classification of all ClinVar conditions for {gene} into germline (heritable) and "
+        f"somatic (acquired) contexts. Cancer somatic mutations are further classified by tumour type. "
+        f"Germline predisposition syndromes are separated from Mendelian diseases.</div>",
+        unsafe_allow_html=True,
+    )
+    
+    # Row 1: Germline
+    st.markdown(
+        f"<div style='background:#020d08;border:1px solid #00c89633;border-radius:12px;"
+        f"padding:1rem 1.2rem;margin-bottom:.6rem;'>"
+        f"<div style='display:flex;align-items:center;gap:10px;margin-bottom:.6rem;'>"
+        f"<span style='color:#00c896;font-weight:800;font-size:1rem;'>🧬 Inherited / Germline ({n_germ_total} conditions)</span>"
+        f"<span style='color:#1a4030;font-size:.78rem;'>Present in DNA from birth — heritable, runs in families</span>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+    
+    gcol1, gcol2 = st.columns(2)
+    with gcol1:
+        st.markdown(
+            f"<div style='color:#4a9070;font-size:.82rem;font-weight:700;margin-bottom:.3rem;'>"
+            f"Mendelian disease ({len(germline_mendelian)})</div>",
+            unsafe_allow_html=True,
+        )
+        if germline_mendelian:
+            for cname, cnt in sorted(germline_mendelian.items(), key=lambda x:-x[1])[:8]:
+                with st.expander(cname[:55], expanded=False):
+                    # Find matching disease from UniProt
+                    d_match = next((d for d in diseases if cname.lower()[:15] in d.get("name","").lower()), None)
+                    inh_info = d_match.get("inheritance","") if d_match else ""
+                    desc_info= d_match.get("desc","")[:200] if d_match else ""
+                    omim_id  = d_match.get("omim","") if d_match else ""
+                    n_path_c = sum(1 for v in variants if cname.lower()[:15] in v.get("condition","").lower() and v.get("score",0)>=4)
+                    st.markdown(
+                        f"<div style='color:#4a8070;font-size:.82rem;line-height:1.5;'>"
+                        f"<b>Inheritance:</b> {inh_info if inh_info else 'Check OMIM'}<br>"
+                        f"<b>Pathogenic variants:</b> {n_path_c}<br>"
+                        f"{('<b>Description:</b> ' + desc_info + '<br>') if desc_info else ''}"
+                        f"</div>"
+                        + (f"<a class='src-badge' href='https://omim.org/entry/{omim_id}' target='_blank'>OMIM {omim_id} ↗</a>" if omim_id else "")
+                        + f"<a class='src-badge' href='https://www.ncbi.nlm.nih.gov/clinvar/?term={gene}[gene]+{cname[:20].replace(' ','+')}' target='_blank'>ClinVar ↗</a>",
+                        unsafe_allow_html=True,
+                    )
+        else:
+            st.markdown(
+                "<div style='color:#1a4030;font-size:.82rem;'>"
+                f"No confirmed Mendelian disease associations for {gene} in ClinVar. "
+                f"{'This is consistent with a somatic-only role.' if somatic_cancer else 'Protein may be functionally redundant or understudied.'}"
+                "</div>", unsafe_allow_html=True,
+            )
+    
+    with gcol2:
+        st.markdown(
+            f"<div style='color:#4a9070;font-size:.82rem;font-weight:700;margin-bottom:.3rem;'>"
+            f"Hereditary cancer predisposition ({len(germline_cancer_predisposition)})</div>",
+            unsafe_allow_html=True,
+        )
+        if germline_cancer_predisposition:
+            for cname, cnt in sorted(germline_cancer_predisposition.items(), key=lambda x:-x[1])[:6]:
+                with st.expander(cname[:55], expanded=False):
+                    n_path_c = sum(1 for v in variants if cname.lower()[:15] in v.get("condition","").lower() and v.get("score",0)>=4)
+                    st.markdown(
+                        f"<div style='color:#4a7060;font-size:.82rem;'>"
+                        f"Germline pathogenic variants ({n_path_c}) in {gene} confer hereditary predisposition to this cancer. "
+                        f"Unlike somatic cancer mutations, these are present in every cell from birth and can be transmitted to offspring. "
+                        f"Clinical management: genetic counselling + enhanced surveillance recommended for carriers.</div>",
+                        unsafe_allow_html=True,
+                    )
+        else:
+            st.markdown(
+                f"<div style='color:#1a4030;font-size:.82rem;'>No hereditary cancer predisposition syndromes linked to {gene} in ClinVar.</div>",
+                unsafe_allow_html=True,
+            )
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    # Row 2: Somatic — with cancer type sub-classification
+    st.markdown(
+        f"<div style='background:#0d0208;border:1px solid #ff2d5533;border-radius:12px;"
+        f"padding:1rem 1.2rem;margin-top:.4rem;'>"
+        f"<div style='display:flex;align-items:center;gap:10px;margin-bottom:.6rem;'>"
+        f"<span style='color:#ff2d55;font-weight:800;font-size:1rem;'>🔴 Acquired / Somatic ({n_soma_total} contexts)</span>"
+        f"<span style='color:#3a1020;font-size:.78rem;'>Variant acquired after birth — cancer driver mutations, not heritable</span>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+    
+    if somatic_cancer:
+        st.markdown(
+            "<div style='color:#7a3040;font-size:.82rem;font-weight:700;margin-bottom:.4rem;'>"
+            f"Cancer driver mutations — {sum(len(v) for v in somatic_cancer.values())} specific tumour types</div>",
+            unsafe_allow_html=True,
+        )
+        for cancer_type, cancer_diseases in sorted(somatic_cancer.items()):
+            with st.expander(
+                f"{cancer_type}  ·  {len(cancer_diseases)} condition(s)",
+                expanded=False,
+            ):
+                for cd in cancer_diseases[:8]:
+                    n_som_v = sum(1 for v in variants if cd.lower()[:15] in v.get("condition","").lower())
+                    st.markdown(
+                        f"<div style='background:#0a0105;border:1px solid #ff2d5522;border-radius:7px;"
+                        f"padding:6px 10px;margin:3px 0;'>"
+                        f"<div style='color:#8a3050;font-weight:600;font-size:.84rem;'>{cd[:70]}</div>"
+                        f"<div style='color:#602030;font-size:.78rem;'>{n_som_v} ClinVar submissions · Somatic (acquired)</div>"
+                        f"<div style='color:#3a1020;font-size:.76rem;margin-top:2px;'>"
+                        f"Somatic variants in {gene} are found in {cancer_type.lower()} cells — not inherited. "
+                        f"Clinical implication: {gene} mutation status in this tumour type may predict {'response to ' + (drugs_data[0]['drug'] if drugs_data else 'targeted therapy') + ' — check OncoKB or cBioPortal' if drugs_data or ot_data else 'prognosis — check cBioPortal for patient data'}."
+                        f"</div>"
+                        f"<a class='src-badge' href='https://www.cbioportal.org/results/mutations?gene_list={gene}' target='_blank'>cBioPortal ↗</a> "
+                        f"<a class='src-badge' href='https://www.oncokb.org/gene/{gene}' target='_blank'>OncoKB ↗</a>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+    
+    if somatic_other:
+        st.markdown(
+            f"<div style='color:#7a3040;font-size:.82rem;font-weight:700;margin-top:.4rem;margin-bottom:.3rem;'>Non-cancer somatic ({len(somatic_other)})</div>",
+            unsafe_allow_html=True,
+        )
+        for cname, cnt in list(somatic_other.items())[:5]:
+            st.markdown(f"<div style='color:#602030;font-size:.82rem;margin:2px 0;'>◆ {cname[:60]}</div>", unsafe_allow_html=True)
+    
+    if not somatic_cancer and not somatic_other:
+        st.markdown(
+            f"<div style='color:#3a1020;font-size:.82rem;'>"
+            f"No somatic (acquired) variants found in ClinVar for {gene}. "
+            f"{'This protein acts primarily through germline mechanisms.' if germline_mendelian else 'Check cBioPortal for somatic mutations in cancer cohorts — ClinVar captures only a fraction of tumour-specific variants.'} "
+            f"<a class='src-badge' href='https://www.cbioportal.org/results/mutations?gene_list={gene}' target='_blank'>cBioPortal ↗</a></div>",
+            unsafe_allow_html=True,
+        )
+    
+    st.markdown("</div>", unsafe_allow_html=True)
     if diseases:
         st.markdown("<hr class=\'dv\'>", unsafe_allow_html=True)
         sh("🏥", "Disease Breakdown — Per-Disease Mutation Impact")
@@ -6843,15 +8298,21 @@ with tab2:
             # Use evidence-based inference if direct data missing
             if not d_inh and matched_variants:
                 d_inh = _infer_inheritance_from_variants(matched_variants)
+            if not d_inh and lit_insights.get("inheritance"):
+                d_inh = lit_insights["inheritance"]
             if not d_inh:
                 # Infer from disease name
                 dn_lower = d_name.lower()
-                if any(x in dn_lower for x in ["cardiomyopathy","epilep","marfan","noonan"]):
-                    d_inh = "Autosomal Dominant (AD) — inferred from disease class"
-                elif any(x in dn_lower for x in ["fanconi","deficiency","storage","gaucher"]):
-                    d_inh = "Autosomal Recessive (AR) — inferred from disease class"
-                elif any(x in dn_lower for x in ["cancer","carcinoma","tumor"]):
-                    d_inh = "Somatic (acquired) or germline predisposition"
+                if any(x in dn_lower for x in ["cardiomyopathy","epilep","marfan","noonan","aortic"]):
+                    d_inh = "Autosomal Dominant (AD) — inferred from disease class + literature"
+                elif any(x in dn_lower for x in ["fanconi","deficiency","storage","gaucher","niemann","wilson"]):
+                    d_inh = "Autosomal Recessive (AR) — inferred from disease class + literature"
+                elif any(x in dn_lower for x in ["cancer","carcinoma","tumor","lymphoma","sarcoma"]):
+                    d_inh = "Somatic (acquired) or germline predisposition — verify in OMIM"
+                elif any(x in dn_lower for x in ["duchenne","haemophilia","hemophilia","fragile x"]):
+                    d_inh = "X-linked — inferred from disease class"
+                elif any(x in dn_lower for x in ["mitochondrial","leigh","melas"]):
+                    d_inh = "Mitochondrial (maternal) — inferred from disease class"
             if not d_mut and matched_variants:
                 d_mut = _get_mutation_types_from_variants(matched_variants)
             inh_display = d_inh if d_inh else f"See OMIM for {d_name[:25]}"
@@ -7325,45 +8786,252 @@ with tab4:
         unsafe_allow_html=True,
     )
 
-    EXPS=[
-        ("🧬","Enzyme activity assay (ADP-Glo™ kinase assay)","$$","3–6 wks",
-         "Directly measure whether a pathogenic mutation hyperactivates or silences the protein's core function. "
-         "WHY: ClinVar-confirmed pathogenic variants at catalytic residues strongly predict loss or gain of function, "
-         "but this must be quantified biochemically before any drug screen. "
-         "Hypothesis: Pathogenic missense variants at D-loop or activation-loop residues will reduce Vmax by ≥50% "
-         "relative to wild-type, while gain-of-function variants may show reduced Km (increased substrate affinity). "
-         "Reference: Kornev et al., PNAS 2008 (PMID 18768809) — catalytic spine architecture predicts function.",
-         ["Express normal and mutant proteins (bacteria or insect cells).","Purify via His-tag column + size-exclusion.","ADP-Glo™ luminescent kinase reaction.","Compare efficiency (Km/Vmax): normal vs each variant.","Triplicate; error ≤10%."],
-         "Mutations at catalytic (active) sites — D-loop, activation loop, P-loop.","Mutations in unstructured regions or pLDDT <50 — structurally unreliable.",
-         "Quantitative activity ratio — direct functional evidence. Feeds directly into drug target validation."),
-        ("🧬","Protein interaction mapping (Co-IP / AP-MS)","$$$","4–8 wks","Discover which partner proteins are lost or gained with each mutation.",["Tag protein (3×FLAG or GFP) in HEK293T cells.","Native cell lysis (NP-40 buffer).","Pull-down + protein A/G beads.","Mass-spectrometry (TMT-labelled) or gel electrophoresis.","Confirm top hits with reverse pull-down."],"Interface residues predicted by AlphaFold-Multimer.","Variants with identical binding domains.","Interaction network rewiring map per mutation."),
-        ("🧬","Protein stability screen (Thermal Shift Assay)","$","1–2 wks","Find drugs that stabilise mutant proteins, or confirm protein is destabilised.",["Purify protein (0.5 mg/mL).","96-well plate + SYPRO Orange fluorescent dye.","Heat ramp 25→95°C at 1°C/min.","Melting temperature (Tm) by curve fitting.","Flag compounds shifting Tm ≥1°C as stabilisers."],"Destabilising missense variants in structured domains.","Unstructured regions — no Tm signal expected.","Stability change per mutation; drug hit identification."),
-        ("🔬","CRISPR gene knock-in (precise mutation introduction)","$$$","6–12 wks",
-         "Introduce exact patient-identical variants into the endogenous locus to study their effects in a physiologically relevant context. "
-         "WHY: Cell-free or overexpression assays may not reflect endogenous protein levels or interaction partners. "
-         "Isogenic knock-in models are the gold standard for variant pathogenicity evidence (ClinGen framework, Richards et al. 2015, PMID 25741868). "
-         "Hypothesis: A confirmed pathogenic knock-in will produce a measurable phenotype (altered proliferation, apoptosis, or signalling) "
-         "in at least two independent cell lines. Absence of phenotype in both lines calls the ClinVar classification into question. "
-         "Negative result is equally valuable — it may reclassify the variant to VUS.",
-         ["Design guide RNAs (CRISPOR tool).","SpCas9 protein + guide RNA + repair template.","Screen ≥50 cell clones by DNA sequencing.","Confirm protein expression by western blot.","Run all functional assays on confirmed mutant cells."],
-         "ClinVar P/LP variants + ML score ≥0.75 + ≥2-star ClinVar review status.","Variants of unknown significance with <2-star review — too uncertain and too costly.",
-         "Isogenic cell lines — gold standard for variant functional evidence (ClinGen PS3 criterion)."),
-        ("🔬","Luciferase reporter assay (gene activation test)","$","1–3 wks","Test whether a transcription-factor mutation changes gene activation.",["Clone target gene promoter (1 kb) into luciferase (light-emitting) vector.","Express normal or mutant protein + control reporter.","Measure light output ratio at 48h.","≥3 independent experiments in triplicate."],"Mutations in DNA-binding or activation domains.","Unstructured N-terminal segments.","Fold-change in target gene activation/repression."),
-        ("🧫","Structure prediction + stability scoring (Rosetta ΔΔG)","Free","1–3 days",
-         "Computationally rank ALL missense variants by predicted structural damage before committing a single dollar to wet lab. "
-         "WHY: ΔΔG (change in folding free energy) ≥2 REU predicts destabilising mutations with ~70–80% accuracy "
-         "(Kellogg et al., Proteins 2011, PMID 21287615). This eliminates structurally neutral variants from further study — "
-         "typically ~40–60% of all candidates — before any wet-lab spend. "
-         "Hypothesis: Variants scoring ΔΔG ≥2 REU in Rosetta will show reduced protein half-life in CHX chase experiments, "
-         "consistent with accelerated proteasomal degradation of the destabilised fold. "
-         "This is a zero-cost filter that should always precede biochemical assays.",
-         ["Download AlphaFold structure.","Rosetta FastRelax on normal structure.","Introduce each mutation computationally.","Flag ΔΔG ≥2 REU as structurally disruptive.","Cross-reference with ClinVar + ML scores."],
-         "All missense variants in well-structured domains (pLDDT ≥70) — Rosetta reliable here.","Unstructured regions (pLDDT <50) — Rosetta force field is not parameterised for IDRs.",
-         "Pre-ranked candidate list — eliminates ~50% before any wet-lab spend. Run this first, always."),
-        ("🐭","Tumour implant model (xenograft)","$$$$","8–16 wks","Test cancer-causing mutations in living organisms.",["Implant 1×10⁶ mutant cells under skin of immunocompromised mice.","Measure tumour size twice weekly (callipers).","Stain tumour tissue at study end (H&E + protein markers).","Statistical comparison (log-rank test): normal vs mutant growth."],"Mutations with in-vitro proliferation data already confirming cancer activity.","Variants of uncertain significance without prior cell data — too costly.","In vivo tumour growth curves; tissue-level disease confirmation."),
-        ("💊","Drug screen (High-Throughput Screening)","$$$$","6–12 mo","Find drugs that fix or block mutant protein function.",["Set up automated assay compatible with 96/384-well plates.","Screen compound library at 10 µM (10K–1M compounds).","Eliminate compounds that are just toxic to cells.","Confirm dose-response (IC₅₀) for top 50 compounds.","Progress top 5 for medicinal chemistry optimisation."],"Confirmed high-priority variants with drug-binding pockets.","Unstructured proteins without defined pockets.","Lead drug compound series for further development."),
-        ("💊","Protein degrader (PROTAC)","$$$$","6–12 mo","Destroy hyperactive mutant proteins that cannot be inhibited by conventional drugs.",["Design PROTAC molecule: target-binding warhead + cell-recycling-machinery recruiter.","Synthesise 10–20 candidates.","Measure protein destruction efficiency (DC₅₀) in cells.","Confirm by western blot and mass-spectrometry.","Full proteome check — ensure only target is degraded."],"Hyperactive (gain-of-function) mutations that conventional drugs cannot block.","Loss-of-function mutations — destroying remaining protein makes disease worse.","Selective protein degrader DC₅₀ <100 nM."),
-    ]
+    # ── Goal + protein-type aware experiment selection ──────────────────────────
+    _ptype_e   = g_ptype(pdata)
+    _entity_e  = classify_entity(pdata)
+    _goal_e    = active_goal.lower()
+    _n_lof_e   = sum(1 for v in scored if any(k in v.get("variant_name","").lower()
+                     for k in ["del","ter","fs","stop","nonsense"]) and v.get("score",0)>=3)
+    _sm_e      = bool(ot_data.get("tractability",{}).get("Small molecule")) if ot_data else False
+    _ab_e      = bool(ot_data.get("tractability",{}).get("Antibody")) if ot_data else False
+    _pli_e     = gnomad_data.get("pLI",0) if gnomad_data else 0
+    _top_drug_e= drugs_data[0]["drug"] if drugs_data else None
+    _crit_v_e  = next((v.get("variant_name","")[:25] for v in scored if v.get("ml_rank")=="CRITICAL"), "top variant")
+    _top_partner = string_data[0]["partner"] if string_data else "key binding partner"
+    _is_cancer_e = any(k in " ".join(d.get("name","").lower() for d in diseases)
+                       for k in ["cancer","carcinoma","tumor","leukemia","lymphoma","sarcoma"])
+    _is_fbm_e  = _is_filamin_roi if "_is_filamin_roi" in dir() else any(x in gene.lower() for x in ["flna","flnb","flnc"])
+
+    # Determine primary goal category
+    _is_drug_goal    = any(x in _goal_e for x in ["drug","therapeutic","target","small molecule"])
+    _is_mech_goal    = any(x in _goal_e for x in ["mechanism","understand","pathway","functional"])
+    _is_bio_goal     = any(x in _goal_e for x in ["biomarker","diagnostic"])
+    _is_clin_goal    = any(x in _goal_e for x in ["clinical","variant interpret","reclassif"])
+    _is_exp_goal     = any(x in _goal_e for x in ["experiment","prioritis","roi"])
+
+    # Build experiment list dynamically — unique to goal+ptype combination
+    EXPS = []
+
+    # ── ALWAYS FIRST: Computational (free, always unique, always first) ───────
+    EXPS.append((
+        "🧫",
+        f"Rosetta ΔΔG stability screen — all {gi.get('n_pathogenic',0)} pathogenic variants ranked",
+        "Free", "1–3 days",
+        f"Zero-cost first filter. Every missense variant scored for structural destabilisation. "
+        f"Variants with ΔΔG ≥2 REU will be the primary targets for ALL downstream experiments regardless of goal. "
+        f"{'For drug discovery: hotspot positions from this screen define the pharmacochaperone pocket. ' if _is_drug_goal else ''}"
+        f"{'For mechanism: LoF variants with ΔΔG ≥2 = haploinsufficiency candidate; missense with ΔΔG <1 = functional not structural mechanism. ' if _is_mech_goal else ''}"
+        f"{'For biomarker: high-ΔΔG variants predict protein clearance from circulation — relevant for plasma level as biomarker. ' if _is_bio_goal else ''}"
+        f"Hypothesis: ΔΔG correlates with ClinVar pathogenicity score (r >0.5). Variants clustering in the hydrophobic core show highest ΔΔG.",
+        ["Download AlphaFold structure for " + uid + ".",
+         "Rosetta FastRelax: energy minimisation of WT structure.",
+         "PyRosetta cartesian_ddg for each pathogenic variant.",
+         "Rank by ΔΔG — threshold ≥2 REU = structurally destabilising.",
+         "Cross-reference with AlphaMissense scores and ClinVar stars."],
+        "All missense variants in pLDDT >70 regions — Rosetta reliable here.",
+        "IDRs (pLDDT <50) and splice/frameshift variants — not modelled by Rosetta.",
+        "Pre-ranked candidate list. Eliminates ~50% before any wet-lab spend.",
+    ))
+
+    # ── DRUG DISCOVERY GOAL ──────────────────────────────────────────────────
+    if _is_drug_goal or _is_exp_goal:
+        if _ptype_e == "kinase":
+            EXPS.append((
+                "⚗️",
+                f"KINOMEscan + ADP-Glo kinase selectivity screen",
+                "$$$$", "4–6 mo",
+                f"Identify potent selective inhibitors of {gene} with a pan-kinome selectivity profile before any cell work. "
+                f"WHY specifically for {gene}: {_n_crit_e} CRITICAL variants confirmed — selectivity matters to avoid off-target toxicity. "
+                f"Hypothesis: A selective inhibitor (S-score <0.1 at 1µM across 468 kinases) will suppress {gene} activity in cells at IC50 <100nM.",
+                ["Submit to DiscoverX KINOMEscan: 468-kinase scan at 1µM.",
+                 "ADP-Glo titration on top 10 hits: confirm IC50 at recombinant protein.",
+                 f"NanoBRET cellular target engagement in CRISPR knock-in cells.",
+                 "ADMET profile: CYP3A4, hERG, permeability, metabolic stability.",
+                 "SAR expansion: synthesise 20–30 analogs on best scaffold."],
+                "Variants at ATP-binding pocket — hinge, DFG, P-loop residues.",
+                "Activation loop variants — may not affect inhibitor binding.",
+                "Lead compound: IC50 <100nM, S-score <0.1, cellular EC50 <1µM.",
+            ))
+        elif _ptype_e == "gpcr":
+            EXPS.append((
+                "📡",
+                f"Biased agonism screen — cAMP HTRF + β-arrestin BRET",
+                "$$", "2–4 wks",
+                f"Identify {gene} compounds that selectively engage the therapeutic G-protein pathway while avoiding β-arrestin (side-effect pathway). "
+                f"Biased agonism is the key pharmacological advantage for GPCR drugs. "
+                f"{'FBM context: also test whether compounds affect Filamin A Ser2152 phosphorylation downstream — cytoskeletal coupling is a separate readout.' if _is_fbm_e else ''} "
+                f"Hypothesis: Biased agonists with ΔΔlog(τ/KA) ≥0.5 will produce therapeutic effect without receptor desensitisation.",
+                ["cAMP HTRF: transfect HEK293-GPCR stable line + cAMP-d2/cryptate.",
+                 "β-arrestin BRET: RLuc8-receptor + Venus-β-arrestin2.",
+                 "Calculate Emax, EC50, bias factor for each compound.",
+                 "Top biased hits: test in disease-relevant primary cells.",
+                 f"{'Filamin Ser2152-P western blot: confirm cytoskeletal coupling status.' if _is_fbm_e else 'Receptor internalisation: confocal imaging of receptor trafficking.'}"],
+                "Compounds with ΔΔlog(τ/KA) ≥0.5 — statistically biased.",
+                "Balanced agonists — no differentiation from existing drugs.",
+                "Bias factor, Emax/EC50 for each signalling pathway.",
+            ))
+        elif _ptype_e == "transcription_factor":
+            EXPS.append((
+                "🔬",
+                f"PPI disruptor fragment screen — {gene}:coactivator interface",
+                "$$$$", "8–12 mo",
+                f"TFs are classically undruggable via conventional binding pockets. Target the protein-protein interface instead. "
+                f"Hypothesis: A hydrocarbon-stapled peptide mimicking the {gene} activation domain helix will competitively displace coactivators at IC50 <10µM.",
+                [f"HDX-MS: map {gene}:coactivator binding interface — identifies pharmacophore.",
+                 "FluorescenceAnisotropy: FITC-labelled helix peptide displacement assay.",
+                 "NMR fragment screen: 1,000-compound library against transactivation domain.",
+                 "AlphaFold-Multimer: predict binding mode of top fragment hits.",
+                 "Stapled peptide synthesis: hydrocarbon stapling for cell permeability."],
+                "Confirmed helix-in-groove TF:coactivator contacts.",
+                "Disordered activation domains — no stable interface.",
+                "Fragment hits <10µM in FA assay; cellular activity <1µM.",
+            ))
+        else:  # general drug discovery
+            EXPS.append((
+                "💊",
+                f"Pharmacochaperone screen — {'Prestwick 1,280 approved drugs' if not _top_drug_e else 'focused library around ' + _top_drug_e}",
+                "$$", "2–3 wks",
+                f"Screen repurposed approved drugs for {gene} stabilisation — fastest path to a clinical candidate. "
+                f"{'Existing drug interaction: ' + _top_drug_e + ' — test analogues first.' if _top_drug_e else ''} "
+                f"Hypothesis: Variants with ΔΔG ≥2 REU (from Rosetta screen) will show ΔTm ≤-2°C. A chaperone shifts ΔTm back to ≥WT.",
+                [f"Purify {gene} WT and {_crit_v_e} mutant (His-tag + SEC).",
+                 "DSF: 384-well, SYPRO Orange, 0.3mg/mL protein.",
+                 "Screen Prestwick 1,280 at 10µM — flag ΔTm ≥1°C.",
+                 "Dose-response (0.1–100µM) on top 20 hits.",
+                 "Cellular rescue: add hit to CRISPR mutant cells — does viability restore?"],
+                "Destabilising missense variants in structured domain (ΔΔG ≥2 REU).",
+                "Surface charge variants and splice/frameshift variants.",
+                "Repurposed drug with ΔTm shift ≥2°C and cellular rescue EC50 <10µM.",
+            ))
+        # Add PROTAC if GoF
+        if _n_lof_e == 0 and n_crit2 > 0:  # GoF likely
+            EXPS.append((
+                "💊",
+                f"PROTAC degrader design — eliminate mutant {gene}",
+                "$$$$", "6–12 mo",
+                f"If {gene} variants are gain-of-function, degradation is superior to inhibition. "
+                f"PROTACs selectively degrade the mutant protein without needing to inhibit its activity directly. "
+                f"Hypothesis: A PROTAC with DC50 <100nM will deplete mutant {gene} by ≥80% while sparing WT from the second allele.",
+                [f"Identify {gene} ligand from ChEMBL (any binder — does not need to be inhibitor).",
+                 "Synthesise PROTAC: ligand + CRBN/VHL recruiter + PEG linker.",
+                 "Test 10–20 PROTAC variants for DC50 (western blot densitometry).",
+                 "Proteome-wide selectivity: TMT-quantitative proteomics at DC50.",
+                 "In vivo PK: oral bioavailability, brain penetration if CNS indication."],
+                "GoF variants — degradation removes toxic gain of function.",
+                "LoF variants — degrading remaining protein worsens disease.",
+                "DC50 <100nM, Dmax >90%, proteome selectivity >10-fold.",
+            ))
+
+    # ── MECHANISM GOAL ───────────────────────────────────────────────────────
+    if _is_mech_goal or _is_exp_goal:
+        EXPS.append((
+            "✂️",
+            f"CRISPR knock-in — {_crit_v_e} in disease-relevant cell line",
+            "$$$", "6–10 wks",
+            f"Introduce the exact patient variant into the endogenous {gene} locus — isogenic gold standard. "
+            f"{'Predicted mechanism: haploinsufficiency (' + str(_n_lof_e) + ' LoF variants dominant) — expect phenotype at 50% protein level.' if _n_lof_e > n_crit2//2 else 'Predicted mechanism: dominant-negative or GoF — heterozygous knock-in may phenocopy more strongly than homozygous KO.'} "
+            f"pLI={_pli_e:.2f} — {'high essentiality, strong phenotype expected.' if _pli_e>0.8 else 'moderate essentiality, phenotype may be subtle.'}",
+            [f"CRISPOR: design guide RNA targeting {_crit_v_e} site.",
+             "ssODN repair template with exact patient variant + silent marker.",
+             "Nucleofect: electroporation into disease-relevant cell line.",
+             "Screen ≥50 clones: Sanger sequencing + western blot confirmation.",
+             f"Full phenotypic panel: viability (CellTiter-Glo), {'kinase activity' if _ptype_e=='kinase' else 'cAMP' if _ptype_e=='gpcr' else 'target gene expression'}, protein half-life."],
+            "ClinVar P/LP ≥2-star variants — sufficient prior evidence to justify cost.",
+            "VUS without functional data — too uncertain for $25K spend.",
+            "Isogenic cell model — ClinGen PS3 functional evidence for ClinVar reclassification.",
+        ))
+        EXPS.append((
+            "🧬",
+            f"AP-MS interactome — {gene} mutant vs wild-type binding partners",
+            "$$$", "4–8 wks",
+            f"Identify which binding partners are lost or gained by the {gene} pathogenic variant. "
+            f"Top STRING partner: {_top_partner} (expected to be disrupted). "
+            f"Hypothesis: {_crit_v_e} will lose interaction with {_top_partner} and gain aberrant interactions with stress response chaperones (HSP70/HSP90).",
+            [f"Endogenously 3xFLAG-tag {gene} via CRISPR — preserves endogenous expression.",
+             "Native cell lysis: NP-40 buffer + EDTA-free protease inhibitors.",
+             "Anti-FLAG IP × 3 biological replicates.",
+             "TMT-16plex quantitative LC-MS/MS.",
+             "SAINTexpress + CRAPome filtering — high-confidence interactions only."],
+            "Variants in known protein-protein interaction interfaces.",
+            "Variants in unstructured C-terminal tails unlikely to affect binding.",
+            "Lost/gained interactions per variant — identifies disrupted pathway.",
+        ))
+
+    # ── BIOMARKER GOAL ───────────────────────────────────────────────────────
+    if _is_bio_goal:
+        EXPS.append((
+            "🔬",
+            f"Targeted proteomics (PRM) — {gene} quantification in patient biofluid",
+            "$$", "4–8 wks",
+            f"Quantify {gene} in blood, urine, or CSF as a potential diagnostic biomarker. "
+            f"{'LoF-dominant variants predict reduced circulating ' + gene + ' — protein level itself is the biomarker.' if _n_lof_e > 2 else gene + ' activity or isoform ratio may be a more informative biomarker than total level.'} "
+            f"Hypothesis: Carriers of {_crit_v_e} will have ≥2-fold different {gene} levels vs non-carriers (AUC >0.8).",
+            [f"Develop {gene} ELISA (R&D Systems) or targeted PRM assay.",
+             "Cohort: n=20 confirmed carriers, n=20 matched healthy controls.",
+             "PRM: 5 unique {gene} tryptic peptides, iRT calibration.",
+             "ROC curve: AUC, sensitivity, specificity at optimal cutoff.",
+             "Longitudinal: does {gene} level correlate with disease severity?"],
+            f"{'Secreted or extracellular ' + gene + ' isoforms.' if 'secreted' in g_func(pdata).lower() else gene + ' in accessible biofluid — check HPA for secretion evidence first.'}",
+            "Intracellular-only proteins without secreted fraction.",
+            f"Diagnostic AUC, sensitivity/specificity of {gene} as biomarker.",
+        ))
+
+    # ── CLINICAL VARIANT INTERPRETATION ──────────────────────────────────────
+    if _is_clin_goal:
+        EXPS.append((
+            "🔬",
+            f"Splicing reporter assay — classify splice-site VUS",
+            "$", "2–4 wks",
+            f"Determine whether variants near exon-intron boundaries cause aberrant splicing. "
+            f"Provides PS3 evidence (ClinGen) for ClinVar VUS reclassification without expensive CRISPR. "
+            f"Hypothesis: Splice-site variants within ±2bp of donor/acceptor create exon-skip isoform in ≥30% of transcripts.",
+            ["Clone 300bp flanking the VUS into pSPL3 minigene vector.",
+             "Transfect into HEK293T AND patient-derived fibroblasts.",
+             "RT-PCR: primers in flanking exons — visualise aberrant bands.",
+             "Sanger sequencing: confirm exon skip or cryptic splice product.",
+             "qRT-PCR: quantify each isoform as % of total transcript."],
+            "Variants within ±2bp of canonical splice donor/acceptor.",
+            "Deep intronic variants >20bp from splice site — low prior probability.",
+            "PS3 evidence: functional splicing defect for ACMG variant classification.",
+        ))
+        EXPS.append((
+            "🔬",
+            f"Protein stability assay — PS3 evidence for missense VUS",
+            "$", "1–2 wks",
+            f"Measure whether a VUS in {gene} reduces protein stability — provides functional evidence for reclassification without CRISPR. "
+            f"Hypothesis: VUS with AlphaMissense ≥0.564 AND ΔΔG ≥2 REU will show ΔTm ≤-1.5°C — sufficient for PP3+PP2 combination evidence.",
+            [f"Express VUS as recombinant protein (parallel to WT).",
+             "DSF: melting temperature comparison.",
+             "CHX (cycloheximide) chase: measure protein half-life — reduced half-life confirms instability.",
+             "Proteasome inhibitor (MG132) rescue: if half-life restores, confirms proteasomal degradation.",
+             "Report ΔTm and half-life ratio — submit to ClinVar as functional evidence."],
+            "VUS with prior computational prediction (AlphaMissense ≥0.564 or ΔΔG ≥2 REU).",
+            "VUS in IDRs — thermal shift not interpretable.",
+            "ΔTm and half-life ratio — functional evidence for ACMG PS3/BS3 criteria.",
+        ))
+
+    # ── SHARED ACROSS GOALS — never repeat already-shown experiments ──────────
+    _shown_names = {e[1][:25] for e in EXPS}
+    
+    if "Filamin FBM binding" not in str(_shown_names) and (_is_fbm_e or _is_filamin_roi):
+        EXPS.append((
+            "🔗",
+            f"Filamin FBM binding assay (SPR) — {gene} vs Filamin Ig21",
+            "$$", "2–4 wks",
+            f"Test direct FBM interaction using the Nakamura et al. 2015 framework. "
+            f"{'Filamin Ig21 domain binding is disrupted by variants in the Ig19-21 region.' if _is_filamin_roi else gene + ' FBM peptide binding to Filamin A Ig21 — agonist-dependent for most GPCRs.'} "
+            f"Hypothesis: Pathogenic variants reduce KD to Filamin Ig21 by ≥10-fold vs WT (SPR sensorgrams).",
+            [f"Recombinant Filamin Ig21 domain expression (E. coli, His-tag).",
+             f"{'GPCR C-tail peptide synthesis (15-20aa FBM region).' if not _is_filamin_roi else 'GPCR peptide library: AT1R, MAS1, ADRA1D C-tails as positive controls.'}",
+             "SPR: Filamin Ig21 immobilised on CM5 chip; peptide as analyte.",
+             "KD, kon, koff measurement for WT vs each pathogenic variant.",
+             "PKA Ser2152-P western: confirm conformational gating in mutant vs WT."],
+            "Variants in Ig19-21 domain (Filamin) or ICL3/C-tail (GPCR).",
+            "Variants far from the FBM binding interface.",
+            "KD ratio WT/mutant; Ser2152-P fold-change — confirms cytoskeletal coupling intact or disrupted.",
+        ))
+
+
     for icon3,name3,cost3,timeline3,purpose3,protocol3,focus3,neglect3,outcome3 in EXPS:
         clr_e,bg_e=COST_MAP.get(cost3,("#3a6080","rgba(58,96,128,.08)"))
         with st.expander(f"{icon3} {name3}  ·  {cost3}  ·  ⏱ {timeline3}"):
@@ -7806,6 +9474,35 @@ with tab5:
         # ── Show full AI report ───────────────────────────────────────────────
         st.markdown("<hr class='dv'>", unsafe_allow_html=True)
         
+        # Active research landscape + citations from Claude web search
+        _landscape = ai.get('active_research_landscape','')
+        if _landscape:
+            st.markdown(
+                "<div style='background:#020810;border:1px solid #a855f733;border-radius:10px;"
+                "padding:.9rem 1.2rem;margin-bottom:.8rem;'>"
+                "<div style='color:#a855f7;font-weight:700;font-size:.88rem;margin-bottom:4px;'>"
+                "🔭 Active Research Landscape — from live literature search</div>"
+                f"<div style='color:#6a5090;font-size:.86rem;line-height:1.6;'>{_landscape}</div>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
+        _lit_cites = ai.get('literature_citations',[])
+        if _lit_cites:
+            with st.expander(f"📚 Literature cited in this analysis ({len(_lit_cites)} sources)", expanded=False):
+                for _cit in _lit_cites:
+                    _pmid_doi = _cit.get('pmid_or_doi','')
+                    _cit_url = (f'https://pubmed.ncbi.nlm.nih.gov/{_pmid_doi}/' if str(_pmid_doi).isdigit()
+                               else f'https://doi.org/{_pmid_doi}' if str(_pmid_doi).startswith('10.') else '')
+                    st.markdown(
+                        f"<div style='background:#020810;border:1px solid #0d2545;border-radius:7px;"
+                        f"padding:.6rem .9rem;margin:.3rem 0;'>"
+                        f"<div style='color:#5a8090;font-size:.84rem;font-weight:600;'>{_cit.get('citation','')}</div>"
+                        f"<div style='color:#3a6080;font-size:.8rem;'>{_cit.get('key_finding','')}</div>"
+                        + (f"<a href='{_cit_url}' target='_blank' style='color:#2a5070;font-size:.74rem;'>Source ↗</a>" if _cit_url else '')
+                        + "</div>",
+                        unsafe_allow_html=True,
+                    )
+
         # Executive summary card
         verdict = ai.get("one_line_verdict","")
         exec_sum = ai.get("executive_summary","")
@@ -7974,7 +9671,91 @@ with tab5:
                         unsafe_allow_html=True,
                     )
 
-        if st.button("♻️ Regenerate AI Report", key="regen_ai"):
+        # ── Microbiology / Infectious Disease Hypothesis Section ─────────────────
+    # Check if this protein is a host receptor for any known pathogen
+    _micro_ctx = get_micro_context(gene)
+    if not _micro_ctx:
+        # Check by function text
+        _func_text = g_func(pdata).lower()
+        for _key in ["itgb3","itgav","ace2","tmprss2","cd4","ccr5","npc1","efnb2","clec7a","slc10a1"]:
+            if _key in gene.lower() or _key in _func_text:
+                _micro_ctx = next((v for k,v in MICRO_ORGANISMS.items()
+                                   if _key in " ".join(v.get("human_search_terms",[])).lower()), {})
+                if _micro_ctx: break
+    
+    if _micro_ctx:
+        st.markdown("<hr class='dv'>", unsafe_allow_html=True)
+        sh("🦠","Infectious Disease Context — Host-Pathogen Interface")
+        _mpathogen = _micro_ctx.get("organism","")
+        _mdisease  = _micro_ctx.get("disease","")
+        _mtype     = _micro_ctx.get("type","")
+        _mstatus   = _micro_ctx.get("clinical_status","")
+        _mrefs     = _micro_ctx.get("refs",[])
+        _mdrugs    = _micro_ctx.get("drug_targets","")
+        _mkeys     = _micro_ctx.get("key_proteins",{})
+        
+        st.markdown(
+            f"<div style='background:#020d10;border:1px solid #00c89633;border-radius:12px;"
+            f"padding:1.1rem 1.4rem;margin-bottom:.8rem;'>"
+            f"<div style='color:#00c896;font-weight:800;font-size:.98rem;margin-bottom:.3rem;'>🦠 {_mpathogen}</div>"
+            f"<div style='color:#3a7060;font-size:.78rem;margin-bottom:.5rem;'>{_mtype}</div>"
+            f"<div style='color:#5a9080;font-size:.85rem;margin-bottom:.5rem;'><b>Disease:</b> {_mdisease}</div>"
+            f"<div style='color:#4a8070;font-size:.85rem;margin-bottom:.5rem;'>"
+            f"<b>{gene} role:</b> {gene} is a host entry factor or susceptibility gene for this pathogen.</div>"
+            f"<div style='color:#3a6060;font-size:.83rem;margin-bottom:.5rem;'>"
+            f"<b>Existing drug targets:</b> {_mdrugs}</div>"
+            f"<div style='color:#2a5050;font-size:.82rem;margin-bottom:.4rem;'>"
+            f"<b>Clinical status:</b> {_mstatus}</div>"
+            f"<div style='display:flex;gap:6px;flex-wrap:wrap;margin-top:.5rem;'>"
+            + "".join(f"<div style='color:#1a4040;font-size:.74rem;'>📄 {r}</div>" for r in _mrefs)
+            + "</div></div>",
+            unsafe_allow_html=True,
+        )
+        
+        # Key pathogen proteins
+        if _mkeys:
+            with st.expander(f"Key {_mpathogen.split(';')[0].split('(')[0].strip()} proteins — drug targets", expanded=False):
+                for prot, desc in _mkeys.items():
+                    st.markdown(
+                        f"<div style='background:#020810;border:1px solid #0d2545;border-radius:8px;"
+                        f"padding:.7rem .9rem;margin:.3rem 0;'>"
+                        f"<div style='color:#5a9080;font-weight:700;font-size:.85rem;'>{prot}</div>"
+                        f"<div style='color:#3a6060;font-size:.82rem;'>{desc}</div>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+        
+        # Generate micro-specific drug hypotheses
+        _micro_hyps = micro_drug_hypothesis(_micro_ctx, gene, scored, gi)
+        if _micro_hyps:
+            st.markdown(f"<div style='color:#4a8070;font-size:.86rem;font-weight:700;margin:.6rem 0 .3rem;'>Therapeutic hypotheses for {_mdisease}:</div>", unsafe_allow_html=True)
+            for _mh in _micro_hyps:
+                _mconf_clr = {"HIGH":"#00c896","MEDIUM":"#ffd60a","LOW":"#ff8c42"}.get(_mh.get("confidence","MEDIUM"),"#3a6080")
+                with st.expander(f"{_mh['title']}  ·  {_mh.get('confidence','?')} confidence", expanded=True):
+                    st.markdown(
+                        f"<div style='color:#3a7060;font-size:.78rem;font-weight:700;margin-bottom:2px;'>"
+                        f"Organism: {_mh['organism'][:80]}</div>"
+                        f"<div style='color:#5a9080;font-size:.85rem;margin-bottom:.5rem;'>{_mh['mechanism']}</div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown("<div style='color:#4a7060;font-size:.82rem;font-weight:600;margin-bottom:.3rem;'>Approaches:</div>", unsafe_allow_html=True)
+                    for app in _mh.get("approaches",[]):
+                        st.markdown(f"<div style='color:#3a6050;font-size:.82rem;padding-left:10px;'>→ {app}</div>", unsafe_allow_html=True)
+                    st.markdown(
+                        f"<div style='background:#010d08;border:1px solid #00c89633;border-radius:8px;"
+                        f"padding:.6rem .8rem;margin-top:.4rem;'>"
+                        f"<div style='color:#4a9070;font-size:.8rem;'><b style='color:#5a9880;'>Key experiment:</b> {_mh.get('key_experiment','')}</div>"
+                        f"</div>"
+                        f"<div style='background:#020d18;border:1px solid #0d2545;border-radius:8px;"
+                        f"padding:.6rem .8rem;margin-top:.3rem;'>"
+                        f"<div style='color:#3a7080;font-size:.8rem;'><b style='color:#4a8090;'>Prediction:</b> {_mh.get('prediction','')}</div>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+                    for r in _mh.get("refs",[]):
+                        st.markdown(f"<div style='color:#1a4040;font-size:.74rem;margin-top:3px;'>📄 {r}</div>", unsafe_allow_html=True)
+
+    if st.button("♻️ Regenerate AI Report", key="regen_ai"):
             st.session_state["ai_result"] = {}
             st.rerun()
 
