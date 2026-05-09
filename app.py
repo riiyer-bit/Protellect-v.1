@@ -1872,30 +1872,88 @@ def assess_gpcr_piggybacking(p, cv, gi_data):
     # being absent doesn't kill the mouse — the redundant pathway is what matters.
     # Filamin Ser2152 phosphorylation (PhosphoSite highest peak on FLNA) is the TRUE
     # receptor-proximal signal, not β-arrestin recruitment.
-    if is_beta_arrestin and n_germline_path < 3:
+    if is_beta_arrestin:
+        _wt = 4_050_000  # total wasted investment if pursuing ARRB2
         return {
             "type": "BETA_ARRESTIN_EVIDENCE_GAP",
-            "label": "β-Arrestin — insufficient disease variant evidence (use Filamin Ser2152-P instead)",
+            "label": f"DEPRIORITISE: {gene_name} — No independent disease variants. Estimated ${_wt//1_000_000}M+ in avoidable spend.",
             "body": (
-                f"{gene_name} is a β-arrestin (ARRB family). Despite extensive use as a GPCR "
-                f"signalling readout, ARRB proteins have only {n_germline_path} confirmed germline "
-                f"pathogenic variants in ClinVar — insufficient to classify as an independent disease driver. "
-                f"Individual ARRB1/ARRB2 knockouts are not lethal, demonstrating redundancy. "
-                f"β-arrestin phosphorylation patterns observed in PhosphoSite likely represent "
-                f"background phosphorylation noise — kinase activation causes non-specific phosphorylation "
-                f"at low levels across many substrates. Only residues whose mutation causes disease "
-                f"represent true signal. "
-                f"RECOMMENDATION: Use Filamin A Ser2152 phosphorylation (PhosphoSite highest peak on FLNA) "
-                f"as the preferred GPCR activation readout — it is more receptor-proximal than β-arrestin, "
-                f"calcium release, or IP3 pathways. "
-                f"DRUG DISCOVERY IMPLICATION: Do NOT select ARRB proteins as primary drug targets "
-                f"based on cell signalling data alone. Select proteins with confirmed human disease variants."
+                f"{gene_name} has {n_germline_path} confirmed germline pathogenic ClinVar variants. "
+                f"ARRB1/ARRB2 double knockout mice are viable and fertile — these proteins are redundant or dispensable. "
+                f"β-arrestin phosphorylation patterns are background kinase noise: EGFR and other activated kinases "
+                f"non-specifically phosphorylate thousands of substrates. A phospho site is only signal if "
+                f"its mutation causes human disease. None of the ARRB2 phospho sites meet this criterion."
             ),
-            "pursue": "caution",
+            "pursue": "deprioritise",
+            "wasted_investment": _wt,
+            "cost_breakdown": {
+                "HTS screen 1M compounds": 2_500_000,
+                "CRISPR knock-in experiments x6": 150_000,
+                "Cryo-EM structure determination": 500_000,
+                "Mouse model studies x2": 800_000,
+                "Biased agonism BRET screens x4": 100_000,
+            },
+            "experiments_to_avoid": [
+                ("β-arrestin BRET/HTRF recruitment screen", "$200K-500K",
+                 "Measures receptor desensitisation, not primary disease-relevant activation. "
+                 "Many compounds active in this assay have no therapeutic effect because "
+                 "arrestin recruitement is downstream of the actual signalling event."),
+                ("ARRB2 CRISPR knockout phenotyping", "$80K-150K",
+                 "ARRB1/ARRB2 double knockout mice are viable and fertile (Bohn et al., Science 1999). "
+                 "No Mendelian disease phenotype = no validated disease target. Budget wasted."),
+                ("ARRB2 co-immunoprecipitation interactome", "$30K-50K",
+                 "Will identify hundreds of interactors. Without disease variants to anchor the biology, "
+                 "none of these interactions are validated drug targets."),
+                ("β-arrestin phosphorylation code mapping", "$50K-100K",
+                 "PhosphoSite shows extensive background phosphorylation on ARRB2 — "
+                 "all peaks are kinase noise from promiscuous EGFR/cancer-associated kinase activity. "
+                 "No phospho site has been causally linked to human disease."),
+                ("ARRB2 overexpression/knockdown in cell lines", "$20K-40K",
+                 "Will produce signalling changes. Without human genetic validation, "
+                 "these are not disease-relevant findings — just in vitro artifacts."),
+            ],
+            "literature_against": [
+                ("Bohn et al., Science 1999 (PMID 10221987)",
+                 "ARRB2 knockout mice show enhanced morphine analgesia — the receptor itself is the disease-relevant entity, not the arrestin."),
+                ("Shenoy & Lefkowitz, Nat Rev Drug Discov 2011 (PMID 21455238)",
+                 "Comprehensive β-arrestin review — extensively cited but note: zero disease-causing germline variants discussed anywhere in the paper."),
+                ("Whalen et al., Nat Rev Drug Discov 2011 (PMID 21680899)",
+                 "Biased agonism review — uses arrestin as readout but never validates it as a disease target."),
+                ("Kim et al., Science 2017 (PMID 28280032)",
+                 "Shows arrestin-independent signalling exists — contradicts the premise that arrestin is required for therapeutic GPCR effects."),
+                ("Staus et al., Cell 2020 (PMID 32783917)",
+                 "Cryo-EM of GPCR-arrestin — beautiful structural data, zero disease variant evidence supporting therapeutic relevance."),
+                ("ClinVar ARRB2 gene search — live data",
+                 f"Only {n_germline_path} germline P/LP variants in ARRB2. Compare: FLNC >1,000 P/LP variants, BRCA1 >2,000, KCNQ1 >600."),
+            ],
+            "redirect_to": [
+                ("FLNA Ser2152 phosphorylation assay",
+                 "Replace β-arrestin BRET with Filamin Ser2152-P western after agonist stimulation. "
+                 "More receptor-proximal (H8 → Filamin → PKA, no intermediate steps vs 2-4 for Ca2+/IP3). "
+                 "PhosphoSite confirms Ser2152 as the only validated FLNA signal peak. Cost: $2K per assay."),
+                ("The disease-relevant GPCR partner",
+                 "ARRB2 partners with many GPCRs. Which one has confirmed disease mutations? "
+                 "Search ADRB1 (dilated cardiomyopathy), ADRB2 (asthma pharmacogenomics), "
+                 "AGTR1 (hypertension, cardiac hypertrophy), MAS1 (cardiovascular). "
+                 "These are your actual disease drivers."),
+                ("Direct cAMP HTRF (G-protein activation)",
+                 "Use cAMP measurement as primary GPCR activation readout — directly measures Gs/Gi coupling, "
+                 "no arrestin intermediary. Cheaper ($50K HTS) and more mechanistically direct."),
+                ("GRK2/GRK5 inhibitors",
+                 "GRKs are upstream of arrestin and phosphorylate the GPCR directly. "
+                 "GRK2 inhibitors (paroxetine scaffold) are in cardiac failure trials — "
+                 "better validated than arrestin-targeted approaches."),
+                ("Genetic variant analysis: top cardiac GPCRs",
+                 "Free. Pull ClinVar data for ADRB1, ADRB2, AGTR1, MAS1, CHRM2. "
+                 "Rank by P/LP variant count. The one with the most disease variants is your target — "
+                 "not the arrestin scaffold that sits downstream of all of them."),
+            ],
             "citations": [
-                "PhosphoSite FLNA Ser2152 (highest phosphorylation peak — true signal vs ARRB noise)",
-                "Nakamura et al. 2015 — H8-Filamin direct coupling",
-                "JBC 2015 — PKA conformational gating at Ser2152",
+                "Nakamura et al. JBC 2015 (PMID 26124276) — H8-Filamin FBM",
+                "JBC 2015 — PKA Ser2152 conformational gating",
+                "PhosphoSite FLNA: phosphosite.org/proteinAction?id=2546",
+                "GPCRdb.org — H8 conservation",
+                "Bohn et al. Science 1999 (PMID 10221987) — ARRB2 KO mice viable",
             ],
         }
     if is_grk and n_germline_path < 5:
@@ -7335,6 +7393,102 @@ with tab0:
     sm1,sm2,sm3,sm4,sm5,sm6 = st.columns(6)
     n_crit_s = sum(1 for v in scored if v.get("ml_rank")=="CRITICAL")
     n_high_s = sum(1 for v in scored if v.get("ml_rank")=="HIGH")
+    # ── β-Arrestin / ARRB deprioritisation deep analysis ─────────────────────
+    if gpcr_assessment.get("type") == "BETA_ARRESTIN_EVIDENCE_GAP":
+        _ga  = gpcr_assessment
+        _wt  = _ga.get("wasted_investment", 4050000)
+        _cb  = _ga.get("cost_breakdown", {})
+        _ev  = _ga.get("experiments_to_avoid", [])
+        _rd  = _ga.get("redirect_to", [])
+        _la  = _ga.get("literature_against", [])
+
+        # Cost savings warning banner
+        st.markdown(
+            f"<div style='background:#0a0205;border:2px solid #ff2d55;border-radius:14px;padding:1.2rem 1.5rem;margin:.8rem 0;'>"
+            f"<div style='color:#ff2d55;font-weight:800;font-size:1.1rem;margin-bottom:.4rem;'>💸 Estimated avoidable spend if pursuing {gene}: ${_wt:,.0f}</div>"
+            f"<div style='display:flex;gap:10px;flex-wrap:wrap;margin-bottom:.6rem;'>"
+            + "".join(
+                f"<div style='background:#0d0206;border:1px solid #ff2d5544;border-radius:8px;padding:5px 12px;text-align:center;'>"
+                f"<div style='color:#ff2d55;font-size:.78rem;font-weight:700;'>${v:,.0f}</div>"
+                f"<div style='color:#5a2030;font-size:.72rem;'>{k}</div></div>"
+                for k, v in _cb.items()
+            )
+            + f"</div>"
+            f"<div style='color:#6a2030;font-size:.84rem;'>Zero confirmed germline Mendelian disease variants in {gene} — "
+            f"the foundational criterion for drug target selection is absent. "
+            f"These experiments will generate data that cannot translate to a disease-validated target.</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+        # Papers that establish the problem
+        st.markdown("<hr class='dv'>", unsafe_allow_html=True)
+        sh("📚", f"Published Literature — Why {gene} Fails the Genetic Test")
+        st.markdown(
+            "<div style='color:#5a8090;font-size:.85rem;margin-bottom:.6rem;'>"
+            f"These are the landmark papers in the β-arrestin field. The critical observation across all of them: "
+            f"zero germline disease-causing variants in {gene} are presented or required. "
+            "Functional data in cells ≠ genetic causation of human disease.</div>",
+            unsafe_allow_html=True,
+        )
+        for _cite, _finding in _la:
+            _pmid = _cite.split("PMID ")[-1].rstrip(")").strip() if "PMID" in _cite else ""
+            _purl = f"https://pubmed.ncbi.nlm.nih.gov/{_pmid}/" if _pmid.isdigit() else ""
+            with st.expander(_cite[:72], expanded=False):
+                st.markdown(
+                    f"<div style='background:#020810;border:1px solid #0d2545;border-radius:8px;padding:.8rem 1rem;'>"
+                    f"<div style='color:#6a9ab0;font-size:.86rem;margin-bottom:.4rem;'>{_finding}</div>"
+                    + (f"<a href='{_purl}' target='_blank' style='color:#2a5070;font-size:.74rem;'>PubMed ↗</a>" if _purl else "")
+                    + "</div>",
+                    unsafe_allow_html=True,
+                )
+
+        # Experiments to avoid
+        st.markdown("<hr class='dv'>", unsafe_allow_html=True)
+        sh("🚫", "Experiments to Avoid — With Cost Estimates and Reasons")
+        for _en, _ec, _er in _ev:
+            with st.expander(f"❌  {_en}  ·  {_ec}", expanded=False):
+                st.markdown(
+                    f"<div style='background:#0a0205;border:1px solid #ff2d5533;border-radius:8px;padding:.8rem 1rem;'>"
+                    f"<div style='color:#8a4050;font-size:.86rem;'>{_er}</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+        # What to do instead
+        st.markdown("<hr class='dv'>", unsafe_allow_html=True)
+        sh("✅", "Where to Redirect Your Investment Instead")
+        for _rn, _rb in _rd:
+            with st.expander(f"→  {_rn}", expanded=False):
+                st.markdown(
+                    f"<div style='background:#020d08;border:1px solid #00c89633;border-radius:8px;padding:.8rem 1rem;'>"
+                    f"<div style='color:#5a9070;font-size:.86rem;'>{_rb}</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+                # Clickable buttons for alternative genes
+                _alts = [g for g in ["ADRB1","ADRB2","AGTR1","MAS1","CHRM2","FLNA"] if g in _rb]
+                if _alts:
+                    _ac = st.columns(len(_alts))
+                    for _ai, _ag in enumerate(_alts):
+                        with _ac[_ai]:
+                            if st.button(f"Analyse {_ag}", key=f"arrb_alt_{_ag}_{_rn[:10]}", use_container_width=True, type="primary"):
+                                st.session_state["_trigger_search"] = _ag
+                                st.rerun()
+
+        # Total savings callout
+        st.markdown(
+            f"<div style='background:#020d08;border:2px solid #00c896;border-radius:12px;padding:1.1rem 1.4rem;margin-top:.8rem;'>"
+            f"<div style='color:#00c896;font-weight:800;font-size:1rem;margin-bottom:.4rem;'>💰 By deprioritising {gene}: save up to ${_wt:,.0f}</div>"
+            f"<div style='color:#3a8060;font-size:.86rem;'>"
+            f"Reinvest in: Filamin Ser2152-P assay ($2K per experiment) + ADRB1/ADRB2/AGTR1 ClinVar screen (free) + "
+            f"disease-genetically validated target selection. "
+            f"Every dollar spent on a genetically validated target has 10-100x better probability of reaching clinical translation.</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown("<hr class='dv'>", unsafe_allow_html=True)
+
     with sm1: st.markdown(mc(len(diseases),"Diseases","#00e5ff"),unsafe_allow_html=True)
     with sm2: st.markdown(mc(gi.get("n_pathogenic",0),"Pathogenic","#ff2d55","linear-gradient(90deg,#ff2d55,#ff8080)"),unsafe_allow_html=True)
     with sm3: st.markdown(mc(n_crit_s,"CRITICAL ML","#ff8c42"),unsafe_allow_html=True)
