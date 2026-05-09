@@ -1876,9 +1876,9 @@ def assess_gpcr_piggybacking(p, cv, gi_data):
         _arrb_wt = 4050000
         return {
             "type": "BETA_ARRESTIN_EVIDENCE_GAP",
-            "label": f"DEPRIORITISE: {gene_name} — No independent disease variants. $4M+ in avoidable spend if pursued.",
+            "label": f"DEPRIORITISE: {g_gene(p).upper()} — No independent disease variants. $4M+ in avoidable spend if pursued.",
             "body": (
-                f"{gene_name} has {n_germline_path} confirmed germline pathogenic ClinVar variants. "
+                f"{g_gene(p).upper()} has {n_germline_path} confirmed germline pathogenic ClinVar variants. "
                 f"ARRB1/ARRB2 double knockout mice are viable and fertile — these proteins are redundant or dispensable. "
                 f"β-arrestin phosphorylation patterns are background kinase noise: EGFR and other activated kinases "
                 f"non-specifically phosphorylate thousands of substrates. A phospho site is only signal if "
