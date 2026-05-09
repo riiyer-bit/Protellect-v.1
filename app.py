@@ -1875,7 +1875,7 @@ def assess_gpcr_piggybacking(p, cv, gi_data):
     if is_beta_arrestin and n_germline_path < 3:
         return {
             "type": "BETA_ARRESTIN_EVIDENCE_GAP",
-            "label": "β-Arrestin — insufficient disease variant evidence",
+            "label": "β-Arrestin — insufficient disease variant evidence (use Filamin Ser2152-P instead)",
             "body": (
                 f"{gene_name} is a β-arrestin (ARRB family). Despite extensive use as a GPCR "
                 f"signalling readout, ARRB proteins have only {n_germline_path} confirmed germline "
@@ -7302,71 +7302,6 @@ tab0,tab1,tab2,tab3,tab4,tab5,tab6,tab7=st.tabs(["📋  Summary","🔴  Triage",
 with tab0:
     # Animated header
     st.markdown(f"""
-    # ── Research Paradigm — scientific framework from research meeting ────────────
-    _is_fbm_sum   = g_gpcr(pdata) and any(x in gene.lower() for x in ["agtr","adrb","mas1","adra","chrm"])
-    _is_arrb_sum  = any(x in gene.lower() for x in ["arrb1","arrb2"])
-    _is_fil_sum   = any(x in gene.lower() for x in ["flna","flnb","flnc","filamin"])
-    _is_crd_sum   = any(x in gene.lower() for x in ["adrb1","adrb2","agtr1","chrm2"]) and g_gpcr(pdata)
-    _par_items    = []
-    if _is_fbm_sum:
-        _par_items.append(("IP Opportunity — H8-Filamin assay (more proximal than Ca2+/arrestin/IP3)",
-            "When an agonist engages the GPCR, Helix 8 (H8) dislodges from the membrane and binds Filamin A Ig21 via beta-strand augmentation. "
-            "FBM anchors: Phe (hydrophobic, inward), Arg (hydrophilic, outward), Leu (hydrophobic, inward) — alternating geometry. "
-            "This releases Filamin autoinhibition and PKA phosphorylates Ser2152. "
-            "Class A rhodopsin: ~300 of 800 GPCRs carry H8 FBM. ICL3 segments also present but less conserved. "
-            "FLNB and FLNC are NOT phosphorylated at this site — FLNA-specific. "
-            "This assay is more receptor-proximal than calcium release (2-4 steps via ryanodine receptors), IP3, or beta-arrestin. "
-            "Source: GPCRdb (gpcrdb.org), Nakamura et al. 2015, JBC 2015.", "#00e5ff"))
-    if _is_arrb_sum:
-        _par_items.append(("Beta-arrestin evidence gap — not a reliable drug target readout",
-            f"ARRB1/ARRB2 have {gi.get('n_pathogenic',0)} confirmed disease-causing ClinVar variants. "
-            "Individual ARRB1/ARRB2 knockouts are not lethal — the redundant pathway compensates. "
-            "If beta-arrestin were truly essential, mutations would be lethal or disease-causing at high frequency. "
-            "Beta-arrestin phosphorylation codes in literature are background noise — "
-            "kinase activation (e.g. EGFR in cancer lines) non-specifically phosphorylates thousands of substrates. "
-            "True signal = only phospho sites where residue mutation causes human disease. "
-            "RECOMMENDATION: Use Filamin Ser2152-P as GPCR activation readout instead.", "#ff8c42"))
-    if _is_fil_sum:
-        _par_items.append(("PhosphoSite validation — Ser2152 is the only true FLNA signal",
-            "PhosphoSite (phosphosite.org/proteinAction?id=2546) confirms Ser2152 as the highest phosphorylation peak on FLNA. "
-            "All other FLNA phosphorylation peaks = system noise from non-specific kinase activity. "
-            "The critical distinction: Ser2152 is conformationally gated (JBC 2015) — "
-            "PKA cannot phosphorylate it in the closed/autoinhibited state. "
-            "This gating mechanism is what distinguishes it from background phosphorylation noise. "
-            "FLNB and FLNC lack this gated site. Only FLNA Ser2152 is therapeutically relevant.", "#a855f7"))
-    if _is_crd_sum:
-        _par_items.append(("TMAO rattling receptor — mechanistic explanation for arrhythmia",
-            "TMAO binding causes the GPCR to transition between conformational states rapidly (rattling) "
-            "rather than settling into a stable active state. The receptor misfires — "
-            "it fails to properly engage G-proteins AND disrupts the H8-Filamin coupling. "
-            "Since Filamin A provides direct actin cytoskeletal coupling to cardiac GPCRs, "
-            "disrupted binding explains conduction defects via a direct mechanism — "
-            "without the indirect calcium/IP3 cascade route. "
-            "LITERATURE BIAS: Arrhythmia research is disproportionately focused on Golgi trafficking, "
-            "KCNQ1, and hERG. The cardiac GPCR-Filamin-actin axis is understudied and patent-unoccupied.", "#ff2d55"))
-    _par_items.append(("Drug target selection — genetic disease variants only",
-        "The only reliable criterion for selecting a GPCR or cytoskeletal protein as a drug target: "
-        "it must have pathogenic variants in humans that cause named Mendelian disease. "
-        "Superimpose confirmed disease variants onto drug crystal structures to validate target engagement. "
-        "Null mutant normal (protein absent, person healthy) = redundant pathway = deprioritise. "
-        "Monthly rescan of UniProt and ClinVar: rare variants reclassify over time — a VUS today may be "
-        "P/LP in 6 months. Digenic mutations: in low genetic variability populations, two proteins each "
-        "with one non-functional allele can together cause disease — map these interaction networks. "
-        "Founder mutations (cancer): sequence large cohorts to find the earliest somatic event — "
-        "that is the primary therapeutic target, not late-arising passenger mutations.", "#00c896"))
-    if _is_fbm_sum or _is_arrb_sum or _is_fil_sum or _is_crd_sum:
-        sh("🔬","Scientific Framework")
-        for _pt, _pb, _pc in _par_items:
-            with st.expander(_pt, expanded=False):
-                _par_html = (
-                    "<div style='background:#020810;border-left:3px solid " + _pc + ";"
-                    "padding:.9rem 1.1rem;border-radius:0 10px 10px 0;'>"
-                    "<div style='color:#7ab0c0;font-size:.87rem;line-height:1.7;'>" + _pb + "</div>"
-                    "</div>"
-                )
-                st.markdown(_par_html, unsafe_allow_html=True)
-        st.markdown("<hr class='dv'>", unsafe_allow_html=True)
-
     <style>
     @keyframes fadeInUp {{from{{opacity:0;transform:translateY(20px)}}to{{opacity:1;transform:translateY(0)}}}}
     @keyframes pulse {{0%,100%{{opacity:1}}50%{{opacity:.7}}}}
@@ -9973,7 +9908,7 @@ with tab5:
     
     if _is_cardiac_gpcr or _has_arrhythmia:
         st.markdown("<hr class='dv'>", unsafe_allow_html=True)
-        sh("❤️","Cardiac GPCR — Arrhythmia Axis (Filamin-Actin Mechanism)")
+        sh("❤️","Cardiac GPCR — Arrhythmia, TMAO Rattling & Filamin-Actin Mechanism")
         st.markdown(
             f"<div style='background:#0a0208;border:1px solid #ff2d5533;border-radius:12px;padding:1.1rem 1.4rem;'>"
             f"<div style='color:#ff8c42;font-weight:700;font-size:.95rem;margin-bottom:.5rem;'>TMAO Rattling Receptor Hypothesis (from research meeting)</div>"
