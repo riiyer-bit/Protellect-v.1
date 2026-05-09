@@ -1874,8 +1874,8 @@ def assess_gpcr_piggybacking(p, cv, gi_data):
     # receptor-proximal signal, not β-arrestin recruitment.
     if is_beta_arrestin:
         _arrb_wt = 4050000
-        _arrb_wt = 4050000
         return {
+            "type": "BETA_ARRESTIN_EVIDENCE_GAP",
             "label": f"DEPRIORITISE: {g_gene(p).upper()} — No independent disease variants. $4M+ in avoidable spend if pursued.",
             "body": (
                 f"{g_gene(p).upper()} has {n_germline_path} confirmed germline pathogenic ClinVar variants. "
@@ -7218,7 +7218,7 @@ def _fresh_experiments(candidates: list) -> list:
     return out
 
 # Override GI verdict if protein is a piggyback or GPCR with no germline disease
-if gpcr_assessment["type"] in ("PIGGYBACK", "GPCR_NO_DISEASE") and gi.get("pursue") not in ("deprioritise","neutral"):
+if gpcr_assessment.get("type","") in ("PIGGYBACK", "GPCR_NO_DISEASE") and gi.get("pursue") not in ("deprioritise","neutral"):
     gi = dict(gi)
     gi["pursue"]      = "caution"
     gi["verdict"]     = "PIGGYBACK — Disease signal is indirect"
