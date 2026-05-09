@@ -6302,7 +6302,7 @@ with st.sidebar:
         for s3 in _exps3:
             st.markdown(f"<div style='color:#7ab0c4;font-size:.82rem;margin:2px 0;'>▸ {s3}</div>", unsafe_allow_html=True)
         # GPCRdb link for GPCR proteins
-        if _entity3["ptype"] in ("gpcr","receptor","receptor_tyrosine_kinase"):
+        if "_entity3" in dir() and _entity3.get("ptype","") in ("gpcr","receptor","receptor_tyrosine_kinase"):
             st.markdown(
                 f"<a class='src-badge' href='https://gpcrdb.org/' target='_blank' style='display:block;text-align:center;margin-bottom:4px;'>GPCRdb — H8 conservation ↗</a>",
                 unsafe_allow_html=True,
