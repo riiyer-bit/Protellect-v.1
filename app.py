@@ -3569,317 +3569,133 @@ def estimate_patient_population(diseases: list, cv: dict, gi: dict) -> dict:
         ) if total_prevalence > 0 else "Insufficient prevalence data to estimate market size.",
     }
 
-def compute_experiment_roi(
-    scored: list, gi: dict, ptype: str, gnomad: dict, ot_data: dict,
-    am_scores: dict = None, diseases: list = None, string_data: list = None,
-    drugs_data: list = None, gene: str = "", pdata: dict = None,
-) -> list:
+def compute_experiment_roi(scored: list, gi: dict, ptype: str, gnomad: dict, ot_data: dict) -> list:
     """
-    Protein-specific ROI calculator. Every output is grounded in real fetched data.
-    No two proteins with different variant profiles will get the same list.
+    ROI calculator for every experiment type.
+    Ranks experiments by Expected Value = (P_success × Scientific_value) / (Cost × Time).
+    Returns ranked list with justification.
     """
-    import re as _re_roi
+    n_path = gi.get("n_pathogenic", 0)
+    pli = gnomad.get("pLI", 0.5) if gnomad else 0.5
+    n_drugs_known = len(ot_data.get("known_drugs",[])) if ot_data else 0
+    tractability = ot_data.get("tractability",{}) if ot_data else {}
+    is_small_mol_tractable = bool(tractability.get("Small molecule"))
+    is_ab_tractable = bool(tractability.get("Antibody"))
+    n_crit = sum(1 for v in scored if v.get("ml_rank")=="CRITICAL")
 
-    # ── Extract all real per-protein data ─────────────────────────────────────
-    n_path       = gi.get("n_pathogenic", 0)
-    n_total      = gi.get("n_total", 1)
-    pli          = gnomad.get("pLI", 0) if gnomad else 0
-    oe_lof       = gnomad.get("oe_lof", 1.0) if gnomad else 1.0
-    prot_len     = pdata.get("sequence",{}).get("length", 500) if pdata else 500
-    
-    # Variant profile — specific to this protein
-    crit_variants = [v for v in scored if v.get("ml_rank") == "CRITICAL"]
-    high_variants = [v for v in scored if v.get("ml_rank") == "HIGH"]
-    lof_variants  = [v for v in scored if any(k in v.get("variant_name","").lower() 
-                     for k in ["del","ter","fs","stop","nonsense"]) and v.get("score",0)>=3]
-    missense_vars = [v for v in scored if v.get("ml_rank") in ("CRITICAL","HIGH") 
-                     and "p." in v.get("variant_name","").lower()
-                     and not any(k in v.get("variant_name","").lower() for k in ["del","ter","fs"])]
-    splice_vars   = [v for v in scored if "splice" in v.get("variant_name","").lower() 
-                     and v.get("score",0) >= 3]
-    
-    top_crit      = crit_variants[0].get("variant_name","top variant")[:30] if crit_variants else ""
-    top_crit_pos  = crit_variants[0].get("start","") if crit_variants else ""
-    n_crit        = len(crit_variants)
-    n_lof         = len(lof_variants)
-    n_miss        = len(missense_vars)
-    n_splice      = len(splice_vars)
-    
-    # AlphaMissense — does AM agree with ClinVar for this protein?
-    am_concordant = 0
-    am_discordant = 0
-    am_pathogenic_count = 0
-    if am_scores and crit_variants:
-        for v in crit_variants[:10]:
-            pos = v.get("start","")
-            if pos and str(pos).isdigit():
-                am_pos_data = am_scores.get(int(pos), {})
-                am_s = next((x.get("score",0) for x in am_pos_data.values() 
-                            if isinstance(x,dict)), None) if am_pos_data else None
-                if am_s is not None:
-                    if am_s >= 0.564: am_concordant += 1
-                    else: am_discordant += 1
-        am_pathogenic_count = sum(1 for pos_data in am_scores.values() 
-                                  for v2 in (pos_data.values() if isinstance(pos_data,dict) else [])
-                                  if isinstance(v2,dict) and v2.get("score",0) >= 0.564)
-    
-    # Disease context
-    dis0          = diseases[0].get("name","")[:40] if diseases else "associated disease"
-    dis0_inh      = diseases[0].get("inheritance","") if diseases else ""
-    is_dominant   = "dominant" in dis0_inh.lower()
-    is_recessive  = "recessive" in dis0_inh.lower()
-    is_cancer     = any(k in " ".join(d.get("name","").lower() for d in (diseases or [])) 
-                       for k in ["cancer","carcinoma","tumor","leukemia","sarcoma"])
-    is_cardiac    = any(k in dis0.lower() for k in ["cardio","heart","arrhythmia","qt","atrial"])
-    is_neuro      = any(k in dis0.lower() for k in ["neuro","epilep","brain","alzheimer","parkinson"])
-    
-    # Drug / tractability context
-    is_sm_tractable = bool(ot_data.get("tractability",{}).get("Small molecule")) if ot_data else False
-    is_ab_tractable = bool(ot_data.get("tractability",{}).get("Antibody")) if ot_data else False
-    top_drug      = drugs_data[0]["drug"][:30] if drugs_data else None
-    
-    # STRING interaction partners
-    top_partner   = string_data[0]["partner"] if string_data else None
-    n_partners    = len(string_data) if string_data else 0
-    
-    # Protein class
-    is_filamin    = gene.lower() in ("flna","flnb","flnc") or "filamin" in gene.lower()
-    is_arrb       = gene.lower() in ("arrb1","arrb2")
-    is_gpcr       = ptype == "gpcr"
-    is_kinase     = ptype == "kinase"
-    is_tf         = ptype == "transcription_factor"
-    is_channel    = ptype == "ion_channel"
-    is_structural = ptype == "structural"
-    
-    # ── Mechanism inference from variant profile ───────────────────────────────
-    lof_dominant  = n_lof > n_miss
-    miss_dominant = n_miss > n_lof
-    both_types    = n_lof > 0 and n_miss > 0
-    
-    # ── Build experiment list — unique per protein ─────────────────────────────
-    experiments = []
-    
-    def exp(name, cat, cost_usd, weeks, p_success, value, rationale, do_first=False):
-        ev = (p_success * value) / max(cost_usd / 1000, 0.01) / max(weeks, 0.1)
-        experiments.append({
-            "name": name, "category": cat, "cost_usd": cost_usd,
-            "time_weeks": weeks, "p_success": p_success, "value_score": value,
-            "expected_value": round(ev, 2), "rationale": rationale, "do_first": do_first,
-        })
-    
-    # ── 1. ALWAYS: Computational pre-screen (free, protein-specific) ───────────
-    if am_scores and am_pathogenic_count > 0:
-        exp(
-            f"AlphaMissense pathogenicity screen — {am_pathogenic_count} positions flagged",
-            "Computational (Free)", 0, 0.1, 0.95, 8,
-            f"DeepMind AlphaMissense has scored every possible amino acid substitution in {gene}. "
-            f"{am_pathogenic_count} positions have AlphaMissense score ≥0.564 (pathogenic threshold). "
-            + (f"{am_concordant} of your top ClinVar variants ARE concordant with AlphaMissense (double-confirmed). " if am_concordant else "")
-            + (f"{am_discordant} ClinVar P/LP variants are DISCORDANT with AlphaMissense — these may act through "
-               f"non-structural mechanisms (splicing, interaction surfaces) and should be tested differently. " if am_discordant else "")
-            + f"Cross-reference with Rosetta ΔΔG to distinguish structural from functional mechanisms.",
-            do_first=True
-        )
-    
-    exp(
-        f"Rosetta ΔΔG — rank all {n_miss} missense variants by structural damage",
-        "Computational (Free)", 0, 0.2, 0.90, 8,
-        f"{n_miss} missense variants in {gene}. Rosetta will score each for ΔΔG (destabilisation energy). "
-        f"Variants with ΔΔG ≥2 REU = structurally destabilising → pharmacochaperone candidate. "
-        f"Variants with ΔΔG <1 REU but ClinVar P/LP = functional mechanism → different experiment needed. "
-        + (f"Prioritise: {top_crit}" if top_crit else "")
-        + f" This eliminates ~50% of candidates before any wet-lab spend.",
-        do_first=True
-    ) if n_miss > 0 else None
-    
-    # ── 2. Variant-type specific first experiment ──────────────────────────────
-    if n_lof > 0 and lof_dominant:
-        exp(
-            f"Western blot — protein abundance in {n_lof} LoF variant carriers",
-            "Biochemical", 500, 1,
-            0.90 if pli > 0.8 else 0.70, 9,
-            f"{gene} has {n_lof} frameshift/stop-gain variants ({n_lof} of {n_path} pathogenic). "
-            f"LoF-dominant profile: test whether protein is absent (NMD/proteasomal degradation) "
-            f"or present but truncated (readthrough/NMD escape). "
-            f"pLI={pli:.2f} — {'high essentiality, expect absent band' if pli>0.8 else 'moderate, may show partial band'}. "
-            f"Use anti-{gene} antibody (check HPA for validated clones). "
-            f"This single experiment tells you whether gene supplementation or splice correction is the path.",
-            do_first=True
-        )
-    
-    if n_miss > 0 and miss_dominant:
-        am_note = (f"AlphaMissense confirms {am_concordant} of {n_crit} CRITICAL variants as pathogenic. " 
-                   if am_concordant else "")
-        exp(
-            f"Thermal shift assay (TSA/DSF) — {min(n_crit+3,8)} missense variants vs WT",
-            "Biochemical", 2000, 2,
-            0.85 if am_concordant > 0 else 0.70, 9,
-            f"{gene} is missense-dominant ({n_miss} missense P/LP). TSA measures Tm for each variant vs WT. "
-            + am_note +
-            f"ΔTm ≥2°C = structurally destabilising → pharmacochaperone screen justified. "
-            f"ΔTm <1°C = functional mechanism → Co-IP with {top_partner} next. "
-            f"Test specifically: {', '.join(v.get('variant_name','')[:20] for v in crit_variants[:3]) or 'top CRITICAL variants'}.",
-            do_first=True
-        )
-    
-    if n_splice > 0:
-        exp(
-            f"Minigene splicing assay — {n_splice} splice-site variants",
-            "Biochemical", 3000, 3, 0.85, 8,
-            f"{n_splice} splice-site variants in {gene}. Minigene assay: clone ±300bp flanking each variant "
-            f"into pSPL3 vector, transfect HEK293T + patient fibroblasts, RT-PCR for aberrant products. "
-            f"Sanger-sequence aberrant bands. This provides PS3 functional evidence for ClinVar reclassification. "
-            f"Cost $3K vs $25K for CRISPR — do this first for splice variants.",
-            do_first=True
-        )
-    
-    # ── 3. Protein-class specific assay ───────────────────────────────────────
-    if is_kinase:
-        exp(
-            f"ADP-Glo kinase activity assay — {top_crit or 'top CRITICAL variant'} vs WT",
-            "Biochemical (Kinase-specific)", 5000, 3, 0.85, 9,
-            f"{gene} is a protein kinase. ADP-Glo measures ATP consumption directly — "
-            f"the most specific kinase activity readout. Test {top_crit} vs WT at same protein concentration. "
-            f"If activity is reduced ≥70%: LoF confirmed, substrate accumulation is the disease mechanism. "
-            f"If activity is unchanged but protein is pathogenic: allosteric or scaffolding mechanism — "
-            f"test interaction with {top_partner or 'known substrates'} next.",
-            do_first=n_miss > 0
-        )
-    
-    if is_gpcr and not is_arrb:
-        is_fbm = gene.lower() in ["agtr1","agtr2","mas1","adra1d","adra1a","adra1b","adrb1","adrb2","adrb3","chrm1","chrm2","chrm3"]
-        exp(
-            f"Filamin A Ser2152-P western — agonist-induced activation readout for {gene}",
-            "Biochemical (GPCR-specific)", 2000, 1,
-            0.90 if is_fbm else 0.70, 10,
-            f"{'CONFIRMED FBM-containing GPCR' if is_fbm else 'Potential FBM-containing GPCR'}: "
-            f"Filamin Ser2152 phosphorylation is MORE RECEPTOR-PROXIMAL than cAMP, IP3, or β-arrestin. "
-            f"Stimulate {gene}-expressing cells with agonist, pull Filamin A, blot with anti-pSer2152 antibody. "
-            f"If pathogenic variant in H8 or ICL3: expect REDUCED Ser2152-P vs WT despite intact cAMP. "
-            f"This is a novel proprietary readout — cite Nakamura et al. 2015 and JBC 2015.",
-            do_first=True
-        )
-        exp(
-            f"cAMP HTRF — G-protein coupling in {gene} WT vs pathogenic variants",
-            "Biochemical (GPCR-specific)", 3000, 2, 0.85, 8,
-            f"Primary G-protein activation readout. Measure cAMP after agonist stimulation "
-            f"in cells expressing WT vs {top_crit or 'top variant'}. "
-            f"If cAMP is normal but Filamin Ser2152-P is reduced: FBM-specific dysfunction "
-            f"(cytoskeletal decoupling without G-protein defect)." + 
-            (f" TMAO competition assay: add TMAO to test rattling receptor hypothesis." if is_cardiac else ""),
-            do_first=False
-        )
-    
-    if is_tf:
-        exp(
-            f"EMSA — {gene} DNA binding affinity for {top_crit or 'top pathogenic variant'}",
-            "Biochemical (TF-specific)", 3000, 2, 0.80, 8,
-            f"{gene} is a transcription factor. EMSA directly tests DNA binding affinity. "
-            f"Recombinant WT and mutant protein + labelled promoter probe. "
-            f"Shift loss = DNA binding defect. "
-            f"Follow with ChIP-qPCR in mutant cells to confirm which target genes lose {gene} occupancy.",
-            do_first=True
-        )
-    
-    if is_channel:
-        exp(
-            f"Whole-cell patch clamp — current amplitude in {top_crit or 'pathogenic variant'}",
-            "Electrophysiology (Channel-specific)", 8000, 3, 0.80, 9,
-            f"{gene} is an ion channel. Patch clamp is the gold standard — measures current directly. "
-            f"Transfect WT and mutant into HEK293T or Xenopus oocytes. "
-            f"Measure peak current, voltage activation curve, inactivation kinetics. "
-            f"Expected: {'gain-of-function — larger current or shifted activation' if not lof_dominant else 'loss-of-function — reduced current amplitude'}. "
-            + (f"Relevant to arrhythmia ({dis0}): test under cardiac-relevant voltage protocols." if is_cardiac else ""),
-            do_first=True
-        )
-    
-    if is_filamin:
-        exp(
-            f"SPR binding assay — Filamin Ig21 vs GPCR FBM peptides",
-            "Biophysical (Filamin FBM-specific)", 8000, 3, 0.85, 10,
-            f"FLNA pathogenic variants in Ig19-21 may disrupt FBM binding. "
-            f"Immobilise recombinant Filamin Ig21 on CM5 chip. "
-            f"Analytes: AT1R C-tail peptide (positive control), MAS1 C-tail, and {top_crit or 'pathogenic variant'} peptide. "
-            f"KD <100nM = normal binding. KD >1µM = FBM disruption confirmed. "
-            f"Follow with PKA Ser2152-P assay: if KD is increased, expect reduced phosphorylation in cells.",
-            do_first=True
-        )
-        exp(
-            f"PKA Ser2152 phosphorylation assay — conformational gating in {top_crit or 'variant'}",
-            "Biochemical (Filamin-specific)", 3000, 2, 0.90, 10,
-            f"JBC 2015: PKA cannot phosphorylate Filamin Ser2152 in the closed/autoinhibited state. "
-            f"Express WT and mutant FLNA in HEK293T. Stimulate with angiotensin II (AT1R agonist). "
-            f"Western blot with anti-pSer2152 antibody. "
-            f"If mutant shows reduced pSer2152: variant locks Filamin in closed state → "
-            f"cytoskeletal remodelling is blocked → explains disease mechanism mechanistically.",
-            do_first=True
-        )
-    
-    # ── 4. CRISPR — only if biochemical data justifies it ─────────────────────
-    crispr_justified = n_crit >= 2 or (n_crit >= 1 and am_concordant >= 1)
-    exp(
-        f"CRISPR knock-in — {top_crit or 'top CRITICAL variant'} in {'iPSC-derived ' + ('cardiomyocytes' if is_cardiac else 'neurons' if is_neuro else 'cells')}",
-        "Genetic", 25000, 8,
-        0.80 if crispr_justified else 0.45,
-        10 if crispr_justified else 4,
-        f"{'JUSTIFIED: ' + str(n_crit) + ' CRITICAL variants + AlphaMissense concordance confirms.' if crispr_justified else 'PREMATURE without biochemical validation first. Run TSA and western blot first.'} "
-        f"Introduce {top_crit or 'top variant'} via HDR in {gene} locus. "
-        f"Screen ≥50 clones by Sanger sequencing + western. "
-        f"Phenotypic readout: {'Filamin Ser2152-P after agonist stimulation' if is_gpcr else 'kinase activity assay' if is_kinase else 'disease-relevant functional assay'}. "
-        f"Positive result = ClinGen PS3 functional evidence → supports ClinVar P/LP classification.",
-        do_first=False
-    )
-    
-    # ── 5. Interaction network ─────────────────────────────────────────────────
-    if top_partner:
-        exp(
-            f"Co-IP/AP-MS — {gene}:{top_partner} interaction in WT vs {top_crit or 'variant'}",
-            "Biochemical", 15000, 6, 0.75, 8,
-            f"STRING confidence {string_data[0].get('score',0) if string_data else '?'} "
-            f"for {gene}:{top_partner} interaction. "
-            f"Endogenously 3xFLAG-tag {gene} via CRISPR (preserves expression level). "
-            f"Anti-FLAG IP × 3 biological replicates, TMT-LC-MS/MS. "
-            f"{'Hypothesis: ' + top_crit + ' variant will show reduced interaction with ' + top_partner + ' — confirms binding interface disruption.' if top_crit else ''} "
-            f"Lost interactions define druggable interfaces. Gained interactions identify dominant-negative partners.",
-            do_first=False
-        )
-    
-    # ── 6. Drug-discovery specific ────────────────────────────────────────────
-    if is_sm_tractable or is_kinase or is_gpcr:
-        screen_desc = (
-            f"KINOMEscan (468 kinases at 1µM) — selectivity profile before any cellular work" if is_kinase else
-            f"Pharmacochaperone screen (Prestwick 1,280 approved drugs at 10µM)" if miss_dominant else
-            f"GPCR small molecule screen (ChEMBL-guided, biased agonism panel)"
-        )
-        exp(
-            f"Small molecule screen — {screen_desc[:50]}",
-            "Drug Discovery", 200000, 12,
-            0.60 if is_sm_tractable else 0.30, 9,
-            f"{'OpenTargets confirms small molecule tractability. ' if is_sm_tractable else ''}"
-            f"{'Existing drug: ' + top_drug + ' — test analogues first before full HTS. ' if top_drug else ''}"
-            + (f"For kinase: KINOMEscan first ($50K), only advance to HTS if S-score <0.3. " if is_kinase else "")
-            + (f"For missense-dominant {gene}: TSA-based chaperone screen cheaper ($2K) and faster — do this instead of HTS." if miss_dominant and not is_kinase else ""),
-            do_first=False
-        )
-    
-    # ── 7. In vivo — only if multiple validations done ─────────────────────────
-    exp(
-        f"Patient-derived organoid / iPSC model — {dis0[:30]}",
-        "In vivo", 80000, 16,
-        0.65 if n_crit >= 3 else 0.35, 8,
-        f"{'Only justified after CRISPR and biochemical validation in ≥2 cell lines. ' if n_crit < 3 else ''}"
-        f"Patient cells carrying {top_crit or 'confirmed pathogenic variant'} → differentiate to "
-        f"{'cardiomyocytes (AC16 or iPSC-CM)' if is_cardiac else 'neurons (NGN2 protocol)' if is_neuro else 'disease-relevant cell type'}. "
-        f"Gold standard: recapitulates disease in a dish. Test whether correction of {top_crit or 'the variant'} rescues phenotype.",
-        do_first=False
-    )
-    
-    # ── Sort by expected value, put do_first items at top ──────────────────────
-    first  = [e for e in experiments if e.get("do_first")]
-    rest   = sorted([e for e in experiments if not e.get("do_first")], 
-                    key=lambda x: -x["expected_value"])
-    return first + rest
+    _is_filamin_roi = any(x in gene.lower() for x in ["flna","flnb","flnc","filamin"])
+    _is_fbm_gpcr_roi = g_gpcr(pdata) and gnomad_data
+    experiments = [
+        {
+            "name": "Rosetta ΔΔG in silico stability (ALL variants)",
+            "category": "Computational",
+            "cost_usd": 0, "time_weeks": 0.5,
+            "p_success": 0.85,
+            "value_score": min(10, n_crit * 2 + 3),
+            "rationale": f"Zero cost. Eliminates ~50% of candidates before wet lab. {n_crit} CRITICAL variants to rank.",
+            "do_first": True,
+        },
+        {
+            "name": "AlphaMissense pathogenicity score review",
+            "category": "Computational",
+            "cost_usd": 0, "time_weeks": 0.1,
+            "p_success": 0.95,
+            "value_score": 8,
+            "rationale": "AI-predicted pathogenicity for every substitution. Cross-reference with ClinVar to find understudied high-risk variants.",
+            "do_first": True,
+        },
+        {
+            "name": "Thermal shift assay (stability screen)",
+            "category": "Biochemical",
+            "cost_usd": 2000, "time_weeks": 2,
+            "p_success": 0.7,
+            "value_score": 7 if n_path > 0 else 4,
+            "rationale": f"Low cost, fast. Confirms whether pathogenic missense variants destabilise the fold. n_pathogenic={n_path}.",
+            "do_first": n_path > 3,
+        },
+        {
+            "name": "Cell viability + apoptosis panel",
+            "category": "Cell-based",
+            "cost_usd": 3000, "time_weeks": 2,
+            "p_success": 0.65,
+            "value_score": 6 if n_crit > 0 else 3,
+            "rationale": f"Quick phenotypic readout. {n_crit} CRITICAL variants to test in isogenic lines.",
+            "do_first": n_crit > 0,
+        },
+        {
+            "name": "CRISPR knock-in (top 3 CRITICAL variants)",
+            "category": "Genetic",
+            "cost_usd": 25000, "time_weeks": 10,
+            "p_success": 0.7 if pli > 0.8 else 0.4,
+            "value_score": 10 if n_crit > 0 else 2,
+            "rationale": f"Gold standard. pLI={pli:.2f} ({'high essentiality — likely strong phenotype' if pli>0.8 else 'moderate essentiality'}). Only do after computational + cell viability confirm.",
+            "do_first": False,
+        },
+        {
+            "name": "Co-IP + mass spectrometry (interaction network)",
+            "category": "Biochemical",
+            "cost_usd": 15000, "time_weeks": 6,
+            "p_success": 0.75,
+            "value_score": 7,
+            "rationale": "Identifies which binding partners are lost per mutation. Feeds into drug design for interface disruptors.",
+            "do_first": False,
+        },
+        {
+            "name": "Filamin FBM binding assay (SPR) — GPCR C-tail vs Filamin Ig21",
+            "category": "Biophysical (FBM-specific)",
+            "cost_usd": 8000, "time_weeks": 3,
+            "p_success": 0.85 if (_is_filamin_roi or _is_fbm_gpcr_roi) else 0.2,
+            "value_score": 10 if (_is_filamin_roi or _is_fbm_gpcr_roi) else 1,
+            "rationale": (
+                f"Nakamura et al. 2015: {gene} {'is a Filamin — test whether pathogenic variants in Ig19-21 reduce GPCR-FBM binding affinity. SPR with AT1R C-tail peptide directly measures this.' if _is_filamin_roi else 'may contain FBM — test agonist-dependent Filamin A recruitment by Co-IP. PKA Ser2152-P western confirms cytoskeletal coupling is intact or disrupted.'}"
+                if (_is_filamin_roi or _is_fbm_gpcr_roi) else
+                "Not directly applicable for this protein class."
+            ),
+            "do_first": _is_filamin_roi or _is_fbm_gpcr_roi,
+        },
+        {
+            "name": "PKA Ser2152 phosphorylation assay (conformational gating)",
+            "category": "Biochemical (FBM-specific)",
+            "cost_usd": 3000, "time_weeks": 2,
+            "p_success": 0.80 if _is_filamin_roi else 0.15,
+            "value_score": 9 if _is_filamin_roi else 1,
+            "rationale": (
+                f"JBC 2015 conformational gating paper: PKA cannot phosphorylate Filamin Ser2152 in closed state. "
+                f"Test {gene} mutants: if Ser2152-P is reduced despite open-state conditions, mutation disrupts conformational gating. "
+                f"Use constitutively-open Filamin mutant (Ser2152E) as positive control."
+                if _is_filamin_roi else "Not applicable for this protein class."
+            ),
+            "do_first": _is_filamin_roi,
+        },
+        {
+            "name": "Small molecule screen (HTS)",
+            "category": "Drug discovery",
+            "cost_usd": 150000, "time_weeks": 26,
+            "p_success": 0.3 if is_small_mol_tractable else 0.1,
+            "value_score": 10 if is_small_mol_tractable else 4,
+            "rationale": f"Small molecule tractability: {'YES (OpenTargets)' if is_small_mol_tractable else 'LOW'}. {n_drugs_known} existing drugs known. Only justified if biochemical + CRISPR data confirm target.",
+            "do_first": False,
+        },
+        {
+            "name": "Antibody development",
+            "category": "Drug discovery",
+            "cost_usd": 300000, "time_weeks": 52,
+            "p_success": 0.4 if is_ab_tractable else 0.15,
+            "value_score": 9 if is_ab_tractable else 3,
+            "rationale": f"Antibody tractability: {'YES (OpenTargets)' if is_ab_tractable else 'LOW'}. Requires extracellular epitope. Only justified post-Phase I target validation.",
+            "do_first": False,
+        },
+    ]
 
+    # Compute ROI score: (p_success × value) / (log(cost+1) × log(weeks+1))
+    import math
+    for e in experiments:
+        cost_factor  = math.log(e["cost_usd"] + 1) + 0.1
+        time_factor  = math.log(e["time_weeks"] * 7 + 1) + 0.1
+        e["roi"] = round((e["p_success"] * e["value_score"]) / (cost_factor * time_factor / 10), 2)
+        e["roi_label"] = "🟢 Excellent" if e["roi"] > 5 else "🟡 Good" if e["roi"] > 2 else "🟠 Fair" if e["roi"] > 1 else "🔴 Low"
+
+    return sorted(experiments, key=lambda x: -x["roi"])
 
 def find_drugged_analogs(pdata: dict, string_data: list, ot_data: dict) -> list:
     """
@@ -7349,13 +7165,7 @@ am_scores    = st.session_state.get("am", {})
 isoforms     = st.session_state.get("isoforms", [])
 hotspots     = st.session_state.get("hotspots", [])
 patient_data = st.session_state.get("patients", {})
-roi_data     = compute_experiment_roi(
-    scored=scored, gi=gi, ptype=g_ptype(pdata),
-    gnomad=gnomad_data, ot_data=ot_data,
-    am_scores=am_scores, diseases=diseases,
-    string_data=string_data, drugs_data=drugs_data,
-    gene=gene, pdata=pdata,
-)
+roi_data     = compute_experiment_roi(scored, gi, g_ptype(pdata), gnomad_data, ot_data)
 reg_paths    = regulatory_pathway_map(diseases, patient_data, gi)
 analogs      = find_drugged_analogs(pdata, string_data, ot_data)
 
@@ -7606,7 +7416,7 @@ with tab0:
         # Cost savings warning banner
         st.markdown(
             f"<div style='background:#0a0205;border:2px solid #ff2d55;border-radius:14px;padding:1.2rem 1.5rem;margin:.8rem 0;'>"
-            f"<div style='color:#ff2d55;font-weight:800;font-size:1.1rem;margin-bottom:.4rem;'>💸 Estimated avoidable spend if pursuing {gene}: $4,050,000</div>"
+            f"<div style='color:#ff2d55;font-weight:800;font-size:1.1rem;margin-bottom:.4rem;'>💸 Estimated avoidable spend if pursuing {gene}: ${_wt:,.0f}</div>"
             f"<div style='display:flex;gap:10px;flex-wrap:wrap;margin-bottom:.6rem;'>"
             + "".join(
                 f"<div style='background:#0d0206;border:1px solid #ff2d5544;border-radius:8px;padding:5px 12px;text-align:center;'>"
@@ -7680,7 +7490,7 @@ with tab0:
         # Total savings callout
         st.markdown(
             f"<div style='background:#020d08;border:2px solid #00c896;border-radius:12px;padding:1.1rem 1.4rem;margin-top:.8rem;'>"
-            f"<div style='color:#00c896;font-weight:800;font-size:1rem;margin-bottom:.4rem;'>💰 By deprioritising {gene}: save up to $4,050,000</div>"
+            f"<div style='color:#00c896;font-weight:800;font-size:1rem;margin-bottom:.4rem;'>💰 By deprioritising {gene}: save up to ${_wt:,.0f}</div>"
             f"<div style='color:#3a8060;font-size:.86rem;'>"
             f"Reinvest in: Filamin Ser2152-P assay ($2K per experiment) + ADRB1/ADRB2/AGTR1 ClinVar screen (free) + "
             f"disease-genetically validated target selection. "
@@ -9370,9 +9180,7 @@ with tab4:
         unsafe_allow_html=True,
     )
 
-    # ── Experiments come from compute_experiment_roi (protein-specific) ─────────
-    # roi_data already computed at main vars level with full real data
-    # EXPS is built from roi_data — no separate rebuilding
+    # ── Goal + protein-type aware experiment selection ──────────────────────────
     _ptype_e   = g_ptype(pdata)
     _entity_e  = classify_entity(pdata)
     _goal_e    = active_goal.lower()
