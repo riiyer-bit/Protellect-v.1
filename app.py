@@ -9383,254 +9383,64 @@ with tab4:
     )
 
     # ── Experiments come from compute_experiment_roi (protein-specific) ─────────
-    # roi_data already computed at main vars level with full real data
-    # EXPS is built from roi_data — no separate rebuilding
-    _ptype_e   = g_ptype(pdata)
-    _entity_e  = classify_entity(pdata)
-    _goal_e    = active_goal.lower()
-    _n_lof_e   = sum(1 for v in scored if any(k in v.get("variant_name","").lower()
-                     for k in ["del","ter","fs","stop","nonsense"]) and v.get("score",0)>=3)
-    _sm_e      = bool(ot_data.get("tractability",{}).get("Small molecule")) if ot_data else False
-    _ab_e      = bool(ot_data.get("tractability",{}).get("Antibody")) if ot_data else False
-    _pli_e     = gnomad_data.get("pLI",0) if gnomad_data else 0
-    _top_drug_e= drugs_data[0]["drug"] if drugs_data else None
-    _crit_v_e  = next((v.get("variant_name","")[:25] for v in scored if v.get("ml_rank")=="CRITICAL"), "top variant")
-    _top_partner = string_data[0]["partner"] if string_data else "key binding partner"
-    _is_cancer_e = any(k in " ".join(d.get("name","").lower() for d in diseases)
-                       for k in ["cancer","carcinoma","tumor","leukemia","lymphoma","sarcoma"])
-    _is_fbm_e  = _is_filamin_roi if "_is_filamin_roi" in dir() else any(x in gene.lower() for x in ["flna","flnb","flnc"])
-
-    # Determine primary goal category
-    _is_drug_goal    = any(x in _goal_e for x in ["drug","therapeutic","target","small molecule"])
-    _is_mech_goal    = any(x in _goal_e for x in ["mechanism","understand","pathway","functional"])
-    _is_bio_goal     = any(x in _goal_e for x in ["biomarker","diagnostic"])
-    _is_clin_goal    = any(x in _goal_e for x in ["clinical","variant interpret","reclassif"])
-    _is_exp_goal     = any(x in _goal_e for x in ["experiment","prioritis","roi"])
-
-    # Build experiment list dynamically — unique to goal+ptype combination
-    EXPS = []
-
-    # ── ALWAYS FIRST: Computational (free, always unique, always first) ───────
-    EXPS.append((
-        "🧫",
-        f"Rosetta ΔΔG stability screen — all {gi.get('n_pathogenic',0)} pathogenic variants ranked",
-        "Free", "1–3 days",
-        f"Zero-cost first filter. Every missense variant scored for structural destabilisation. "
-        f"Variants with ΔΔG ≥2 REU will be the primary targets for ALL downstream experiments regardless of goal. "
-        f"{'For drug discovery: hotspot positions from this screen define the pharmacochaperone pocket. ' if _is_drug_goal else ''}"
-        f"{'For mechanism: LoF variants with ΔΔG ≥2 = haploinsufficiency candidate; missense with ΔΔG <1 = functional not structural mechanism. ' if _is_mech_goal else ''}"
-        f"{'For biomarker: high-ΔΔG variants predict protein clearance from circulation — relevant for plasma level as biomarker. ' if _is_bio_goal else ''}"
-        f"Hypothesis: ΔΔG correlates with ClinVar pathogenicity score (r >0.5). Variants clustering in the hydrophobic core show highest ΔΔG.",
-        ["Download AlphaFold structure for " + uid + ".",
-         "Rosetta FastRelax: energy minimisation of WT structure.",
-         "PyRosetta cartesian_ddg for each pathogenic variant.",
-         "Rank by ΔΔG — threshold ≥2 REU = structurally destabilising.",
-         "Cross-reference with AlphaMissense scores and ClinVar stars."],
-        "All missense variants in pLDDT >70 regions — Rosetta reliable here.",
-        "IDRs (pLDDT <50) and splice/frameshift variants — not modelled by Rosetta.",
-        "Pre-ranked candidate list. Eliminates ~50% before any wet-lab spend.",
-    ))
-
-    # ── DRUG DISCOVERY GOAL ──────────────────────────────────────────────────
-    if _is_drug_goal or _is_exp_goal:
-        if _ptype_e == "kinase":
-            EXPS.append((
-                "⚗️",
-                f"KINOMEscan + ADP-Glo kinase selectivity screen",
-                "$$$$", "4–6 mo",
-                f"Identify potent selective inhibitors of {gene} with a pan-kinome selectivity profile before any cell work. "
-                f"WHY specifically for {gene}: {_n_crit_e} CRITICAL variants confirmed — selectivity matters to avoid off-target toxicity. "
-                f"Hypothesis: A selective inhibitor (S-score <0.1 at 1µM across 468 kinases) will suppress {gene} activity in cells at IC50 <100nM.",
-                ["Submit to DiscoverX KINOMEscan: 468-kinase scan at 1µM.",
-                 "ADP-Glo titration on top 10 hits: confirm IC50 at recombinant protein.",
-                 f"NanoBRET cellular target engagement in CRISPR knock-in cells.",
-                 "ADMET profile: CYP3A4, hERG, permeability, metabolic stability.",
-                 "SAR expansion: synthesise 20–30 analogs on best scaffold."],
-                "Variants at ATP-binding pocket — hinge, DFG, P-loop residues.",
-                "Activation loop variants — may not affect inhibitor binding.",
-                "Lead compound: IC50 <100nM, S-score <0.1, cellular EC50 <1µM.",
-            ))
-        elif _ptype_e == "gpcr":
-            EXPS.append((
-                "📡",
-                f"Biased agonism screen — cAMP HTRF + β-arrestin BRET",
-                "$$", "2–4 wks",
-                f"Identify {gene} compounds that selectively engage the therapeutic G-protein pathway while avoiding β-arrestin (side-effect pathway). "
-                f"Biased agonism is the key pharmacological advantage for GPCR drugs. "
-                f"{'FBM context: also test whether compounds affect Filamin A Ser2152 phosphorylation downstream — cytoskeletal coupling is a separate readout.' if _is_fbm_e else ''} "
-                f"Hypothesis: Biased agonists with ΔΔlog(τ/KA) ≥0.5 will produce therapeutic effect without receptor desensitisation.",
-                ["cAMP HTRF: transfect HEK293-GPCR stable line + cAMP-d2/cryptate.",
-                 "β-arrestin BRET: RLuc8-receptor + Venus-β-arrestin2.",
-                 "Calculate Emax, EC50, bias factor for each compound.",
-                 "Top biased hits: test in disease-relevant primary cells.",
-                 f"{'Filamin Ser2152-P western blot: confirm cytoskeletal coupling status.' if _is_fbm_e else 'Receptor internalisation: confocal imaging of receptor trafficking.'}"],
-                "Compounds with ΔΔlog(τ/KA) ≥0.5 — statistically biased.",
-                "Balanced agonists — no differentiation from existing drugs.",
-                "Bias factor, Emax/EC50 for each signalling pathway.",
-            ))
-        elif _ptype_e == "transcription_factor":
-            EXPS.append((
-                "🔬",
-                f"PPI disruptor fragment screen — {gene}:coactivator interface",
-                "$$$$", "8–12 mo",
-                f"TFs are classically undruggable via conventional binding pockets. Target the protein-protein interface instead. "
-                f"Hypothesis: A hydrocarbon-stapled peptide mimicking the {gene} activation domain helix will competitively displace coactivators at IC50 <10µM.",
-                [f"HDX-MS: map {gene}:coactivator binding interface — identifies pharmacophore.",
-                 "FluorescenceAnisotropy: FITC-labelled helix peptide displacement assay.",
-                 "NMR fragment screen: 1,000-compound library against transactivation domain.",
-                 "AlphaFold-Multimer: predict binding mode of top fragment hits.",
-                 "Stapled peptide synthesis: hydrocarbon stapling for cell permeability."],
-                "Confirmed helix-in-groove TF:coactivator contacts.",
-                "Disordered activation domains — no stable interface.",
-                "Fragment hits <10µM in FA assay; cellular activity <1µM.",
-            ))
-        else:  # general drug discovery
-            EXPS.append((
-                "💊",
-                f"Pharmacochaperone screen — {'Prestwick 1,280 approved drugs' if not _top_drug_e else 'focused library around ' + _top_drug_e}",
-                "$$", "2–3 wks",
-                f"Screen repurposed approved drugs for {gene} stabilisation — fastest path to a clinical candidate. "
-                f"{'Existing drug interaction: ' + _top_drug_e + ' — test analogues first.' if _top_drug_e else ''} "
-                f"Hypothesis: Variants with ΔΔG ≥2 REU (from Rosetta screen) will show ΔTm ≤-2°C. A chaperone shifts ΔTm back to ≥WT.",
-                [f"Purify {gene} WT and {_crit_v_e} mutant (His-tag + SEC).",
-                 "DSF: 384-well, SYPRO Orange, 0.3mg/mL protein.",
-                 "Screen Prestwick 1,280 at 10µM — flag ΔTm ≥1°C.",
-                 "Dose-response (0.1–100µM) on top 20 hits.",
-                 "Cellular rescue: add hit to CRISPR mutant cells — does viability restore?"],
-                "Destabilising missense variants in structured domain (ΔΔG ≥2 REU).",
-                "Surface charge variants and splice/frameshift variants.",
-                "Repurposed drug with ΔTm shift ≥2°C and cellular rescue EC50 <10µM.",
-            ))
-        # Add PROTAC if GoF
-        if _n_lof_e == 0 and n_crit2 > 0:  # GoF likely
-            EXPS.append((
-                "💊",
-                f"PROTAC degrader design — eliminate mutant {gene}",
-                "$$$$", "6–12 mo",
-                f"If {gene} variants are gain-of-function, degradation is superior to inhibition. "
-                f"PROTACs selectively degrade the mutant protein without needing to inhibit its activity directly. "
-                f"Hypothesis: A PROTAC with DC50 <100nM will deplete mutant {gene} by ≥80% while sparing WT from the second allele.",
-                [f"Identify {gene} ligand from ChEMBL (any binder — does not need to be inhibitor).",
-                 "Synthesise PROTAC: ligand + CRBN/VHL recruiter + PEG linker.",
-                 "Test 10–20 PROTAC variants for DC50 (western blot densitometry).",
-                 "Proteome-wide selectivity: TMT-quantitative proteomics at DC50.",
-                 "In vivo PK: oral bioavailability, brain penetration if CNS indication."],
-                "GoF variants — degradation removes toxic gain of function.",
-                "LoF variants — degrading remaining protein worsens disease.",
-                "DC50 <100nM, Dmax >90%, proteome selectivity >10-fold.",
-            ))
-
-    # ── MECHANISM GOAL ───────────────────────────────────────────────────────
-    if _is_mech_goal or _is_exp_goal:
-        EXPS.append((
-            "✂️",
-            f"CRISPR knock-in — {_crit_v_e} in disease-relevant cell line",
-            "$$$", "6–10 wks",
-            f"Introduce the exact patient variant into the endogenous {gene} locus — isogenic gold standard. "
-            f"{'Predicted mechanism: haploinsufficiency (' + str(_n_lof_e) + ' LoF variants dominant) — expect phenotype at 50% protein level.' if _n_lof_e > n_crit2//2 else 'Predicted mechanism: dominant-negative or GoF — heterozygous knock-in may phenocopy more strongly than homozygous KO.'} "
-            f"pLI={_pli_e:.2f} — {'high essentiality, strong phenotype expected.' if _pli_e>0.8 else 'moderate essentiality, phenotype may be subtle.'}",
-            [f"CRISPOR: design guide RNA targeting {_crit_v_e} site.",
-             "ssODN repair template with exact patient variant + silent marker.",
-             "Nucleofect: electroporation into disease-relevant cell line.",
-             "Screen ≥50 clones: Sanger sequencing + western blot confirmation.",
-             f"Full phenotypic panel: viability (CellTiter-Glo), {'kinase activity' if _ptype_e=='kinase' else 'cAMP' if _ptype_e=='gpcr' else 'target gene expression'}, protein half-life."],
-            "ClinVar P/LP ≥2-star variants — sufficient prior evidence to justify cost.",
-            "VUS without functional data — too uncertain for $25K spend.",
-            "Isogenic cell model — ClinGen PS3 functional evidence for ClinVar reclassification.",
-        ))
-        EXPS.append((
-            "🧬",
-            f"AP-MS interactome — {gene} mutant vs wild-type binding partners",
-            "$$$", "4–8 wks",
-            f"Identify which binding partners are lost or gained by the {gene} pathogenic variant. "
-            f"Top STRING partner: {_top_partner} (expected to be disrupted). "
-            f"Hypothesis: {_crit_v_e} will lose interaction with {_top_partner} and gain aberrant interactions with stress response chaperones (HSP70/HSP90).",
-            [f"Endogenously 3xFLAG-tag {gene} via CRISPR — preserves endogenous expression.",
-             "Native cell lysis: NP-40 buffer + EDTA-free protease inhibitors.",
-             "Anti-FLAG IP × 3 biological replicates.",
-             "TMT-16plex quantitative LC-MS/MS.",
-             "SAINTexpress + CRAPome filtering — high-confidence interactions only."],
-            "Variants in known protein-protein interaction interfaces.",
-            "Variants in unstructured C-terminal tails unlikely to affect binding.",
-            "Lost/gained interactions per variant — identifies disrupted pathway.",
-        ))
-
-    # ── BIOMARKER GOAL ───────────────────────────────────────────────────────
-    if _is_bio_goal:
-        EXPS.append((
-            "🔬",
-            f"Targeted proteomics (PRM) — {gene} quantification in patient biofluid",
-            "$$", "4–8 wks",
-            f"Quantify {gene} in blood, urine, or CSF as a potential diagnostic biomarker. "
-            f"{'LoF-dominant variants predict reduced circulating ' + gene + ' — protein level itself is the biomarker.' if _n_lof_e > 2 else gene + ' activity or isoform ratio may be a more informative biomarker than total level.'} "
-            f"Hypothesis: Carriers of {_crit_v_e} will have ≥2-fold different {gene} levels vs non-carriers (AUC >0.8).",
-            [f"Develop {gene} ELISA (R&D Systems) or targeted PRM assay.",
-             "Cohort: n=20 confirmed carriers, n=20 matched healthy controls.",
-             "PRM: 5 unique {gene} tryptic peptides, iRT calibration.",
-             "ROC curve: AUC, sensitivity, specificity at optimal cutoff.",
-             "Longitudinal: does {gene} level correlate with disease severity?"],
-            f"{'Secreted or extracellular ' + gene + ' isoforms.' if 'secreted' in g_func(pdata).lower() else gene + ' in accessible biofluid — check HPA for secretion evidence first.'}",
-            "Intracellular-only proteins without secreted fraction.",
-            f"Diagnostic AUC, sensitivity/specificity of {gene} as biomarker.",
-        ))
-
-    # ── CLINICAL VARIANT INTERPRETATION ──────────────────────────────────────
-    if _is_clin_goal:
-        EXPS.append((
-            "🔬",
-            f"Splicing reporter assay — classify splice-site VUS",
-            "$", "2–4 wks",
-            f"Determine whether variants near exon-intron boundaries cause aberrant splicing. "
-            f"Provides PS3 evidence (ClinGen) for ClinVar VUS reclassification without expensive CRISPR. "
-            f"Hypothesis: Splice-site variants within ±2bp of donor/acceptor create exon-skip isoform in ≥30% of transcripts.",
-            ["Clone 300bp flanking the VUS into pSPL3 minigene vector.",
-             "Transfect into HEK293T AND patient-derived fibroblasts.",
-             "RT-PCR: primers in flanking exons — visualise aberrant bands.",
-             "Sanger sequencing: confirm exon skip or cryptic splice product.",
-             "qRT-PCR: quantify each isoform as % of total transcript."],
-            "Variants within ±2bp of canonical splice donor/acceptor.",
-            "Deep intronic variants >20bp from splice site — low prior probability.",
-            "PS3 evidence: functional splicing defect for ACMG variant classification.",
-        ))
-        EXPS.append((
-            "🔬",
-            f"Protein stability assay — PS3 evidence for missense VUS",
-            "$", "1–2 wks",
-            f"Measure whether a VUS in {gene} reduces protein stability — provides functional evidence for reclassification without CRISPR. "
-            f"Hypothesis: VUS with AlphaMissense ≥0.564 AND ΔΔG ≥2 REU will show ΔTm ≤-1.5°C — sufficient for PP3+PP2 combination evidence.",
-            [f"Express VUS as recombinant protein (parallel to WT).",
-             "DSF: melting temperature comparison.",
-             "CHX (cycloheximide) chase: measure protein half-life — reduced half-life confirms instability.",
-             "Proteasome inhibitor (MG132) rescue: if half-life restores, confirms proteasomal degradation.",
-             "Report ΔTm and half-life ratio — submit to ClinVar as functional evidence."],
-            "VUS with prior computational prediction (AlphaMissense ≥0.564 or ΔΔG ≥2 REU).",
-            "VUS in IDRs — thermal shift not interpretable.",
-            "ΔTm and half-life ratio — functional evidence for ACMG PS3/BS3 criteria.",
-        ))
-
-    # ── SHARED ACROSS GOALS — never repeat already-shown experiments ──────────
-    _shown_names = {e[1][:25] for e in EXPS}
+    # ── Experiments tab: render roi_data from compute_experiment_roi ─────────────
+    # roi_data is already computed with full per-protein data (am_scores, diseases, etc.)
+    # NO separate EXPS list — this prevents redundant/repeated experiments
     
-    if "Filamin FBM binding" not in str(_shown_names) and (_is_fbm_e or _is_filamin_roi):
-        EXPS.append((
-            "🔗",
-            f"Filamin FBM binding assay (SPR) — {gene} vs Filamin Ig21",
-            "$$", "2–4 wks",
-            f"Test direct FBM interaction using the Nakamura et al. 2015 framework. "
-            f"{'Filamin Ig21 domain binding is disrupted by variants in the Ig19-21 region.' if _is_filamin_roi else gene + ' FBM peptide binding to Filamin A Ig21 — agonist-dependent for most GPCRs.'} "
-            f"Hypothesis: Pathogenic variants reduce KD to Filamin Ig21 by ≥10-fold vs WT (SPR sensorgrams).",
-            [f"Recombinant Filamin Ig21 domain expression (E. coli, His-tag).",
-             f"{'GPCR C-tail peptide synthesis (15-20aa FBM region).' if not _is_filamin_roi else 'GPCR peptide library: AT1R, MAS1, ADRA1D C-tails as positive controls.'}",
-             "SPR: Filamin Ig21 immobilised on CM5 chip; peptide as analyte.",
-             "KD, kon, koff measurement for WT vs each pathogenic variant.",
-             "PKA Ser2152-P western: confirm conformational gating in mutant vs WT."],
-            "Variants in Ig19-21 domain (Filamin) or ICL3/C-tail (GPCR).",
-            "Variants far from the FBM binding interface.",
-            "KD ratio WT/mutant; Ser2152-P fold-change — confirms cytoskeletal coupling intact or disrupted.",
-        ))
+    _is_filamin_roi = any(x in gene.lower() for x in ["flna","flnb","flnc","filamin"])
+    _is_fbm_e = _is_filamin_roi or (g_gpcr(pdata) and gene.lower() in ["agtr1","agtr2","mas1","adra1d","adra1a","adra1b","adrb1","adrb2","adrb3","chrm1","chrm2","chrm3"])
+    
+    if not roi_data:
+        st.info("No experiment recommendations — run protein analysis first.")
+    else:
+        _cost_icons = {0:"Free", 2000:"$", 5000:"$$", 15000:"$$$", 25000:"$$$$", 200000:"$$$$$"}
+        def _cost_label(c):
+            for thresh in sorted(_cost_icons.keys(), reverse=True):
+                if c >= thresh: return _cost_icons[thresh]
+            return "Free"
+        
+        for _ei, _exp in enumerate(roi_data):
+            _ename  = _exp.get("name","")
+            _ecat   = _exp.get("category","")
+            _ecost  = _exp.get("cost_usd", 0)
+            _eweeks = _exp.get("time_weeks", 0)
+            _ep     = _exp.get("p_success", 0)
+            _evalue = _exp.get("value_score", 0)
+            _eev    = _exp.get("expected_value", 0)
+            _erat   = _exp.get("rationale","")
+            _efirst = _exp.get("do_first", False)
+            _cost_str = ("Free" if _ecost == 0 else f"${_ecost:,.0f}")
+            _time_str = f"{_eweeks:.0f} wk" if _eweeks >= 1 else f"{int(_eweeks*7)}d"
+            _border   = "#00c896" if _efirst else "#1e3a5a"
+            _badge    = "🥇 DO FIRST" if _efirst else f"#{_ei+1}"
+            
+            with st.expander(
+                f"{_badge}  ·  {_ename}  ·  {_cost_str}  ·  ⏱ {_time_str}",
+                expanded=(_ei < 2)
+            ):
+                c_l, c_r = st.columns([3,1])
+                with c_l:
+                    st.markdown(
+                        f"<div style='background:#020810;border-left:3px solid {_border};"
+                        f"padding:.8rem 1rem;border-radius:0 8px 8px 0;'>"
+                        f"<div style='color:#3a6080;font-size:.76rem;font-weight:700;margin-bottom:3px;'>{_ecat}</div>"
+                        f"<div style='color:#7ab0c0;font-size:.87rem;line-height:1.7;'>{_erat}</div>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+                with c_r:
+                    st.markdown(
+                        f"<div style='background:#020d18;border:1px solid #0d2545;border-radius:10px;padding:.7rem;text-align:center;'>"
+                        f"<div style='color:#ffd60a;font-size:.78rem;font-weight:700;'>P(success)</div>"
+                        f"<div style='color:#ffd60a;font-size:1.2rem;font-weight:800;'>{int(_ep*100)}%</div>"
+                        f"<div style='color:#3a6080;font-size:.72rem;margin-top:4px;'>Value score</div>"
+                        f"<div style='color:#00c896;font-size:1rem;font-weight:700;'>{_evalue}/10</div>"
+                        f"<div style='color:#3a6080;font-size:.72rem;margin-top:4px;'>Expected ROI</div>"
+                        f"<div style='color:#a855f7;font-size:.9rem;font-weight:600;'>{_eev:.1f}</div>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
 
-
-    for icon3,name3,cost3,timeline3,purpose3,protocol3,focus3,neglect3,outcome3 in EXPS:
         clr_e,bg_e=COST_MAP.get(cost3,("#3a6080","rgba(58,96,128,.08)"))
         with st.expander(f"{icon3} {name3}  ·  {cost3}  ·  ⏱ {timeline3}"):
             c_l,c_r=st.columns([3,2])
