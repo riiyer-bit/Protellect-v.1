@@ -7358,13 +7358,13 @@ with tab0:
         sh("🔬","Scientific Framework")
         for _pt, _pb, _pc in _par_items:
             with st.expander(_pt, expanded=False):
-                st.markdown(
-                    f"<div style='background:#020810;border-left:3px solid {_pc};"
-                    f"padding:.9rem 1.1rem;border-radius:0 10px 10px 0;'>"
-                    f"<div style='color:#7ab0c0;font-size:.87rem;line-height:1.7;'>{_pb}</div>"
-                    f"</div>",
-                    unsafe_allow_html=True,
+                _par_html = (
+                    "<div style='background:#020810;border-left:3px solid " + _pc + ";"
+                    "padding:.9rem 1.1rem;border-radius:0 10px 10px 0;'>"
+                    "<div style='color:#7ab0c0;font-size:.87rem;line-height:1.7;'>" + _pb + "</div>"
+                    "</div>"
                 )
+                st.markdown(_par_html, unsafe_allow_html=True)
         st.markdown("<hr class='dv'>", unsafe_allow_html=True)
 
     <style>
