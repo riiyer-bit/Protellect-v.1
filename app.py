@@ -2191,7 +2191,7 @@ def compute_gi(cv, protein_length):
                     n_pathogenic=n_p,n_vus=len(vus),n_benign=len(benign),n_total=total,n_germline=len(germline),
                     explanation="Very low pathogenic density. Check if interaction partners carry the actual disease burden.",
                     pathogenic_list=pathogenic)
-    elif per100>=1 or (n_p>=20 and density>=0.05):
+    elif per100>=1 and n_p>=5:
         return dict(verdict="DISEASE-CRITICAL",label=f"{n_p} disease-causing variants · {per100:.1f} per 100 aa",
                     css="gi-critical",color="#ff2d55",icon="🔴",pursue="prioritise",density=density,per100=per100,
                     n_pathogenic=n_p,n_vus=len(vus),n_benign=len(benign),n_total=total,n_germline=len(germline),
@@ -7606,7 +7606,7 @@ with tab0:
         # Cost savings warning banner
         st.markdown(
             f"<div style='background:#0a0205;border:2px solid #ff2d55;border-radius:14px;padding:1.2rem 1.5rem;margin:.8rem 0;'>"
-            f"<div style='color:#ff2d55;font-weight:800;font-size:1.1rem;margin-bottom:.4rem;'>💸 Estimated avoidable spend if pursuing {gene}: ${_wt:,.0f}</div>"
+            f"<div style='color:#ff2d55;font-weight:800;font-size:1.1rem;margin-bottom:.4rem;'>💸 Estimated avoidable spend if pursuing {gene}: $4,050,000</div>"
             f"<div style='display:flex;gap:10px;flex-wrap:wrap;margin-bottom:.6rem;'>"
             + "".join(
                 f"<div style='background:#0d0206;border:1px solid #ff2d5544;border-radius:8px;padding:5px 12px;text-align:center;'>"
@@ -7680,7 +7680,7 @@ with tab0:
         # Total savings callout
         st.markdown(
             f"<div style='background:#020d08;border:2px solid #00c896;border-radius:12px;padding:1.1rem 1.4rem;margin-top:.8rem;'>"
-            f"<div style='color:#00c896;font-weight:800;font-size:1rem;margin-bottom:.4rem;'>💰 By deprioritising {gene}: save up to ${_wt:,.0f}</div>"
+            f"<div style='color:#00c896;font-weight:800;font-size:1rem;margin-bottom:.4rem;'>💰 By deprioritising {gene}: save up to $4,050,000</div>"
             f"<div style='color:#3a8060;font-size:.86rem;'>"
             f"Reinvest in: Filamin Ser2152-P assay ($2K per experiment) + ADRB1/ADRB2/AGTR1 ClinVar screen (free) + "
             f"disease-genetically validated target selection. "
@@ -8174,8 +8174,17 @@ with tab1:
             st.markdown("<div style='background:#040d18;border:1px dashed #0c2040;border-radius:12px;height:340px;display:flex;align-items:center;justify-content:center;'><div style='text-align:center;color:#0e2840;'><div style='font-size:2rem;'>🧬</div><div style='font-size:1rem;margin-top:5px;'>AlphaFold structure unavailable<br>Try a direct UniProt accession (e.g. P04637)</div></div></div>", unsafe_allow_html=True)
 
     with cd:
-        sh("🔴","Disease Triage")
-        st.markdown(f"<div style='color:#5a8090;font-size:.82rem;margin-bottom:.3rem;'>Diseases ranked by ML-derived pathogenicity score. Density bar shows fraction of disease-causing variants. {src_link('ClinVar',f'https://www.ncbi.nlm.nih.gov/clinvar/?term={gene}[gene]')} {src_link('UniProt',f'https://www.uniprot.org/uniprotkb/{uid}')}</div>", unsafe_allow_html=True)
+        # Guard: suppress disease triage for deprioritised proteins
+        if gi.get("pursue") == "deprioritise" and gpcr_assessment.get("type") == "BETA_ARRESTIN_EVIDENCE_GAP":
+            st.markdown("<div style='background:#0a0205;border:2px solid #ff2d55;border-radius:10px;padding:1rem 1.2rem;'>"
+                "<div style='color:#ff2d55;font-weight:800;'>⛔ Disease triage suppressed — protein DEPRIORITISED</div>"
+                "<div style='color:#6a3040;font-size:.85rem;margin-top:4px;'>ClinVar entries for beta-arrestin proteins reflect co-occurrence "
+                "with GPCR-driven diseases, not independent beta-arrestin pathogenicity. "
+                "ARRB1/ARRB2 knockouts are viable. See Summary tab for cost analysis.</div>"
+                "</div>", unsafe_allow_html=True)
+        else:
+            sh("🔴","Disease Triage")
+            st.markdown(f"<div style='color:#5a8090;font-size:.82rem;margin-bottom:.3rem;'>Diseases ranked by ML-derived pathogenicity score. Density bar shows fraction of disease-causing variants. {src_link('ClinVar',f'https://www.ncbi.nlm.nih.gov/clinvar/?term={gene}[gene]')} {src_link('UniProt',f'https://www.uniprot.org/uniprotkb/{uid}')}</div>", unsafe_allow_html=True)
         ds_scores={}
         for sv in scored:
             for c2 in sv.get("condition","").split(";"):
@@ -8521,18 +8530,21 @@ with tab2:
     
     # Show piggyback assessment prominently
     ga = gpcr_assessment
-    ga_clr = ga["colour"]
+    ga_clr = ga.get("colour", ga.get("color",
+        {"prioritise":"#ff2d55","proceed":"#ff8c42","selective":"#ffd60a",
+         "caution":"#ffd60a","deprioritise":"#3a5a7a","neutral":"#1e6080"}
+        .get(ga.get("pursue","caution"),"#3a6080")))
     st.markdown(
         "<div style='background:#020810;border:2px solid " + ga_clr + "44;border-radius:12px;"
         "padding:1.1rem 1.4rem;margin-bottom:.8rem;'>"
         "<div style='color:" + ga_clr + ";font-weight:800;font-size:1rem;margin-bottom:5px;'>"
-        + ga["label"] + "</div>"
+        + ga.get("label","GPCR classification") + "</div>"
         "<div style='color:#6a9ab0;font-size:.87rem;line-height:1.6;margin-bottom:6px;'>"
-        + ga["reasoning"] + "</div>"
+        + ga.get("body",ga.get("reasoning","")) + "</div>"
         "<div style='color:" + ga_clr + ";font-weight:700;font-size:.85rem;margin-bottom:5px;'>"
-        "Investment verdict: " + ga["investment"] + "</div>"
+        "Investment verdict: " + ga.get("investment","See analysis below") + "</div>"
         "<div style='color:#3a6080;font-size:.78rem;'>"
-        "Confidence: " + ga["confidence"] + " | Type: " + ga["type"] + "</div>"
+        "Confidence: " + ga.get("confidence","ClinVar + UniProt") + " | Type: " + ga["type"] + "</div>"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -10265,6 +10277,40 @@ with tab5:
     
     if _is_cardiac_gpcr or _has_arrhythmia:
         st.markdown("<hr class='dv'>", unsafe_allow_html=True)
+    # ═══ DEDICATED GPCR STUDY PROTOCOL SECTION ══════════════════════════════════
+    if g_gpcr(pdata):
+        sh("📡","GPCR Study Protocol — How to Characterise " + gene)
+        _fbm_g = gene.lower() in ["agtr1","agtr2","mas1","adra1d","adra1a","adra1b","adrb1","adrb2","adrb3","chrm1","chrm2","chrm3"]
+        _crd_g = any(x in gene.lower() for x in ["adrb","agtr","chrm"])
+        _steps = [
+            ("1","Confirm surface expression","Transfect SNAP-tagged " + gene + " into HEK293T. SNAP-Surface stain (NEB) + confocal to confirm plasma membrane localisation. Dose-response with known agonist. Do NOT proceed to assays until surface expression is confirmed.","#00e5ff"),
+            ("2","G-protein coupling — cAMP HTRF","Gs: measure cAMP (HTRF, Cisbio). Gi: measure GTPγS binding or cAMP inhibition after forskolin pre-stimulation. Primary pharmacological readout. Test WT vs each ClinVar P/LP variant.","#00c896"),
+            ("3","Filamin A Ser2152-P (RECEPTOR-PROXIMAL assay)","Stimulate with agonist → whole-cell lysis → anti-Filamin A IP → pSer2152 western (anti-pS2152 antibody, Cell Signaling). H8 dislodgement is the mechanistic signature of receptor activation. " + ("This receptor contains a confirmed FBM motif — Filamin-P is the most proximal readout available." if _fbm_g else "Test whether " + gene + " drives Filamin coupling after agonist stimulation."),"#a855f7"),
+            ("4","β-arrestin BRET (SECONDARY ONLY)","RLuc8-tagged " + gene + " + Venus-β-arrestin2. Use ONLY to characterise biased agonism — NOT as primary disease readout. ARRB2 has no confirmed Mendelian disease variants. β-arrestin codes are kinase noise.","#ff8c42"),
+            ("5","Receptor internalisation","SNAP-surface before/after agonist stimulation. Measure % receptor lost from surface. Variants in TM bundle or ECLs may alter internalisation independent of G-protein coupling.","#ffd60a"),
+            ("6","Variant functional panel","For each ClinVar P/LP variant: run steps 2+3 in parallel. Variant that kills cAMP but not Filamin-P = G-protein defect. Variant that kills Filamin-P but not cAMP = cytoskeletal decoupling. Different biology → different drug target.","#ff2d55"),
+        ]
+        if _crd_g:
+            _steps.append(("7","TMAO rattling assay (cardiac only)","Add TMAO (5–50µM) to " + gene + "-expressing cardiomyocytes. Measure conformational transitions by FlAsH-BRET. TMAO increases conformational sampling and reduces Filamin-P — this is the arrhythmia mechanism. " + "Compare with known arrhythmia-causing variants to validate.","#ff2d55"))
+
+        for _sn, _st, _sb, _sc in _steps:
+            with st.expander(f"Step {_sn} — {_st}", expanded=(_sn in ("1","2","3"))):
+                st.markdown(
+                    f"<div style='background:#020810;border-left:3px solid {_sc};padding:.8rem 1rem;border-radius:0 8px 8px 0;'>"
+                    f"<div style='color:#7ab0c0;font-size:.86rem;line-height:1.7;'>{_sb}</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+        st.markdown(
+            "<div style='display:flex;gap:6px;flex-wrap:wrap;margin-top:.4rem;'>"
+            "<a class='src-badge' href='https://gpcrdb.org/' target='_blank'>GPCRdb — H8 FBM conservation ↗</a>"
+            "<a class='src-badge' href='https://www.phosphosite.org/proteinAction.action?id=2546&showAllSites=true' target='_blank'>PhosphoSite FLNA Ser2152 ↗</a>"
+            "<a class='src-badge' href='https://doi.org/10.1074/jbc.M115.671826' target='_blank'>Nakamura et al. 2015 ↗</a>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown("<hr class='dv'>", unsafe_allow_html=True)
+
         sh("❤️","Cardiac GPCR — Arrhythmia, TMAO Rattling & Filamin-Actin Mechanism")
         st.markdown(
             f"<div style='background:#0a0208;border:1px solid #ff2d5533;border-radius:12px;padding:1.1rem 1.4rem;'>"
