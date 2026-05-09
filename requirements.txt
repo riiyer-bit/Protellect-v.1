@@ -3,7 +3,4 @@ requests
 pandas
 numpy
 plotly
-openpyxl
-Pillow
-streamlit-authenticator
-stripe
+streamlit-option-menu
