@@ -7218,7 +7218,19 @@ def _fresh_experiments(candidates: list) -> list:
     return out
 
 # Override GI verdict if protein is a piggyback or GPCR with no germline disease
-if gpcr_assessment.get("type","") in ("PIGGYBACK", "GPCR_NO_DISEASE") and gi.get("pursue") not in ("deprioritise","neutral"):
+if gpcr_assessment.get("type","") == "BETA_ARRESTIN_EVIDENCE_GAP":
+    gi = dict(gi)
+    gi["pursue"]      = "deprioritise"
+    gi["verdict"]     = "DEPRIORITISE — β-Arrestin has no independent disease variants"
+    gi["explanation"] = (
+        "ARRB1/ARRB2 double knockout mice are viable and fertile — these proteins are functionally redundant. "
+        "Despite extensive use as GPCR signalling readouts, β-arrestins have no confirmed germline Mendelian disease variants "
+        "in ClinVar that independently cause disease. The 22 ClinVar entries reflect background variants, not disease causation. "
+        "β-arrestin phosphorylation codes are kinase noise — only a phospho site whose mutation causes human disease is a true signal. "
+        "Estimated avoidable spend if pursuing this target: $4,050,000. "
+        "Redirect to: Filamin A Ser2152-P assay, ADRB1, ADRB2, or AGTR1 (confirmed disease variants)."
+    )
+elif gpcr_assessment.get("type","") in ("PIGGYBACK", "GPCR_NO_DISEASE") and gi.get("pursue") not in ("deprioritise","neutral"):
     gi = dict(gi)
     gi["pursue"]      = "caution"
     gi["verdict"]     = "PIGGYBACK — Disease signal is indirect"
@@ -7226,8 +7238,7 @@ if gpcr_assessment.get("type","") in ("PIGGYBACK", "GPCR_NO_DISEASE") and gi.get
         gi["explanation"] + " However, this protein is classified as a GPCR PIGGYBACK: "
         "it associates with GPCRs and appears in GPCR signalling studies, but its mutations "
         "do not independently drive Mendelian disease. The pathogenic ClinVar entries likely "
-        "reflect somatic/incidental variants rather than true germline disease causation. "
-        "β-Arrestin 2 (ARRB2) is the canonical example of this pattern."
+        "reflect somatic/incidental variants rather than true germline disease causation."
     )
 
 # ─── PURSUE BANNER (immediate, above tabs) ──────────────────────────
@@ -7236,7 +7247,7 @@ pursue_map = {
     "proceed":     ("pursue-yes",    "🟠 PROCEED — Meaningful evidence",               "Confirmed disease association. Focus wet-lab work on pathogenic variants only.",                                                                                                                     "#ff8c42"),
     "selective":   ("pursue-caution","🟡 BE SELECTIVE",                                "Low pathogenic density. Work only with confirmed P/LP variants. Do not overinterpret benign entries.",                                                                                              "#ffd60a"),
     "caution":     ("pursue-caution","⚠️ APPROACH WITH CAUTION — Possible Piggyback",  "Low or indirect disease evidence. This protein may co-associate with GPCRs without being an independent disease driver. Verify GPCR Piggyback Analysis below before investing resources.",         "#ffd60a"),
-    "deprioritise":("pursue-no",     "⚪ DEPRIORITISE — No confirmed disease variants", "Zero Mendelian disease variants in ClinVar. This protein may be redundant or bypassable. Do NOT invest major wet-lab resources without first finding disease-causing variants.",                   "#3a5a7a"),
+    "deprioritise":("pursue-no",     "⛔ DEPRIORITISE — Do not invest. Redirect resources.", "No confirmed Mendelian disease variants in ClinVar. Protein is redundant or bypassable — shown by viable knockout mice and zero disease-causing germline variants. See cost analysis below.",                   "#3a5a7a"),
     "neutral":     ("pursue-no",     "❓ INSUFFICIENT DATA",                            "Too few ClinVar entries. Understudied protein — cannot make a genetics-based recommendation yet.",                                                                                                  "#1e6080"),
 }
 css_p, verdict_label, verdict_body, v_clr = pursue_map.get(gi["pursue"], pursue_map["neutral"])
