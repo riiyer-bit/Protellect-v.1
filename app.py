@@ -1874,8 +1874,8 @@ def assess_gpcr_piggybacking(p, cv, gi_data):
     # receptor-proximal signal, not β-arrestin recruitment.
     if is_beta_arrestin:
         _arrb_wt = 4050000
+        _arrb_wt = 4050000
         return {
-            "type": "BETA_ARRESTIN_EVIDENCE_GAP",
             "label": f"DEPRIORITISE: {g_gene(p).upper()} — No independent disease variants. $4M+ in avoidable spend if pursued.",
             "body": (
                 f"{g_gene(p).upper()} has {n_germline_path} confirmed germline pathogenic ClinVar variants. "
@@ -1885,7 +1885,7 @@ def assess_gpcr_piggybacking(p, cv, gi_data):
                 f"its mutation causes human disease. None of the ARRB2 phospho sites meet this criterion."
             ),
             "pursue": "deprioritise",
-            "wasted_investment": _wt,
+            "wasted_investment": _arrb_wt,
             "cost_breakdown": {
                 "HTS screen 1M compounds": 2_500_000,
                 "CRISPR knock-in experiments x6": 150_000,
