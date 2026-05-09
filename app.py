@@ -1766,20 +1766,35 @@ def assess_gpcr_piggybacking(p, cv, gi_data):
         "arrb","grk","rgs","ric8","gnas","gnai","gnaq","gnb","gng"
     ])
     
-    # FBM (Filamin Binding Motif) detection — Nakamura et al. 2015
-    # GPCRs with FBM directly bind Filamin A Ig21 — this is NOT piggyback behaviour
-    # FBM consensus: typically [R/K]-x-x-x-[L/I]-x-x-[L/I] in IC3 or C-tail
-    # Filamin proteins (FLNA, FLNB, FLNC) are direct FBM partners, not piggybacks
+    # ── FBM / H8 mechanism (from Nakamura 2015 + meeting research) ──────────────
+    # H8 (Helix 8) is the primary GPCR filamin-binding segment:
+    # - When AGONIST engages the GPCR, H8 dislodges from the membrane
+    # - H8 then binds Filamin A Ig21 via beta-strand augmentation
+    # - Alternating hydrophobic/hydrophilic residues: PHE (in), ARG (out), LEU (in)
+    # - These three anchors (Phe, Arg, Leu) are the FBM contact points
+    # - This RELEASES Filamin autoinhibition → PKA can now phosphorylate Ser2152
+    # - Filamin Ser2152 phosphorylation = RECEPTOR PROXIMAL readout of GPCR activation
+    # - MORE PROXIMAL than: calcium release (2-4 steps through ryanodine receptors),
+    #   IP3 (indirect), or beta-arrestin recruitment (post-receptor desensitisation)
+    # - Class A rhodopsin GPCRs: ~300 of 800 total GPCRs have H8 FBM (most abundant)
+    # - ICL3 also has FBM segments but LESS conserved than H8
+    # - FLNB and FLNC do NOT get phosphorylated at Ser2152 — only FLNA
+    # Source: Nakamura et al. 2015; JBC 2015; GPCRdb (gpcrdb.org)
+    
     is_filamin = any(x in gene_name_lower for x in ["flna","flnb","flnc","filamin"])
     has_fbm_context = is_filamin or any(x in fn for x in [
         "filamin","cytoskeletal","actin-binding","scaffold",
         "cell migration","cell shape","cytoskeleton remodeling"
     ])
     
-    # AT1R (AGTR1), MAS (MAS1), alpha1D-AR (ADRA1D) — confirmed FBM-containing GPCRs
+    # Confirmed FBM GPCRs: AT1R, MAS, α1D-AR, β1/2/3-AR, M1/2/3
     fbm_confirmed_genes = ["agtr1","agtr2","mas1","adra1d","adra1a","adra1b",
                            "adrb1","adrb2","adrb3","chrm1","chrm2","chrm3"]
     is_fbm_confirmed = any(x in gene_name_lower for x in fbm_confirmed_genes)
+    
+    # β-arrestin critique: if this is an arrestin, flag the evidence gap
+    is_beta_arrestin = any(x in gene_name_lower for x in ["arrb1","arrb2","barr1","barr2"])
+    is_grk = any(x in gene_name_lower for x in ["grk1","grk2","grk3","grk4","grk5","grk6"])
     
     # Count GERMLINE-ONLY pathogenic variants with named Mendelian conditions
     variants_cv = cv.get("variants", [])
@@ -1810,8 +1825,23 @@ def assess_gpcr_piggybacking(p, cv, gi_data):
             "type": "FILAMIN_DIRECT_CYTOSKELETAL",
             "label": "Filamin — Direct Cytoskeletal Partner (NOT a GPCR piggyback)",
             "body": (
-                f"{gene_name} is a Filamin family protein — a primary cytoskeletal scaffold "
-                f"that is DIRECTLY recruited by GPCR Filamin Binding Motifs (FBMs). "
+                f"{gene_name} is a Filamin family protein — the primary cytoskeletal scaffold "
+                f"directly coupled to GPCR activation via H8 (Helix 8) binding. "
+                f"MECHANISM (H8 → Filamin → Phosphorylation): "
+                f"When an agonist engages a GPCR, H8 dislodges from the membrane → "
+                f"binds Filamin A Ig21 domain via beta-strand augmentation → "
+                f"releases Filamin autoinhibition → PKA phosphorylates Ser2152 (FLNA only; "
+                f"FLNB and FLNC are NOT phosphorylated at this site). "
+                f"The three FBM anchors are Phenylalanine (hydrophobic, inward), "
+                f"Arginine (hydrophilic, outward), and Leucine (hydrophobic, inward) — "
+                f"alternating in beta-strand augmentation geometry. "
+                f"WHY THIS MATTERS FOR DRUG DISCOVERY: Filamin Ser2152 phosphorylation "
+                f"is a MORE RECEPTOR-PROXIMAL readout than calcium release (requires 2–4 steps "
+                f"through ryanodine receptors), IP3, or β-arrestin recruitment. "
+                f"PhosphoSite database confirms Ser2152 as the highest phosphorylation peak on FLNA — "
+                f"all other peaks are system noise from non-specific kinase activity. "
+                f"IP OPPORTUNITY: Filamin Ser2152 phosphorylation as a GPCR activation assay "
+                f"is superior to existing readouts and represents a novel intellectual property claim. "
                 f"This is the opposite of a piggyback: >116 human GPCRs (>20% of all GPCRs) "
                 f"contain FBMs that physically lock onto Filamin Ig21 domain with 50-100x higher "
                 f"affinity than other cytoskeletal linkers (Nakamura et al. 2015). "
@@ -1833,6 +1863,58 @@ def assess_gpcr_piggybacking(p, cv, gi_data):
     
     # Known GPCR-accessory protein families — these are piggybacks by definition
     # unless they have MULTIPLE named Mendelian syndromes with germline evidence
+    # ── β-arrestin critique ──────────────────────────────────────────────────────
+    # KEY INSIGHT (research meeting): β-arrestins (ARRB1/ARRB2) have extensive
+    # phosphorylation data but MINIMAL DISEASE-CAUSING VARIANTS in ClinVar.
+    # Individual ARRB1/ARRB2 knockouts are NOT lethal — redundant pathways compensate.
+    # If β-arrestin recruitment were truly essential, mutations would be lethal/disease-causing.
+    # Conclusion: β-arrestin phosphorylation codes are MOSTLY NOISE. The receptor itself
+    # being absent doesn't kill the mouse — the redundant pathway is what matters.
+    # Filamin Ser2152 phosphorylation (PhosphoSite highest peak on FLNA) is the TRUE
+    # receptor-proximal signal, not β-arrestin recruitment.
+    if is_beta_arrestin and n_germline_path < 3:
+        return {
+            "type": "BETA_ARRESTIN_EVIDENCE_GAP",
+            "label": "β-Arrestin — insufficient disease variant evidence",
+            "body": (
+                f"{gene_name} is a β-arrestin (ARRB family). Despite extensive use as a GPCR "
+                f"signalling readout, ARRB proteins have only {n_germline_path} confirmed germline "
+                f"pathogenic variants in ClinVar — insufficient to classify as an independent disease driver. "
+                f"Individual ARRB1/ARRB2 knockouts are not lethal, demonstrating redundancy. "
+                f"β-arrestin phosphorylation patterns observed in PhosphoSite likely represent "
+                f"background phosphorylation noise — kinase activation causes non-specific phosphorylation "
+                f"at low levels across many substrates. Only residues whose mutation causes disease "
+                f"represent true signal. "
+                f"RECOMMENDATION: Use Filamin A Ser2152 phosphorylation (PhosphoSite highest peak on FLNA) "
+                f"as the preferred GPCR activation readout — it is more receptor-proximal than β-arrestin, "
+                f"calcium release, or IP3 pathways. "
+                f"DRUG DISCOVERY IMPLICATION: Do NOT select ARRB proteins as primary drug targets "
+                f"based on cell signalling data alone. Select proteins with confirmed human disease variants."
+            ),
+            "pursue": "caution",
+            "citations": [
+                "PhosphoSite FLNA Ser2152 (highest phosphorylation peak — true signal vs ARRB noise)",
+                "Nakamura et al. 2015 — H8-Filamin direct coupling",
+                "JBC 2015 — PKA conformational gating at Ser2152",
+            ],
+        }
+    if is_grk and n_germline_path < 5:
+        return {
+            "type": "GRK_LIMITED_DISEASE_EVIDENCE",
+            "label": "GRK — limited independent disease variant evidence",
+            "body": (
+                f"{gene_name} is a G protein-coupled receptor kinase (GRK). GRKs phosphorylate "
+                f"GPCRs to recruit β-arrestin, but have only {n_germline_path} confirmed germline "
+                f"pathogenic variants. "
+                f"GRKs are important regulators but their disease relevance should be assessed "
+                f"relative to the GPCR they regulate. The receptor itself — not its kinase — is more "
+                f"likely to carry the disease-causing variant. "
+                f"Focus on the GPCR target with confirmed disease mutations for drug discovery."
+            ),
+            "pursue": "selective",
+            "citations": ["Research meeting insight — genetic variants only as drug target criterion"],
+        }
+    
     known_piggyback_families = any(x in gene_name_lower for x in [
         "arrb", "grk", "rgs", "ric8", "gng", "gnb",
         "gnas", "gnai", "gnaq", "gnaz",
@@ -6219,6 +6301,12 @@ with st.sidebar:
         st.markdown("<div class='sb-t'>Prioritised Experiments</div>", unsafe_allow_html=True)
         for s3 in _exps3:
             st.markdown(f"<div style='color:#7ab0c4;font-size:.82rem;margin:2px 0;'>▸ {s3}</div>", unsafe_allow_html=True)
+        # GPCRdb link for GPCR proteins
+        if _entity3["ptype"] in ("gpcr","receptor","receptor_tyrosine_kinase"):
+            st.markdown(
+                f"<a class='src-badge' href='https://gpcrdb.org/' target='_blank' style='display:block;text-align:center;margin-bottom:4px;'>GPCRdb — H8 conservation ↗</a>",
+                unsafe_allow_html=True,
+            )
         if _goal3.get("sidebar_tip"):
             st.markdown(
                 f"<div style='background:#020d18;border:1px solid #00e5ff22;border-radius:7px;padding:6px 9px;margin-top:5px;'>"
@@ -7024,6 +7112,28 @@ reg_paths    = regulatory_pathway_map(diseases, patient_data, gi)
 analogs      = find_drugged_analogs(pdata, string_data, ot_data)
 
 # ── Central experiment tracker — prevents repetition across tabs ──────────────
+# ── Phosphorylation signal vs noise classifier (PhosphoSite + JBC 2015) ────────
+# RULE: A phospho site is SIGNAL only if its mutation causes disease in humans.
+# FLNA Ser2152 = only validated signal peak (highest on PhosphoSite, conformationally gated).
+    # All other peaks on FLNA and β-arrestin phospho codes = background kinase noise.
+def classify_phospho_site(gene_p: str, residue_p: str, has_disease_var: bool) -> dict:
+        is_flna_s2152 = gene_p.upper() in ('FLNA','FLN1') and '2152' in str(residue_p)
+        if is_flna_s2152:
+            return {'classification':'VALIDATED SIGNAL','confidence':'HIGH','colour':'#00c896',
+                    'rationale':'Ser2152 is the highest FLNA phosphorylation peak (PhosphoSite). Conformationally gated by GPCR H8 dislodgement — mechanistically distinct from background noise.'}
+        elif has_disease_var:
+            return {'classification':'PROBABLE SIGNAL','confidence':'MEDIUM','colour':'#ffd60a',
+                    'rationale':'Disease variant near this site. Validate with phosphomimetic (Ser->Asp) vs phospho-dead (Ser->Ala) mutant phenotype comparison.'}
+        else:
+            return {'classification':'LIKELY NOISE','confidence':'LOW','colour':'#ff8c42',
+                    'rationale':'No disease variant. Background phosphorylation from promiscuous kinase activity. Do not interpret as functional signal without disease variant evidence.'}
+
+# ── Digenic mutations + monthly rescan + founder mutations ─────────────────────
+    # Monogenic = Mendelian; Low genetic variability populations → digenic mutations.
+# NULL MUTANT principle: if protein absence doesn't cause disease → redundant pathway.
+# MONTHLY RESCAN: VUS variants reclassify over time as more patients are sequenced.
+# FOUNDER MUTATION (cancer): earliest somatic event in tumour evolution = primary target.
+
 _exp_already_done = set()  # tracks which experiments have been mentioned
 
 def _exp_unique(name: str, context: str = "") -> str:
@@ -7192,6 +7302,71 @@ tab0,tab1,tab2,tab3,tab4,tab5,tab6,tab7=st.tabs(["📋  Summary","🔴  Triage",
 with tab0:
     # Animated header
     st.markdown(f"""
+    # ── Research Paradigm — scientific framework from research meeting ────────────
+    _is_fbm_sum   = g_gpcr(pdata) and any(x in gene.lower() for x in ["agtr","adrb","mas1","adra","chrm"])
+    _is_arrb_sum  = any(x in gene.lower() for x in ["arrb1","arrb2"])
+    _is_fil_sum   = any(x in gene.lower() for x in ["flna","flnb","flnc","filamin"])
+    _is_crd_sum   = any(x in gene.lower() for x in ["adrb1","adrb2","agtr1","chrm2"]) and g_gpcr(pdata)
+    _par_items    = []
+    if _is_fbm_sum:
+        _par_items.append(("IP Opportunity — H8-Filamin assay (more proximal than Ca2+/arrestin/IP3)",
+            "When an agonist engages the GPCR, Helix 8 (H8) dislodges from the membrane and binds Filamin A Ig21 via beta-strand augmentation. "
+            "FBM anchors: Phe (hydrophobic, inward), Arg (hydrophilic, outward), Leu (hydrophobic, inward) — alternating geometry. "
+            "This releases Filamin autoinhibition and PKA phosphorylates Ser2152. "
+            "Class A rhodopsin: ~300 of 800 GPCRs carry H8 FBM. ICL3 segments also present but less conserved. "
+            "FLNB and FLNC are NOT phosphorylated at this site — FLNA-specific. "
+            "This assay is more receptor-proximal than calcium release (2-4 steps via ryanodine receptors), IP3, or beta-arrestin. "
+            "Source: GPCRdb (gpcrdb.org), Nakamura et al. 2015, JBC 2015.", "#00e5ff"))
+    if _is_arrb_sum:
+        _par_items.append(("Beta-arrestin evidence gap — not a reliable drug target readout",
+            f"ARRB1/ARRB2 have {gi.get('n_pathogenic',0)} confirmed disease-causing ClinVar variants. "
+            "Individual ARRB1/ARRB2 knockouts are not lethal — the redundant pathway compensates. "
+            "If beta-arrestin were truly essential, mutations would be lethal or disease-causing at high frequency. "
+            "Beta-arrestin phosphorylation codes in literature are background noise — "
+            "kinase activation (e.g. EGFR in cancer lines) non-specifically phosphorylates thousands of substrates. "
+            "True signal = only phospho sites where residue mutation causes human disease. "
+            "RECOMMENDATION: Use Filamin Ser2152-P as GPCR activation readout instead.", "#ff8c42"))
+    if _is_fil_sum:
+        _par_items.append(("PhosphoSite validation — Ser2152 is the only true FLNA signal",
+            "PhosphoSite (phosphosite.org/proteinAction?id=2546) confirms Ser2152 as the highest phosphorylation peak on FLNA. "
+            "All other FLNA phosphorylation peaks = system noise from non-specific kinase activity. "
+            "The critical distinction: Ser2152 is conformationally gated (JBC 2015) — "
+            "PKA cannot phosphorylate it in the closed/autoinhibited state. "
+            "This gating mechanism is what distinguishes it from background phosphorylation noise. "
+            "FLNB and FLNC lack this gated site. Only FLNA Ser2152 is therapeutically relevant.", "#a855f7"))
+    if _is_crd_sum:
+        _par_items.append(("TMAO rattling receptor — mechanistic explanation for arrhythmia",
+            "TMAO binding causes the GPCR to transition between conformational states rapidly (rattling) "
+            "rather than settling into a stable active state. The receptor misfires — "
+            "it fails to properly engage G-proteins AND disrupts the H8-Filamin coupling. "
+            "Since Filamin A provides direct actin cytoskeletal coupling to cardiac GPCRs, "
+            "disrupted binding explains conduction defects via a direct mechanism — "
+            "without the indirect calcium/IP3 cascade route. "
+            "LITERATURE BIAS: Arrhythmia research is disproportionately focused on Golgi trafficking, "
+            "KCNQ1, and hERG. The cardiac GPCR-Filamin-actin axis is understudied and patent-unoccupied.", "#ff2d55"))
+    _par_items.append(("Drug target selection — genetic disease variants only",
+        "The only reliable criterion for selecting a GPCR or cytoskeletal protein as a drug target: "
+        "it must have pathogenic variants in humans that cause named Mendelian disease. "
+        "Superimpose confirmed disease variants onto drug crystal structures to validate target engagement. "
+        "Null mutant normal (protein absent, person healthy) = redundant pathway = deprioritise. "
+        "Monthly rescan of UniProt and ClinVar: rare variants reclassify over time — a VUS today may be "
+        "P/LP in 6 months. Digenic mutations: in low genetic variability populations, two proteins each "
+        "with one non-functional allele can together cause disease — map these interaction networks. "
+        "Founder mutations (cancer): sequence large cohorts to find the earliest somatic event — "
+        "that is the primary therapeutic target, not late-arising passenger mutations.", "#00c896"))
+    if _is_fbm_sum or _is_arrb_sum or _is_fil_sum or _is_crd_sum:
+        sh("🔬","Scientific Framework")
+        for _pt, _pb, _pc in _par_items:
+            with st.expander(_pt, expanded=False):
+                st.markdown(
+                    f"<div style='background:#020810;border-left:3px solid {_pc};"
+                    f"padding:.9rem 1.1rem;border-radius:0 10px 10px 0;'>"
+                    f"<div style='color:#7ab0c0;font-size:.87rem;line-height:1.7;'>{_pb}</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+        st.markdown("<hr class='dv'>", unsafe_allow_html=True)
+
     <style>
     @keyframes fadeInUp {{from{{opacity:0;transform:translateY(20px)}}to{{opacity:1;transform:translateY(0)}}}}
     @keyframes pulse {{0%,100%{{opacity:1}}50%{{opacity:.7}}}}
@@ -8039,9 +8214,13 @@ with tab2:
             "<a class='src-badge' href='https://doi.org/10.1074/jbc.M115.671826' target='_blank'>"
             "Nakamura et al. 2015 — FBM discovery ↗</a>"
             "<a class='src-badge' href='https://doi.org/10.1074/jbc.M115.648659' target='_blank'>"
-            "JBC 2015 — PKA conformational gating ↗</a>"
+            "JBC 2015 — PKA Ser2152 conformational gating ↗</a>"
             "<a class='src-badge' href='https://www.ncbi.nlm.nih.gov/gene/2316' target='_blank'>"
             "FLNA (Filamin A) gene ↗</a>"
+            "<a class='src-badge' href='https://gpcrdb.org/' target='_blank'>"
+            "GPCRdb — Class A H8 conservation ↗</a>"
+            "<a class='src-badge' href='https://www.phosphosite.org/proteinAction.action?id=2546&showAllSites=true' target='_blank'>"
+            "PhosphoSite FLNA Ser2152 ↗</a>"
             "</div>"
             "<div style='margin-top:.7rem;background:#030810;border:1px solid #0d2545;border-radius:8px;padding:.7rem;'>"
             "<div style='color:#4a7090;font-size:.8rem;'><b style='color:#5a9080;'>Experimental implication:</b> "
@@ -9786,7 +9965,50 @@ with tab5:
                         unsafe_allow_html=True,
                     )
 
-        # ── Microbiology / Infectious Disease Hypothesis Section ─────────────────
+        # ── Arrhythmia / cardiac GPCR insight ──────────────────────────────────────
+    _is_cardiac_gpcr = any(x in gene.lower() for x in ["adrb1","adrb2","adrb3","agtr1","chrm2"]) and g_gpcr(pdata)
+    _has_arrhythmia = any("arrhythmia" in d.get("name","").lower() or "long qt" in d.get("name","").lower()
+                           or "cardiac" in d.get("name","").lower() or "conduction" in d.get("name","").lower()
+                           for d in diseases)
+    
+    if _is_cardiac_gpcr or _has_arrhythmia:
+        st.markdown("<hr class='dv'>", unsafe_allow_html=True)
+        sh("❤️","Cardiac GPCR — Arrhythmia Axis (Filamin-Actin Mechanism)")
+        st.markdown(
+            f"<div style='background:#0a0208;border:1px solid #ff2d5533;border-radius:12px;padding:1.1rem 1.4rem;'>"
+            f"<div style='color:#ff8c42;font-weight:700;font-size:.95rem;margin-bottom:.5rem;'>TMAO Rattling Receptor Hypothesis (from research meeting)</div>"
+            f"<div style='color:#6a4040;font-size:.86rem;line-height:1.7;margin-bottom:.6rem;'>"
+            f"TMAO (trimethylamine N-oxide) binding to {gene} causes the receptor to 'rattle' — "
+            f"transitioning between conformational states rapidly instead of settling into one stable active state. "
+            f"The receptor misfires: it fails to properly engage downstream G-proteins and "
+            f"disrupts the H8 → Filamin A axis. "
+            f"<b style='color:#ff8c42;'>Why this causes arrhythmia:</b> Filamin A provides a direct "
+            f"actin cytoskeletal coupling domain to cardiac GPCRs. When filamin binding is disrupted "
+            f"by a rattling/misfiring receptor, the physical coupling between membrane signalling and "
+            f"cytoskeletal remodelling is broken — this is a mechanistic explanation for conduction defects "
+            f"that does NOT require the long indirect routes through calcium/IP3 cascades.</div>"
+            f"<div style='color:#5a3030;font-size:.84rem;margin-bottom:.5rem;'>"
+            f"<b style='color:#7a5050;'>Literature bias warning:</b> The arrhythmia literature "
+            f"(including Long QT syndrome) is disproportionately focused on Golgi apparatus trafficking "
+            f"and KCNQ1/hERG channels. The cardiac GPCR → Filamin → actin pathway is understudied "
+            f"and represents an unoccupied intellectual property and therapeutic space. "
+            f"Eliminate this literature bias — genetic variants in cardiac GPCRs and their direct "
+            f"cytoskeletal effectors should be the primary drug target identification strategy.</div>"
+            f"<div style='color:#4a3030;font-size:.82rem;'>"
+            f"<b style='color:#6a4040;'>Recommended assay:</b> β-blocker drugs work, but the mechanism "
+            f"is likely not purely through G-protein pathways as assumed. "
+            f"Measure Filamin Ser2152 phosphorylation in cardiac cells treated with β-blockers "
+            f"vs placebo — if Filamin phosphorylation changes, the GPCR→Filamin→actin axis is "
+            f"the active mechanism and can be targeted more precisely.</div>"
+            f"<div style='display:flex;gap:6px;flex-wrap:wrap;margin-top:.6rem;'>"
+            f"<a class='src-badge' href='https://gpcrdb.org/' target='_blank'>GPCRdb — H8 conservation ↗</a>"
+            f"<a class='src-badge' href='https://www.phosphosite.org/proteinAction.action?id=2546&showAllSites=true' target='_blank'>PhosphoSite FLNA Ser2152 ↗</a>"
+            f"<a class='src-badge' href='https://www.omim.org/entry/192500' target='_blank'>Long QT OMIM ↗</a>"
+            f"</div></div>",
+            unsafe_allow_html=True,
+        )
+    
+    # ── Microbiology / Infectious Disease Hypothesis Section ─────────────────
     # Check if this protein is a host receptor for any known pathogen
     _micro_ctx = get_micro_context(gene)
     if not _micro_ctx:
@@ -10225,3 +10447,4 @@ st.markdown(
     f"Protellect · Not a substitute for expert clinical judgment.</p>",
     unsafe_allow_html=True,
 )
+
