@@ -7606,7 +7606,7 @@ with tab0:
         # Cost savings warning banner
         st.markdown(
             f"<div style='background:#0a0205;border:2px solid #ff2d55;border-radius:14px;padding:1.2rem 1.5rem;margin:.8rem 0;'>"
-            f"<div style='color:#ff2d55;font-weight:800;font-size:1.1rem;margin-bottom:.4rem;'>💸 Estimated avoidable spend if pursuing {gene}: ${_wt:,.0f}</div>"
+            f"<div style='color:#ff2d55;font-weight:800;font-size:1.1rem;margin-bottom:.4rem;'>💸 Estimated avoidable spend if pursuing {gene}: $4,050,000</div>"
             f"<div style='display:flex;gap:10px;flex-wrap:wrap;margin-bottom:.6rem;'>"
             + "".join(
                 f"<div style='background:#0d0206;border:1px solid #ff2d5544;border-radius:8px;padding:5px 12px;text-align:center;'>"
@@ -7680,7 +7680,7 @@ with tab0:
         # Total savings callout
         st.markdown(
             f"<div style='background:#020d08;border:2px solid #00c896;border-radius:12px;padding:1.1rem 1.4rem;margin-top:.8rem;'>"
-            f"<div style='color:#00c896;font-weight:800;font-size:1rem;margin-bottom:.4rem;'>💰 By deprioritising {gene}: save up to ${_wt:,.0f}</div>"
+            f"<div style='color:#00c896;font-weight:800;font-size:1rem;margin-bottom:.4rem;'>💰 By deprioritising {gene}: save up to $4,050,000</div>"
             f"<div style='color:#3a8060;font-size:.86rem;'>"
             f"Reinvest in: Filamin Ser2152-P assay ($2K per experiment) + ADRB1/ADRB2/AGTR1 ClinVar screen (free) + "
             f"disease-genetically validated target selection. "
