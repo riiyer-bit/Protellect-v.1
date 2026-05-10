@@ -1081,6 +1081,47 @@ def render_assay_analysis_tab(gene: str, color: str, lab_profile: dict = None):
         except Exception as e:
             st.error(f"Error reading file: {e}")
 
+
+def render_auth_page():
+    st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&display=swap');
+*{font-family:'Space Grotesk',sans-serif}
+#MainMenu,footer,header{display:none!important}
+[data-testid="stAppViewContainer"]{background:#010306}
+.block-container{padding:2rem 1rem!important;max-width:480px!important;margin:0 auto}
+.stTextInput>div>div>input{background:#030810!important;border:1px solid #0d2545!important;color:#d0e8ff!important;border-radius:8px!important;font-size:.9rem!important}
+.stButton>button{background:#00e5ff!important;color:#010306!important;font-weight:700!important;border:none!important;border-radius:8px!important;width:100%!important;padding:.5rem!important;font-size:.9rem!important}
+.stRadio label{color:#5a8090!important;font-size:.85rem!important}
+@keyframes pulse{0%,100%{opacity:.4;transform:scale(.97)}50%{opacity:1;transform:scale(1.03)}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+</style>
+""", unsafe_allow_html=True)
+    st.markdown("""
+<div style='text-align:center;padding:2.5rem 0 1.5rem;animation:fadeUp .8s ease both'>
+  <div style='font-size:3rem;animation:pulse 3s infinite'>🔬</div>
+  <div style='font-size:2.4rem;font-weight:700;color:#00e5ff;letter-spacing:-.03em;margin:.4rem 0'>Protellect</div>
+  <div style='font-size:.75rem;color:#3a6080;letter-spacing:.1em;text-transform:uppercase'>Biology Intelligence Platform</div>
+  <div style='width:40px;height:2px;background:#00e5ff;margin:.8rem auto;animation:pulse 2s infinite'></div>
+</div>""", unsafe_allow_html=True)
+    mode = st.radio("", ["Sign In", "Create Account"], horizontal=True, label_visibility="collapsed")
+    if mode == "Sign In":
+        email = st.text_input("Email", placeholder="you@lab.com", key="login_email")
+        password = st.text_input("Password", type="password", key="login_pw")
+        if st.button("Sign In ->", key="signin_btn"):
+            ok, msg = login(email.strip(), password)
+            if ok: st.success("Welcome back!"); st.rerun()
+            else: st.error(msg)
+        st.markdown("<div style='color:#3a6080;font-size:.75rem;text-align:center;margin-top:.5rem'>Demo: demo@protellect.com / protellect2024</div>", unsafe_allow_html=True)
+    else:
+        name  = st.text_input("Full name", placeholder="Dr. Jane Smith", key="reg_name")
+        email = st.text_input("Email", placeholder="you@lab.com", key="reg_email")
+        pw    = st.text_input("Password (8+ chars)", type="password", key="reg_pw")
+        if st.button("Create Account ->", key="register_btn"):
+            ok, msg = register(email.strip(), pw, name.strip())
+            if ok: st.success("Account created!"); st.rerun()
+            else: st.error(msg)
+
 # ============ MAIN APP ============
 
 
