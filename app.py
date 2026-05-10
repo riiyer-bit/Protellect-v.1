@@ -95,7 +95,7 @@ ESEARCH="https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
 ESUMMARY="https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
 EFETCH="https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 
-@st.cache_data(ttl=3600,show_spinner=False)
+@st.cache_data(ttl=3600,show_spinner=False,max_entries=50)
 def api_uniprot(gene):
     try:
         r=requests.get("https://rest.uniprot.org/uniprotkb/search",params={"query":f"gene:{gene} AND organism_id:9606 AND reviewed:true","format":"json","size":1},timeout=12)
@@ -116,7 +116,7 @@ def api_uniprot(gene):
         return{"uid":uid,"name":name,"gene":gene_sym,"function":func,"diseases":diseases[:6],"tissues":tissues[:3],"ptms":ptms[:3],"keywords":keywords,"length":p.get("sequence",{}).get("length",0),"human":p.get("organism",{}).get("taxonId",0)==9606}
     except: return {}
 
-@st.cache_data(ttl=3600,show_spinner=False)
+@st.cache_data(ttl=3600,show_spinner=False,max_entries=50)
 def api_clinvar(gene):
     try:
         r=requests.get(ESEARCH,params={"db":"clinvar","term":f"{gene}[gene] AND (pathogenic[clinsig] OR likely_pathogenic[clinsig])","retmax":50,"retmode":"json"},timeout=12)
@@ -135,7 +135,7 @@ def api_clinvar(gene):
         return sorted(variants,key=lambda x:-x["score"])
     except: return []
 
-@st.cache_data(ttl=3600,show_spinner=False)
+@st.cache_data(ttl=3600,show_spinner=False,max_entries=50)
 def api_gnomad(gene):
     try:
         q='{ gene(gene_symbol: "%s", reference_genome: GRCh38) { gnomad_constraint { pli oe_lof oe_mis } } }' % gene
@@ -144,7 +144,7 @@ def api_gnomad(gene):
         return{"pLI":round(c.get("pli",0),3),"oe_lof":round(c.get("oe_lof",1),3),"oe_mis":round(c.get("oe_mis",1),3)}
     except: return {}
 
-@st.cache_data(ttl=3600,show_spinner=False)
+@st.cache_data(ttl=3600,show_spinner=False,max_entries=50)
 def api_string(gene):
     try:
         r=requests.get("https://string-db.org/api/json/network",params={"identifiers":gene,"species":9606,"required_score":700,"limit":10},timeout=12)
@@ -157,7 +157,7 @@ def api_string(gene):
         return partners[:8]
     except: return []
 
-@st.cache_data(ttl=3600,show_spinner=False)
+@st.cache_data(ttl=3600,show_spinner=False,max_entries=50)
 def api_opentargets(gene):
     try:
         r0=requests.get(f"https://mygene.info/v3/query?q={gene}&species=human&fields=ensembl.gene",timeout=8)
@@ -176,7 +176,7 @@ def api_opentargets(gene):
         return{"drugs":drugs,"tractability":tract,"disease_assoc":dis_assoc,"ensembl":eid}
     except: return {}
 
-@st.cache_data(ttl=3600,show_spinner=False)
+@st.cache_data(ttl=3600,show_spinner=False,max_entries=50)
 def api_clinicaltrials(gene):
     try:
         r=requests.get("https://clinicaltrials.gov/api/v2/studies",params={"query.term":gene,"filter.status":"RECRUITING","pageSize":8,"format":"json"},timeout=12)
@@ -188,7 +188,7 @@ def api_clinicaltrials(gene):
         return studies
     except: return []
 
-@st.cache_data(ttl=3600,show_spinner=False)
+@st.cache_data(ttl=3600,show_spinner=False,max_entries=50)
 def api_pubmed(query,n=10):
     try:
         r=requests.get(ESEARCH,params={"db":"pubmed","term":query,"retmax":n,"retmode":"json","sort":"relevance"},timeout=12)
@@ -204,7 +204,7 @@ def api_pubmed(query,n=10):
         return papers
     except: return []
 
-@st.cache_data(ttl=3600,show_spinner=False)
+@st.cache_data(ttl=3600,show_spinner=False,max_entries=50)
 def api_alphafold(uid):
     try:
         r=requests.get(f"https://alphafold.ebi.ac.uk/api/prediction/{uid}",timeout=10)
@@ -213,7 +213,8 @@ def api_alphafold(uid):
         return{"af_url":f"https://alphafold.ebi.ac.uk/entry/{uid}","pdb_url":d[0].get("pdbUrl",""),"am_url":d[0].get("amAnnotationsUrl","")}
     except: return {}
 
-@st.cache_data(ttl=3600,show_spinner=False)
+# AlphaMissense cached separately with lower entry count
+@st.cache_data(ttl=7200,show_spinner=False,max_entries=10)
 def api_alphamissense(uid):
     try:
         af=api_alphafold(uid)
@@ -239,7 +240,7 @@ def api_alphamissense(uid):
         return{"pathogenic_count":path,"benign_count":benign,"ambiguous_count":amb,"mean_score":mean,"pos_max_scores":pos_max,"total":len(scores)}
     except: return {}
 
-@st.cache_data(ttl=3600,show_spinner=False)
+@st.cache_data(ttl=3600,show_spinner=False,max_entries=50)
 def api_pubchem(compound):
     try:
         r=requests.get(f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/{requests.utils.quote(compound)}/property/MolecularFormula,MolecularWeight,CanonicalSMILES,XLogP/JSON",timeout=10)
@@ -479,7 +480,7 @@ def render_gene_analysis(gene,domain_key):
         pdata=api_uniprot(gene); cv=api_clinvar(gene); partners=api_string(gene)
         ot=api_opentargets(gene); gnomad=api_gnomad(gene); trials=api_clinicaltrials(gene)
         af=api_alphafold(pdata.get("uid","")) if pdata.get("uid") else {}
-        am=api_alphamissense(pdata.get("uid","")) if pdata.get("uid") else {}
+        am={}  # loaded on demand in AlphaMissense tab
     decrement_search()
     is_arrb=gene in ("ARRB1","ARRB2","BARR1","BARR2")
     gi=gi_score(cv,pdata.get("length",500) if pdata else 500)
@@ -536,6 +537,13 @@ def render_gene_analysis(gene,domain_key):
 
     with t_am:
         sh("","AlphaMissense (DeepMind) -- Per-Residue Pathogenicity",color)
+        uid_for_am = pdata.get("uid","")
+        if uid_for_am and st.button("Load AlphaMissense Data", key=f"load_am_{gene}", type="primary"):
+            with st.spinner("Fetching AlphaMissense scores (DeepMind)..."):
+                am = api_alphamissense(uid_for_am)
+            st.rerun()
+        elif not uid_for_am:
+            st.info("No UniProt accession -- AlphaMissense not available.")
         if am and am.get("pos_max_scores"):
             cc=st.columns(4)
             with cc[0]: st.metric("AM Pathogenic (>=0.564)",am.get("pathogenic_count",0))
