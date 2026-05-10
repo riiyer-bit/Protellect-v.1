@@ -3,3 +3,7 @@ requests
 pandas
 numpy
 plotly
+anthropic
+rdkit-pypi
+Pillow
+openpyxl
