@@ -12,7 +12,13 @@ ANTHROPIC_CLIENT = None
 def _get_client():
     global ANTHROPIC_CLIENT
     if ANTHROPIC_CLIENT is None:
-        ANTHROPIC_CLIENT = anthropic.Anthropic()
+        import os, streamlit as st
+        key = None
+        try: key = st.secrets.get("ANTHROPIC_API_KEY") or st.secrets.get("anthropic_api_key")
+        except: pass
+        if not key: key = os.environ.get("ANTHROPIC_API_KEY","")
+        if not key: raise ValueError("Set ANTHROPIC_API_KEY in Streamlit secrets (Settings → Secrets).")
+        ANTHROPIC_CLIENT = anthropic.Anthropic(api_key=key)
     return ANTHROPIC_CLIENT
 
 # ─── Microbiome-specific databases ─────────────────────────────────────────────

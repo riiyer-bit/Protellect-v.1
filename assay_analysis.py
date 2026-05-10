@@ -10,7 +10,12 @@ import io, re, json
 import anthropic
 
 def _client():
-    return anthropic.Anthropic()
+    import os, streamlit as st
+    key = None
+    try: key = st.secrets.get("ANTHROPIC_API_KEY") or st.secrets.get("anthropic_api_key")
+    except: pass
+    if not key: key = os.environ.get("ANTHROPIC_API_KEY","")
+    return anthropic.Anthropic(api_key=key) if key else None
 
 def detect_assay_type(df: pd.DataFrame, filename: str = "") -> str:
     """Auto-detect the type of assay data from column names and filename."""
@@ -189,6 +194,7 @@ Note any statistical issues without being asked."""
 
     try:
         client = _client()
+        if not client: return "AI analysis unavailable — add ANTHROPIC_API_KEY to Streamlit Secrets."
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=1500,
